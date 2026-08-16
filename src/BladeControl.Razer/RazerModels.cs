@@ -48,6 +48,8 @@ public readonly struct RazerCpuPerformanceLevel
         _value = value;
     }
 
+    internal byte Value => _value;
+
     public override string ToString()
     {
         return _value switch
@@ -70,6 +72,8 @@ public readonly struct RazerGpuPerformanceLevel
     {
         _value = value;
     }
+
+    internal byte Value => _value;
 
     public override string ToString()
     {

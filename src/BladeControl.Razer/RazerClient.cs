@@ -55,13 +55,66 @@ public sealed class RazerClient
 
     public RazerStatusSnapshot GetStatus()
     {
+        return ReadCompleteStatus(requireZoneAgreement: true);
+    }
+
+    public RazerModeWriteBackResult RunCustomAutoModeWriteBackTest()
+    {
+        RazerStatusSnapshot preWriteState =
+            ReadCompleteStatus(requireZoneAgreement: false);
+        ValidateWriteBackPreconditions(preWriteState);
+
+        var writeExchanges = new List<RazerExchangeTrace>(capacity: 2);
+        RazerExchangeTrace zone1Write;
+        try
+        {
+            zone1Write = WriteBackCustomAutoMode(RazerZone.Zone1);
+            writeExchanges.Add(zone1Write);
+        }
+        catch (RazerProtocolException exception)
+        {
+            throw CreateWriteBackValidationException(
+                "Zone 1",
+                preWriteState,
+                writeExchanges,
+                exception);
+        }
+
+        RazerExchangeTrace zone2Write;
+        try
+        {
+            zone2Write = WriteBackCustomAutoMode(RazerZone.Zone2);
+            writeExchanges.Add(zone2Write);
+        }
+        catch (RazerProtocolException exception)
+        {
+            throw CreateWriteBackValidationException(
+                "Zone 2",
+                preWriteState,
+                writeExchanges,
+                exception);
+        }
+
+        RazerStatusSnapshot postWriteState =
+            ReadCompleteStatus(requireZoneAgreement: false);
+        return new RazerModeWriteBackResult(
+            preWriteState,
+            zone1Write,
+            zone2Write,
+            postWriteState);
+    }
+
+    private RazerStatusSnapshot ReadCompleteStatus(bool requireZoneAgreement)
+    {
         RazerFanReading fan1 = GetFanRpm(RazerZone.Zone1);
         RazerFanReading fan2 = GetFanRpm(RazerZone.Zone2);
         RazerModeReading zone1Mode = GetPerformanceAndFanMode(RazerZone.Zone1);
         RazerModeReading zone2Mode = GetPerformanceAndFanMode(RazerZone.Zone2);
 
-        if (zone1Mode.PerformanceMode != zone2Mode.PerformanceMode ||
+        if (requireZoneAgreement &&
+            (zone1Mode.PerformanceMode != zone2Mode.PerformanceMode ||
             zone1Mode.FanMode != zone2Mode.FanMode)
+           )
         {
             throw new RazerProtocolException(
                 "Performance or fan mode differs between returned zones; no single firmware state can be reported.",
@@ -83,6 +136,91 @@ public sealed class RazerClient
             new RazerGpuPerformanceLevel(gpuLevel),
             cpuExchange,
             gpuExchange);
+    }
+
+    private RazerExchangeTrace WriteBackCustomAutoMode(RazerZone zone)
+    {
+        byte transactionId = _transactionIds.NextTransactionId();
+        RazerPacket request = RazerCommands.CreateCustomAutoModeWriteBack(
+            transactionId,
+            zone);
+        (RazerPacket response, RazerExchangeTrace exchange) = ExchangeAndValidate(
+            request,
+            expectedSelector: (byte)zone,
+            selectorName: "zone",
+            minimumResponseDataSize: 4);
+
+        ReadOnlySpan<byte> expectedArguments = request.Arguments[..4];
+        ReadOnlySpan<byte> actualArguments = response.Arguments[..4];
+        if (!actualArguments.SequenceEqual(expectedArguments))
+        {
+            throw ValidationFailure(
+                request,
+                exchange,
+                "response argument echo",
+                FormatHex(expectedArguments),
+                FormatHex(actualArguments));
+        }
+
+        return exchange;
+    }
+
+    private static void ValidateWriteBackPreconditions(
+        RazerStatusSnapshot preWriteState)
+    {
+        RazerModeReading zone1 = preWriteState.Zone1Mode;
+        RazerModeReading zone2 = preWriteState.Zone2Mode;
+
+        if (zone1.PerformanceMode != zone2.PerformanceMode ||
+            zone1.FanMode != zone2.FanMode)
+        {
+            throw new RazerModeWriteBackPreconditionException(
+                "Write-back precondition failed: performance or fan mode disagrees " +
+                "between zones. No 0x0D02 packet was sent.",
+                preWriteState);
+        }
+
+        if (zone1.PerformanceMode.RawValue != 0x04 ||
+            zone2.PerformanceMode.RawValue != 0x04)
+        {
+            throw new RazerModeWriteBackPreconditionException(
+                "Write-back precondition failed: both zones must already report " +
+                "Custom performance mode (0x04). No 0x0D02 packet was sent.",
+                preWriteState);
+        }
+
+        if (zone1.FanMode.RawValue != 0x00 ||
+            zone2.FanMode.RawValue != 0x00)
+        {
+            throw new RazerModeWriteBackPreconditionException(
+                "Write-back precondition failed: both zones must already report " +
+                "Auto fan mode (0x00). No 0x0D02 packet was sent.",
+                preWriteState);
+        }
+    }
+
+    private static RazerModeWriteBackValidationException
+        CreateWriteBackValidationException(
+            string stage,
+            RazerStatusSnapshot preWriteState,
+            IReadOnlyList<RazerExchangeTrace> completedWriteExchanges,
+            RazerProtocolException exception)
+    {
+        RazerExchangeTrace[] writeExchanges =
+        [
+            .. completedWriteExchanges,
+            .. exception.Exchanges
+        ];
+        return new RazerModeWriteBackValidationException(
+            stage,
+            preWriteState,
+            writeExchanges,
+            exception);
+    }
+
+    private static string FormatHex(ReadOnlySpan<byte> values)
+    {
+        return string.Join(' ', values.ToArray().Select(value => value.ToString("X2")));
     }
 
     private (byte Level, RazerExchangeTrace Exchange) GetPerformanceBoostLevel(

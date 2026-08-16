@@ -23,7 +23,8 @@ internal static class Program
 
         string command = args[0];
         if (!command.Equals("probe", StringComparison.OrdinalIgnoreCase) &&
-            !command.Equals("status", StringComparison.OrdinalIgnoreCase))
+            !command.Equals("status", StringComparison.OrdinalIgnoreCase) &&
+            !command.Equals("writeback-mode", StringComparison.OrdinalIgnoreCase))
         {
             Console.Error.WriteLine($"Unknown command: {command}");
             PrintUsage();
@@ -41,9 +42,14 @@ internal static class Program
             return 0;
         }
 
-        return command.Equals("probe", StringComparison.OrdinalIgnoreCase)
-            ? RunProbe(verbose)
-            : RunStatus(verbose);
+        if (command.Equals("probe", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunProbe(verbose);
+        }
+
+        return command.Equals("status", StringComparison.OrdinalIgnoreCase)
+            ? RunStatus(verbose)
+            : RunWriteBackMode(verbose);
     }
 
     private static bool TryParseOptions(
@@ -90,6 +96,7 @@ internal static class Program
         Console.WriteLine("Usage:");
         Console.WriteLine("  BladeControl.Cli probe [--verbose]");
         Console.WriteLine("  BladeControl.Cli status [--verbose]");
+        Console.WriteLine("  BladeControl.Cli writeback-mode [--verbose]");
     }
 
     private static int RunProbe(bool verbose)
@@ -129,7 +136,7 @@ internal static class Program
             Console.Error.WriteLine("No further commands were sent after the validation failure.");
             if (verbose)
             {
-                PrintExchanges(exception.Exchanges, Console.Error);
+                PrintExchanges(exception.Exchanges, Console.Error, "FAILED");
             }
 
             return 1;
@@ -138,6 +145,78 @@ internal static class Program
         {
             Console.WriteLine();
             Console.WriteLine("No settings were modified.");
+        }
+    }
+
+    private static int RunWriteBackMode(bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            RazerModeWriteBackResult result =
+                session.Client.RunCustomAutoModeWriteBackTest();
+            PrintWriteBackResult(result, verbose);
+            return result.Passed ? 0 : 1;
+        }
+        catch (RazerModeWriteBackPreconditionException exception)
+        {
+            Console.WriteLine("Razer Blade 16");
+            Console.WriteLine();
+            Console.WriteLine("Write-back test");
+            PrintWriteBackState("Pre-write state", exception.PreWriteState);
+            Console.Error.WriteLine(exception.Message);
+            Console.Error.WriteLine("ABORT - no 0x0D02 packet was sent.");
+            if (verbose)
+            {
+                PrintSelectedInterface(exception.PreWriteState.Device);
+                PrintExchanges(exception.PreWriteState.Exchanges, Console.Error, "PASS");
+            }
+
+            return 1;
+        }
+        catch (RazerModeWriteBackValidationException exception)
+        {
+            Console.WriteLine("Razer Blade 16");
+            Console.WriteLine();
+            Console.WriteLine("Write-back test");
+            PrintWriteBackState("Pre-write state", exception.PreWriteState);
+            Console.Error.WriteLine(exception.Message);
+            Console.Error.WriteLine(exception.InnerException?.Message);
+            if (verbose)
+            {
+                PrintSelectedInterface(exception.PreWriteState.Device);
+                PrintExchanges(exception.PreWriteState.Exchanges, Console.Error, "PASS");
+                PrintWriteValidationExchanges(exception.WriteExchanges, Console.Error);
+            }
+
+            return 1;
+        }
+        catch (WindowsRazerDeviceSelectionException exception)
+        {
+            PrintSelectionFailure(exception, verbose);
+            return 1;
+        }
+        catch (WindowsRazerTransportException exception)
+        {
+            Console.Error.WriteLine($"Razer HID transport error: {exception.Message}");
+            Console.Error.WriteLine("No retry or rollback was attempted.");
+            if (verbose)
+            {
+                PrintTransportFailureReports(exception);
+            }
+
+            return 1;
+        }
+        catch (RazerProtocolException exception)
+        {
+            Console.Error.WriteLine($"Razer response validation error: {exception.Message}");
+            Console.Error.WriteLine("No further command, retry, or rollback was attempted.");
+            if (verbose)
+            {
+                PrintExchanges(exception.Exchanges, Console.Error, "FAILED");
+            }
+
+            return 1;
         }
     }
 
@@ -159,31 +238,161 @@ internal static class Program
             return;
         }
 
+        PrintSelectedInterface(status.Device);
+        PrintExchanges(status.Exchanges, Console.Out, "PASS");
+    }
+
+    private static void PrintWriteBackResult(
+        RazerModeWriteBackResult result,
+        bool verbose)
+    {
+        Console.WriteLine("Razer Blade 16");
+        Console.WriteLine();
+        Console.WriteLine("Write-back test");
+        PrintWriteBackState("Pre-write state", result.PreWriteState);
+        Console.WriteLine();
+        Console.WriteLine("Writing existing mode back to firmware...");
+        Console.WriteLine("  Zone 1       OK");
+        Console.WriteLine("  Zone 2       OK");
+        PrintWriteBackState("Post-write state", result.PostWriteState);
+        Console.WriteLine();
+        Console.WriteLine("Result");
+
+        if (result.Passed)
+        {
+            Console.WriteLine(
+                "  PASS - firmware accepted 0x0D02 and state remained unchanged.");
+        }
+        else
+        {
+            Console.WriteLine("  *** STATE DRIFT DETECTED ***");
+            PrintStateDrift(result);
+            Console.WriteLine("  No automatic rollback was attempted.");
+        }
+
+        if (verbose)
+        {
+            PrintSelectedInterface(result.PreWriteState.Device);
+            PrintExchanges(result.Exchanges, Console.Out, "PASS");
+        }
+    }
+
+    private static void PrintWriteBackState(
+        string heading,
+        RazerStatusSnapshot state)
+    {
+        Console.WriteLine();
+        Console.WriteLine(heading);
+        Console.WriteLine($"  Performance  {FormatZoneValues(
+            state.Zone1Mode.PerformanceMode,
+            state.Zone2Mode.PerformanceMode)}");
+        Console.WriteLine($"  CPU level    {state.CpuPerformanceLevel}");
+        Console.WriteLine($"  GPU level    {state.GpuPerformanceLevel}");
+        Console.WriteLine($"  Fan mode     {FormatZoneValues(
+            state.Zone1Mode.FanMode,
+            state.Zone2Mode.FanMode)}");
+    }
+
+    private static void PrintStateDrift(RazerModeWriteBackResult result)
+    {
+        if (!result.PerformanceUnchanged)
+        {
+            Console.WriteLine(
+                $"  Performance changed: " +
+                $"{FormatZoneValues(
+                    result.PreWriteState.Zone1Mode.PerformanceMode,
+                    result.PreWriteState.Zone2Mode.PerformanceMode)} -> " +
+                $"{FormatZoneValues(
+                    result.PostWriteState.Zone1Mode.PerformanceMode,
+                    result.PostWriteState.Zone2Mode.PerformanceMode)}");
+        }
+
+        if (!result.FanModeUnchanged)
+        {
+            Console.WriteLine(
+                $"  Fan mode changed: " +
+                $"{FormatZoneValues(
+                    result.PreWriteState.Zone1Mode.FanMode,
+                    result.PreWriteState.Zone2Mode.FanMode)} -> " +
+                $"{FormatZoneValues(
+                    result.PostWriteState.Zone1Mode.FanMode,
+                    result.PostWriteState.Zone2Mode.FanMode)}");
+        }
+
+        if (!result.CpuPerformanceLevelUnchanged)
+        {
+            Console.WriteLine(
+                $"  CPU level changed: {result.PreWriteState.CpuPerformanceLevel} -> " +
+                result.PostWriteState.CpuPerformanceLevel);
+        }
+
+        if (!result.GpuPerformanceLevelUnchanged)
+        {
+            Console.WriteLine(
+                $"  GPU level changed: {result.PreWriteState.GpuPerformanceLevel} -> " +
+                result.PostWriteState.GpuPerformanceLevel);
+        }
+    }
+
+    private static string FormatZoneValues<T>(T zone1, T zone2)
+        where T : struct
+    {
+        return EqualityComparer<T>.Default.Equals(zone1, zone2)
+            ? zone1.ToString() ?? Unavailable
+            : $"Zone 1 {zone1}; Zone 2 {zone2}";
+    }
+
+    private static void PrintSelectedInterface(RazerDeviceInfo device)
+    {
         Console.WriteLine();
         Console.WriteLine("Selected HID interface");
-        Console.WriteLine($"  Device path          {status.Device.DevicePath}");
-        Console.WriteLine($"  UsagePage / Usage    0x{status.Device.UsagePage:X4} / 0x{status.Device.Usage:X4}");
-        Console.WriteLine($"  Feature report bytes {status.Device.FeatureReportByteLength}");
-        PrintExchanges(status.Exchanges, Console.Out);
+        Console.WriteLine($"  Device path          {device.DevicePath}");
+        Console.WriteLine($"  UsagePage / Usage    0x{device.UsagePage:X4} / 0x{device.Usage:X4}");
+        Console.WriteLine($"  Feature report bytes {device.FeatureReportByteLength}");
     }
 
     private static void PrintExchanges(
+        IReadOnlyList<RazerExchangeTrace> exchanges,
+        TextWriter writer,
+        string validationResult)
+    {
+        for (int index = 0; index < exchanges.Count; index++)
+        {
+            PrintExchange(exchanges[index], index + 1, writer, validationResult);
+        }
+    }
+
+    private static void PrintWriteValidationExchanges(
         IReadOnlyList<RazerExchangeTrace> exchanges,
         TextWriter writer)
     {
         for (int index = 0; index < exchanges.Count; index++)
         {
-            RazerExchangeTrace exchange = exchanges[index];
-            writer.WriteLine();
-            writer.WriteLine($"Protocol exchange #{index + 1}");
-            writer.WriteLine($"  Transaction ID            0x{exchange.TransactionId:X2}");
-            writer.WriteLine($"  Command ID                0x{exchange.CombinedCommand:X4}");
-            writer.WriteLine($"  HID report ID             0x{exchange.RequestReport.Span[0]:X2}");
-            writer.WriteLine(
-                $"  Request packet (90 bytes)  {FormatHex(exchange.RequestPacket.Span)}");
-            writer.WriteLine(
-                $"  Response packet (90 bytes) {FormatHex(exchange.ResponsePacket.Span)}");
+            string validationResult = index == exchanges.Count - 1
+                ? "FAILED"
+                : "PASS";
+            PrintExchange(exchanges[index], index + 1, writer, validationResult);
         }
+    }
+
+    private static void PrintExchange(
+        RazerExchangeTrace exchange,
+        int index,
+        TextWriter writer,
+        string validationResult)
+    {
+        writer.WriteLine();
+        writer.WriteLine($"Protocol exchange #{index}");
+        writer.WriteLine($"  Transaction ID            0x{exchange.TransactionId:X2}");
+        writer.WriteLine($"  Command ID                0x{exchange.CombinedCommand:X4}");
+        writer.WriteLine($"  HID report ID             0x{exchange.RequestReport.Span[0]:X2}");
+        writer.WriteLine($"  Request CRC               0x{exchange.RequestPacket.Span[88]:X2}");
+        writer.WriteLine($"  Response CRC              0x{exchange.ResponsePacket.Span[88]:X2}");
+        writer.WriteLine($"  Validation result         {validationResult}");
+        writer.WriteLine(
+            $"  Request packet (90 bytes)  {FormatHex(exchange.RequestPacket.Span)}");
+        writer.WriteLine(
+            $"  Response packet (90 bytes) {FormatHex(exchange.ResponsePacket.Span)}");
     }
 
     private static void PrintTransportFailureReports(

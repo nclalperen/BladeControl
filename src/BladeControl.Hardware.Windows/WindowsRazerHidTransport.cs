@@ -123,7 +123,7 @@ internal sealed class WindowsRazerHidTransport : IRazerTransport
             {
                 int error = Marshal.GetLastWin32Error();
                 throw WindowsRazerTransportException.FromNativeError(
-                    "HidD_SetFeature for a whitelisted GET request",
+                    "HidD_SetFeature for a whitelisted Razer request",
                     error,
                     requestReport);
             }
@@ -137,7 +137,7 @@ internal sealed class WindowsRazerHidTransport : IRazerTransport
             {
                 int error = Marshal.GetLastWin32Error();
                 throw WindowsRazerTransportException.FromNativeError(
-                    "HidD_GetFeature for a whitelisted GET request",
+                    "HidD_GetFeature for a whitelisted Razer request",
                     error,
                     requestReport);
             }

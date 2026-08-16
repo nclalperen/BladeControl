@@ -3,6 +3,7 @@ namespace BladeControl.Razer.Protocol;
 internal static class RazerCommands
 {
     internal const byte SystemCommandClass = 0x0D;
+    internal const byte WriteBackPerformanceAndFanModeCommandId = 0x02;
     internal const byte GetFanRpmCommandId = 0x81;
     internal const byte GetPerformanceAndFanModeCommandId = 0x82;
     internal const byte GetPerformanceBoostLevelCommandId = 0x87;
@@ -41,6 +42,18 @@ internal static class RazerCommands
             arguments);
     }
 
+    internal static RazerPacket CreateCustomAutoModeWriteBack(
+        byte transactionId,
+        RazerZone zone)
+    {
+        byte zoneValue = ValidateZone(zone);
+        byte[] arguments = [0x01, zoneValue, 0x04, 0x00];
+        return CreateRequest(
+            transactionId,
+            WriteBackPerformanceAndFanModeCommandId,
+            arguments);
+    }
+
     internal static void EnsureAllowed(RazerPacket packet)
     {
         ArgumentNullException.ThrowIfNull(packet);
@@ -56,6 +69,9 @@ internal static class RazerCommands
 
         bool isAllowed = fixedFieldsAreValid && packet.CommandId switch
         {
+            WriteBackPerformanceAndFanModeCommandId =>
+                packet.DataSize == 4 &&
+                HasExactCustomAutoWriteBackArguments(packet),
             GetFanRpmCommandId =>
                 packet.DataSize == 3 &&
                 HasAllowedZoneArguments(packet, expectedDataSize: 3),
@@ -71,7 +87,7 @@ internal static class RazerCommands
         if (!isAllowed)
         {
             throw new InvalidOperationException(
-                $"Razer command 0x{packet.CombinedCommand:X4} is not on the Milestone 2 GET whitelist.");
+                $"Razer command 0x{packet.CombinedCommand:X4} is not on the strict BladeControl whitelist.");
         }
     }
 
@@ -128,6 +144,19 @@ internal static class RazerCommands
             arguments[2] == 0x00;
 
         return allowedPrefix && IsAllZero(arguments[3..]);
+    }
+
+    private static bool HasExactCustomAutoWriteBackArguments(RazerPacket packet)
+    {
+        ReadOnlySpan<byte> arguments = packet.Arguments;
+        bool allowedPrefix =
+            arguments[0] == 0x01 &&
+            (arguments[1] == (byte)RazerZone.Zone1 ||
+             arguments[1] == (byte)RazerZone.Zone2) &&
+            arguments[2] == 0x04 &&
+            arguments[3] == 0x00;
+
+        return allowedPrefix && IsAllZero(arguments[4..]);
     }
 
     private static bool IsAllZero(ReadOnlySpan<byte> values)

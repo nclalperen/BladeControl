@@ -12,6 +12,8 @@ public sealed class RazerChecksumGoldenVectorTests
     [DataRow((byte)0x82, (byte)0x02, (byte)0x04, (byte)0x89)]
     [DataRow((byte)0x87, (byte)0x01, (byte)0x05, (byte)0x88)]
     [DataRow((byte)0x87, (byte)0x02, (byte)0x06, (byte)0x8B)]
+    [DataRow((byte)0x02, (byte)0x01, (byte)0x07, (byte)0x0F)]
+    [DataRow((byte)0x02, (byte)0x02, (byte)0x08, (byte)0x0C)]
     public void OutgoingRequestsMatchKnownChecksums(
         byte commandId,
         byte selector,
@@ -20,6 +22,10 @@ public sealed class RazerChecksumGoldenVectorTests
     {
         RazerPacket request = commandId switch
         {
+            RazerCommands.WriteBackPerformanceAndFanModeCommandId =>
+                RazerCommands.CreateCustomAutoModeWriteBack(
+                    transactionId,
+                    (RazerZone)selector),
             RazerCommands.GetFanRpmCommandId =>
                 RazerCommands.CreateGetFanRpm(transactionId, (RazerZone)selector),
             RazerCommands.GetPerformanceAndFanModeCommandId =>
@@ -49,6 +55,19 @@ public sealed class RazerChecksumGoldenVectorTests
 
         Assert.AreNotEqual(transactionOne[1], transactionFe[1]);
         Assert.AreEqual(0x8E, transactionOne[88]);
+        Assert.AreEqual(transactionOne[88], transactionFe[88]);
+    }
+
+    [TestMethod]
+    public void WriteBackChecksumDoesNotIncludeTransactionId()
+    {
+        byte[] transactionOne = RazerPacketCodec.Encode(
+            RazerCommands.CreateCustomAutoModeWriteBack(0x01, RazerZone.Zone1));
+        byte[] transactionFe = RazerPacketCodec.Encode(
+            RazerCommands.CreateCustomAutoModeWriteBack(0xFE, RazerZone.Zone1));
+
+        Assert.AreNotEqual(transactionOne[1], transactionFe[1]);
+        Assert.AreEqual(0x0F, transactionOne[88]);
         Assert.AreEqual(transactionOne[88], transactionFe[88]);
     }
 

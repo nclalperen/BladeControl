@@ -43,6 +43,8 @@ internal sealed class ScriptedRazerTransport : IRazerTransport
 
     internal bool CorruptResponseChecksum { get; init; }
 
+    internal int? CorruptResponseChecksumOnCall { get; init; }
+
     public RazerTransportResponse Exchange(RazerTransportRequest request)
     {
         byte[] report = request.FeatureReport.ToArray();
@@ -52,7 +54,7 @@ internal sealed class ScriptedRazerTransport : IRazerTransport
             CreateSuccessfulResponse(requestPacket);
 
         byte[] responseReport = RazerPacketCodec.EncodeHidFeatureReport(response);
-        if (CorruptResponseChecksum)
+        if (CorruptResponseChecksum || CorruptResponseChecksumOnCall == CallCount)
         {
             responseReport[89] = 0x00;
         }
@@ -78,7 +80,7 @@ internal sealed class ScriptedRazerTransport : IRazerTransport
             arguments[2] = 0x00;
             arguments[3] = 0x00;
         }
-        else
+        else if (request.CommandId == RazerCommands.GetPerformanceBoostLevelCommandId)
         {
             arguments[2] = arguments[1] == (byte)RazerPerformanceCluster.Cpu
                 ? (byte)0x03
