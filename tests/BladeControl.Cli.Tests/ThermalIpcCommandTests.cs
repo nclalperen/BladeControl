@@ -5,6 +5,9 @@ namespace BladeControl.Cli.Tests;
 [TestClass]
 public sealed class ThermalIpcCommandTests
 {
+    private static readonly Guid SessionId =
+        Guid.Parse("11111111-1111-1111-1111-111111111111");
+
     [TestMethod]
     public async Task ThermalRunUsesOnlyTypedStartAndStopIpcRequests()
     {
@@ -15,7 +18,13 @@ public sealed class ThermalIpcCommandTests
                 true,
                 true,
                 "safe shutdown complete",
-                Status("Stopped"))),
+                Status("Stopped", totalEventCount: 1))),
+            RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
+                Status("Stopped", totalEventCount: 1),
+                [Event("SessionStopped", 1)],
+                1,
+                1,
+                false)),
             _ => throw new AssertFailedException($"Unexpected operation {operation}.")
         });
         using var cancellation = new CancellationTokenSource();
@@ -35,7 +44,8 @@ public sealed class ThermalIpcCommandTests
             new[]
             {
                 RuntimeIpcOperation.StartThermalControl,
-                RuntimeIpcOperation.StopThermalControl
+                RuntimeIpcOperation.StopThermalControl,
+                RuntimeIpcOperation.GetRuntimeEvents
             },
             ipc.Operations);
         Assert.AreEqual(1,
@@ -108,7 +118,7 @@ public sealed class ThermalIpcCommandTests
         {
             RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
             RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
-                Status("Stopped"),
+                Status("Stopped", totalEventCount: 1),
                 [protocol],
                 1,
                 1,
@@ -138,16 +148,140 @@ public sealed class ThermalIpcCommandTests
             ipc.Operations);
     }
 
-    private static RuntimeStatusDto Status(string state) => new(
+    [TestMethod]
+    public async Task FinalSessionStoppedEventIsRenderedBeforeSuccessfulReturnSummary()
+    {
+        RuntimeEventDto firstSample = Event("TelemetrySample", 1) with
+        {
+            AcquisitionDurationMilliseconds = 12.5
+        };
+        RuntimeEventDto secondSample = Event("TelemetrySample", 2) with
+        {
+            Timestamp = firstSample.Timestamp.AddMilliseconds(500),
+            AcquisitionDurationMilliseconds = 11.0
+        };
+        var scheduler = new SchedulerMetrics(
+            TimeSpan.FromMilliseconds(500),
+            2,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(20),
+            TimeSpan.Zero,
+            1,
+            TimeSpan.FromMilliseconds(8),
+            0);
+        var ipc = new FakeIpcClient((operation, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.StopThermalControl => Success(new StopThermalControlResultDto(
+                true,
+                true,
+                "safe shutdown complete",
+                Status("Stopped", totalEventCount: 3, scheduler: scheduler))),
+            RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
+                Status("Stopped", totalEventCount: 3, scheduler: scheduler),
+                [firstSample, secondSample, Event("SessionStopped", 3)],
+                1,
+                3,
+                false)),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = await Program.RunThermalIpcClientAsync(
+            verbose: true,
+            ipc,
+            cancellation.Token,
+            output,
+            error);
+
+        string rendered = output.ToString();
+        Assert.AreEqual(0, exitCode, error.ToString());
+        int stopRequested = rendered.IndexOf(
+            "Runtime Core stop requested",
+            StringComparison.Ordinal);
+        int stoppedEvent = rendered.IndexOf("SessionStopped #3", StringComparison.Ordinal);
+        int stopMessage = rendered.IndexOf("safe shutdown complete", StringComparison.Ordinal);
+        Assert.IsTrue(stopRequested >= 0, rendered);
+        Assert.IsTrue(stoppedEvent > stopRequested, rendered);
+        Assert.IsTrue(stoppedEvent >= 0, rendered);
+        Assert.IsTrue(stopMessage > stoppedEvent, rendered);
+        StringAssert.Contains(rendered, "Average actual start-to-start    500.0 ms");
+        StringAssert.Contains(rendered, "Safe Auto handoff                Completed");
+        StringAssert.Contains(rendered, "Original performance restoration Completed");
+        StringAssert.Contains(rendered, "no current hardware read was made");
+    }
+
+    [TestMethod]
+    public void StoppedRuntimeStatusLabelsDiagnosticValuesAsHistorical()
+    {
+        var scheduler = new SchedulerMetrics(
+            TimeSpan.FromMilliseconds(500),
+            122,
+            TimeSpan.FromMilliseconds(501),
+            TimeSpan.FromMilliseconds(80),
+            TimeSpan.FromMilliseconds(2),
+            7,
+            TimeSpan.FromMilliseconds(44),
+            0);
+        var watchdog = new RuntimeRazerModeStateDto(
+            "Balanced",
+            "Manual",
+            "Balanced",
+            "Manual",
+            true,
+            true,
+            false,
+            false);
+        RuntimeStatusDto status = Status(
+            "Stopped",
+            totalEventCount: 482,
+            scheduler: scheduler,
+            telemetryHealth: new TelemetryHealthDto("Stale", "sample is historical", false),
+            watchdog: watchdog);
+        using var output = new StringWriter();
+
+        Program.PrintRuntimeStatus(status, verbose: true, output);
+
+        string rendered = output.ToString();
+        StringAssert.Contains(
+            rendered,
+            "Last session telemetry (historical; not a current hardware read)");
+        StringAssert.Contains(
+            rendered,
+            "Last watchdog observation (historical; not current firmware state)");
+        StringAssert.Contains(rendered, "Last session scheduler statistics");
+        StringAssert.Contains(rendered, "Balanced + Manual");
+        Assert.IsFalse(rendered.Contains(
+            "Current watchdog observation",
+            StringComparison.Ordinal));
+    }
+
+    private static RuntimeEventDto Event(string kind, long sequence) => new(
+        kind,
+        sequence,
+        new DateTimeOffset(2026, 8, 17, 0, 0, 0, TimeSpan.Zero)
+            .AddMilliseconds(sequence),
+        $"{kind} event",
+        SessionId: kind is "SessionStarted" or "SessionStopped" ? SessionId : null);
+
+    private static RuntimeStatusDto Status(
+        string state,
+        long totalEventCount = 0,
+        SchedulerMetrics? scheduler = null,
+        TelemetryHealthDto? telemetryHealth = null,
+        RuntimeRazerModeStateDto? watchdog = null) => new(
         state,
+        SessionId,
         null,
         null,
         null,
         null,
         null,
-        null,
-        null,
-        new SchedulerMetrics(
+        telemetryHealth,
+        scheduler ?? new SchedulerMetrics(
             TimeSpan.FromMilliseconds(500),
             0,
             TimeSpan.Zero,
@@ -156,12 +290,12 @@ public sealed class ThermalIpcCommandTests
             0,
             TimeSpan.Zero,
             0),
-        "Healthy",
-        null,
+        scheduler?.OverrunCount > 0 ? "Degraded" : "Healthy",
+        watchdog,
         null,
         null,
         TimeSpan.Zero,
-        0,
+        totalEventCount,
         0,
         0,
         []);

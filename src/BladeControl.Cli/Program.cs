@@ -156,6 +156,12 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli runtime status [--verbose]");
         Console.WriteLine("  BladeControl.Cli runtime doctor [--verbose]");
         Console.WriteLine("  BladeControl.Cli service console [--verbose]");
+        Console.WriteLine();
+        Console.WriteLine(
+            "  --verbose adds diagnostic rendering for thermal run, runtime status/doctor, " +
+            "and service console.");
+        Console.WriteLine(
+            "  thermal run is IPC-only and requires an already-running Runtime Core host.");
     }
 
     private static int RunProbe(bool verbose)

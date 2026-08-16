@@ -52,9 +52,19 @@ The client sends one typed `StartThermalControl` request, then follows cursor-ba
 batches from the runtime's bounded event log. Verbose rendering includes structured
 telemetry, decisions, watchdog checks, ownership/emergency events, and complete protocol
 exchange reports. Ctrl+C sends exactly one typed `StopThermalControl` request and waits
-for the runtime's safe Auto handoff and performance restoration. Stopping a thermal
-session does not stop the service host; Ctrl+C in the service-console terminal remains
-the separate host-shutdown action.
+for the runtime's safe Auto handoff and performance restoration. After that response,
+the client drains bounded 16-event batches for up to five seconds, stopping only when
+the target `SessionStopped` event (or stopped Runtime state) is observed and the cursor
+has caught the retained log. It never sends a second stop request. Retention gaps,
+cursor resets, session transitions, timeouts, and disconnects are reported explicitly;
+the client does not accumulate an unbounded event history.
+
+The completion summary uses only the already-returned Runtime status and streamed IPC
+events. When Runtime state is `Stopped`, telemetry health, watchdog mode, and scheduler
+statistics are labeled as last-session history rather than current hardware state. No
+extra hardware read is performed for presentation. Stopping a thermal session does not
+stop the service host; Ctrl+C in the service-console terminal remains the separate
+host-shutdown action.
 
 ## Windows Service (manual, later operation only)
 
