@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BladeControl.Hardware.Windows\BladeControl.Hardware.Windows.csproj" />
+    <ProjectReference Include="..\BladeControl.Razer\BladeControl.Razer.csproj" />
+  </ItemGroup>
+
+</Project>

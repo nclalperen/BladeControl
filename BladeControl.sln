@@ -1,0 +1,39 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Hardware.Windows", "src\BladeControl.Hardware.Windows\BladeControl.Hardware.Windows.csproj", "{60DECAAD-B1AB-4A0F-95DC-1C8D7426C594}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Cli", "src\BladeControl.Cli\BladeControl.Cli.csproj", "{BBC674A3-45CE-449B-888D-83402124C695}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Razer", "src\BladeControl.Razer\BladeControl.Razer.csproj", "{8D8E47C5-E42B-4E95-94B8-77AB7A31964F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Razer.Tests", "tests\BladeControl.Razer.Tests\BladeControl.Razer.Tests.csproj", "{0A01E61B-B0E0-4453-BE7C-70CE5618F116}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{60DECAAD-B1AB-4A0F-95DC-1C8D7426C594}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{60DECAAD-B1AB-4A0F-95DC-1C8D7426C594}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{60DECAAD-B1AB-4A0F-95DC-1C8D7426C594}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{60DECAAD-B1AB-4A0F-95DC-1C8D7426C594}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BBC674A3-45CE-449B-888D-83402124C695}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BBC674A3-45CE-449B-888D-83402124C695}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BBC674A3-45CE-449B-888D-83402124C695}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BBC674A3-45CE-449B-888D-83402124C695}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8D8E47C5-E42B-4E95-94B8-77AB7A31964F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8D8E47C5-E42B-4E95-94B8-77AB7A31964F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8D8E47C5-E42B-4E95-94B8-77AB7A31964F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8D8E47C5-E42B-4E95-94B8-77AB7A31964F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
