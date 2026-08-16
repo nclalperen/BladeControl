@@ -59,7 +59,10 @@ internal static partial class Program
                 return 1;
             }
 
-            Console.WriteLine(args[0].Equals("status", StringComparison.OrdinalIgnoreCase)
+            bool statusCommand = args[0].Equals(
+                "status",
+                StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine(statusCommand
                 ? "BladeControl runtime status"
                 : "BladeControl runtime doctor");
             if (verbose)
@@ -69,10 +72,18 @@ internal static partial class Program
                     "verbose rendering does not alter runtime behavior.");
             }
 
-            Console.WriteLine(JsonSerializer.Serialize(response.Data, new JsonSerializerOptions
+            if (statusCommand)
             {
-                WriteIndented = true
-            }));
+                PrintRuntimeStatus(ReadRuntimeData<RuntimeStatusDto>(response), verbose, Console.Out);
+            }
+            else
+            {
+                Console.WriteLine(JsonSerializer.Serialize(response.Data, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
+            }
+
             return 0;
         }
         catch (Exception exception) when (exception is IOException or TimeoutException)
@@ -81,6 +92,113 @@ internal static partial class Program
                 $"BladeControl runtime service is unavailable: {exception.Message}");
             return 1;
         }
+        catch (Exception exception) when (exception is JsonException or FormatException)
+        {
+            Console.Error.WriteLine(
+                $"BladeControl Runtime returned an invalid response: {exception.Message}");
+            return 1;
+        }
+    }
+
+    internal static void PrintRuntimeStatus(
+        RuntimeStatusDto status,
+        bool verbose,
+        TextWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        ArgumentNullException.ThrowIfNull(output);
+        bool stopped = status.State.Equals(nameof(RuntimeState.Stopped), StringComparison.Ordinal);
+        string sessionPrefix = stopped ? "Last session" : "Current session";
+
+        output.WriteLine();
+        output.WriteLine("Runtime state");
+        output.WriteLine($"  State                  {status.State}");
+        output.WriteLine($"  Session ID             {status.SessionId?.ToString() ?? "<none>"}");
+        output.WriteLine($"  Profile                {status.CurrentProfile ?? "<none>"}");
+
+        output.WriteLine();
+        output.WriteLine(stopped
+            ? "Last session telemetry (historical; not a current hardware read)"
+            : "Current session telemetry");
+        output.WriteLine(
+            $"  Health                 " +
+            $"{status.TelemetryHealth?.Kind ?? "<unavailable>"}");
+        if (verbose && !string.IsNullOrWhiteSpace(status.TelemetryHealth?.Reason))
+        {
+            output.WriteLine($"  Health reason          {status.TelemetryHealth.Reason}");
+        }
+
+        output.WriteLine(
+            $"  Last acquisition       " +
+            $"{status.LastTelemetryAcquisitionDuration.TotalMilliseconds:F1} ms");
+        if (status.LatestAuthoritativeTelemetry is not null)
+        {
+            output.WriteLine(
+                $"  Sample timestamp       {status.LatestAuthoritativeTelemetry.Timestamp:O}");
+        }
+
+        output.WriteLine();
+        output.WriteLine(stopped
+            ? "Last watchdog observation (historical; not current firmware state)"
+            : "Current watchdog observation");
+        if (status.LastRazerWatchdogState is null)
+        {
+            output.WriteLine("  Observation            <unavailable>");
+        }
+        else
+        {
+            output.WriteLine(
+                $"  Zone 1                 " +
+                $"{status.LastRazerWatchdogState.Zone1PerformanceMode} + " +
+                $"{status.LastRazerWatchdogState.Zone1FanMode}");
+            output.WriteLine(
+                $"  Zone 2                 " +
+                $"{status.LastRazerWatchdogState.Zone2PerformanceMode} + " +
+                $"{status.LastRazerWatchdogState.Zone2FanMode}");
+        }
+
+        output.WriteLine();
+        output.WriteLine($"{sessionPrefix} scheduler statistics");
+        output.WriteLine($"  Health                 {status.SchedulerHealth}");
+        output.WriteLine($"  Completed cycles       {status.Scheduler.CompletedCycles}");
+        output.WriteLine(
+            $"  Latest start-to-start  " +
+            $"{status.Scheduler.ActualStartToStart.TotalMilliseconds:F1} ms");
+        output.WriteLine($"  Overruns               {status.Scheduler.OverrunCount}");
+        output.WriteLine(
+            $"  Maximum overrun        " +
+            $"{status.Scheduler.MaximumOverrun.TotalMilliseconds:F1} ms");
+        output.WriteLine($"  Skipped deadlines      {status.Scheduler.SkippedDeadlines}");
+
+        if (!verbose)
+        {
+            return;
+        }
+
+        output.WriteLine();
+        output.WriteLine(stopped ? "Last session diagnostics" : "Current session diagnostics");
+        output.WriteLine($"  Total events           {status.TotalEventCount}");
+        output.WriteLine(
+            $"  Retained decisions     {status.RetainedThermalDecisionCount}");
+        output.WriteLine($"  Retained trace entries {status.RetainedThermalTraceCount}");
+        output.WriteLine($"  Last failure           {status.LastFailureReason ?? "<none>"}");
+        output.WriteLine($"  Emergency status       {status.EmergencyStatus ?? "<none>"}");
+    }
+
+    private static T ReadRuntimeData<T>(RuntimeIpcResponse response)
+    {
+        if (response.Data is T typed)
+        {
+            return typed;
+        }
+
+        if (response.Data is JsonElement element)
+        {
+            return element.Deserialize<T>() ??
+                throw new FormatException($"Runtime IPC data for {typeof(T).Name} was empty.");
+        }
+
+        throw new FormatException($"Runtime IPC data was not a {typeof(T).Name} value.");
     }
 
     private static int RunServiceCommand(string[] args)

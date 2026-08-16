@@ -5,6 +5,9 @@ namespace BladeControl.Runtime.Tests;
 [TestClass]
 public sealed class RuntimeThermalClientTests
 {
+    private static readonly Guid SessionId =
+        Guid.Parse("11111111-1111-1111-1111-111111111111");
+
     [TestMethod]
     public async Task CancellationSendsExactlyOneTypedStopAndHasNoDirectOwner()
     {
@@ -15,7 +18,13 @@ public sealed class RuntimeThermalClientTests
                 true,
                 true,
                 "safe shutdown complete",
-                Status("Stopped"))),
+                Status("Stopped", totalEventCount: 1))),
+            RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
+                Status("Stopped", totalEventCount: 1),
+                [Event("SessionStopped", 1)],
+                1,
+                1,
+                false)),
             _ => throw new AssertFailedException($"Unexpected operation {operation}.")
         });
         using var cancellation = new CancellationTokenSource();
@@ -30,7 +39,8 @@ public sealed class RuntimeThermalClientTests
             new[]
             {
                 RuntimeIpcOperation.StartThermalControl,
-                RuntimeIpcOperation.StopThermalControl
+                RuntimeIpcOperation.StopThermalControl,
+                RuntimeIpcOperation.GetRuntimeEvents
             },
             ipc.Operations);
         Assert.IsTrue(result.Succeeded);
@@ -86,7 +96,7 @@ public sealed class RuntimeThermalClientTests
         {
             RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
             RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
-                Status("Faulted", "ownership lost"),
+                Status("Faulted", "ownership lost", totalEventCount: 1),
                 [Event("OwnershipLost", 1)],
                 1,
                 1,
@@ -150,6 +160,298 @@ public sealed class RuntimeThermalClientTests
     }
 
     [TestMethod]
+    public async Task CancellationDrainsAllFinalBatchesThroughTargetSessionStopped()
+    {
+        var received = new List<long>();
+        var requestedCursors = new List<long>();
+        var ipc = new ScriptedIpcClient((operation, payload, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.StopThermalControl => Success(new StopThermalControlResultDto(
+                true,
+                true,
+                "safe shutdown complete",
+                Status("Stopped", totalEventCount: 4))),
+            RuntimeIpcOperation.GetRuntimeEvents => FinalBatch(payload),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            eventReceived: item => received.Add(item.Sequence),
+            cancellationToken: cancellation.Token);
+
+        Assert.IsTrue(result.Succeeded, result.Message);
+        CollectionAssert.AreEqual(new long[] { 1, 2, 3, 4 }, received);
+        CollectionAssert.AreEqual(new long[] { 0, 2 }, requestedCursors);
+        Assert.AreEqual("SessionStopped", Event("SessionStopped", received[^1]).Kind);
+        Assert.AreEqual(1,
+            ipc.Operations.Count(item => item == RuntimeIpcOperation.StopThermalControl));
+
+        RuntimeIpcResponse FinalBatch(object? payload)
+        {
+            var request = (GetRuntimeEventsRequest)payload!;
+            requestedCursors.Add(request.AfterSequence);
+            return request.AfterSequence == 0
+                ? Success(new RuntimeEventBatchDto(
+                    Status("Stopped", totalEventCount: 4),
+                    [Event("ProtocolExchange", 1), Event("ProtocolExchange", 2)],
+                    1,
+                    4,
+                    false))
+                : Success(new RuntimeEventBatchDto(
+                    Status("Stopped", totalEventCount: 4),
+                    [Event("ProtocolExchange", 3), Event("SessionStopped", 4)],
+                    1,
+                    4,
+                    false));
+        }
+    }
+
+    [TestMethod]
+    public async Task FinalDrainTimeoutIsBoundedAndDoesNotSendSecondStop()
+    {
+        var ipc = new ScriptedIpcClient((operation, _, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.StopThermalControl => Success(new StopThermalControlResultDto(
+                true,
+                true,
+                "safe shutdown complete",
+                Status("Stopped"))),
+            RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
+                Status("Running"),
+                [],
+                0,
+                0,
+                false)),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var client = new RuntimeThermalClient(
+            ipc,
+            TimeSpan.Zero,
+            TimeSpan.FromMilliseconds(40));
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            cancellationToken: cancellation.Token);
+
+        Assert.AreEqual(RuntimeThermalClientOutcome.CommunicationFailed, result.Outcome);
+        StringAssert.Contains(result.Message, "timed out");
+        StringAssert.Contains(result.Message, "No second stop request");
+        Assert.AreEqual(1,
+            ipc.Operations.Count(item => item == RuntimeIpcOperation.StopThermalControl));
+        Assert.IsTrue(ipc.Operations.Count < 20, "The bounded drain should not busy-loop.");
+    }
+
+    [TestMethod]
+    public async Task FaultObservedDuringCancellationDoesNotSendStop()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var ipc = new ScriptedIpcClient((operation, _, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.GetRuntimeEvents => FaultBatch(),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            cancellationToken: cancellation.Token);
+
+        Assert.AreEqual(RuntimeThermalClientOutcome.RuntimeFaulted, result.Outcome);
+        Assert.IsFalse(ipc.Operations.Contains(RuntimeIpcOperation.StopThermalControl));
+
+        RuntimeIpcResponse FaultBatch()
+        {
+            cancellation.Cancel();
+            return Success(new RuntimeEventBatchDto(
+                Status("Faulted", "emergency handoff", totalEventCount: 1),
+                [Event("EmergencyHandoff", 1)],
+                1,
+                1,
+                false));
+        }
+    }
+
+    [TestMethod]
+    public async Task EventCursorDoesNotRenderDuplicateEvents()
+    {
+        var received = new List<long>();
+        var ipc = new ScriptedIpcClient((operation, payload, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.GetRuntimeEvents => BatchForCursor(payload),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            eventReceived: item => received.Add(item.Sequence));
+
+        Assert.IsTrue(result.Succeeded, result.Message);
+        CollectionAssert.AreEqual(new long[] { 1, 2, 3 }, received);
+
+        static RuntimeIpcResponse BatchForCursor(object? payload)
+        {
+            var request = (GetRuntimeEventsRequest)payload!;
+            return request.AfterSequence == 0
+                ? Success(new RuntimeEventBatchDto(
+                    Status("Running", totalEventCount: 2),
+                    [Event("TelemetrySample", 1), Event("ThermalDecision", 2)],
+                    1,
+                    2,
+                    false))
+                : Success(new RuntimeEventBatchDto(
+                    Status("Stopped", totalEventCount: 3),
+                    [Event("ThermalDecision", 2), Event("SessionStopped", 3)],
+                    1,
+                    3,
+                    false));
+        }
+    }
+
+    [TestMethod]
+    public async Task TruncatedHistoryIsReportedAndDrainContinuesFromOldestRetainedEvent()
+    {
+        RuntimeEventBatchDto? observedBatch = null;
+        long? requestedCursor = null;
+        var ipc = new ScriptedIpcClient((operation, payload, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl =>
+                Success(Status("Running", totalEventCount: 5)),
+            RuntimeIpcOperation.StopThermalControl => Success(new StopThermalControlResultDto(
+                true,
+                true,
+                "safe shutdown complete",
+                Status("Stopped", totalEventCount: 12))),
+            RuntimeIpcOperation.GetRuntimeEvents => GapBatch(payload),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            batchReceived: batch => observedBatch = batch,
+            cancellationToken: cancellation.Token);
+
+        Assert.IsTrue(result.Succeeded, result.Message);
+        Assert.AreEqual(4, requestedCursor);
+        Assert.IsNotNull(observedBatch);
+        Assert.IsTrue(observedBatch.GapDetected);
+        Assert.AreEqual(10, observedBatch.OldestAvailableSequence);
+
+        RuntimeIpcResponse GapBatch(object? payload)
+        {
+            requestedCursor = ((GetRuntimeEventsRequest)payload!).AfterSequence;
+            return Success(new RuntimeEventBatchDto(
+                Status("Stopped", totalEventCount: 12),
+                [
+                    Event("ProtocolExchange", 10),
+                    Event("ProtocolExchange", 11),
+                    Event("SessionStopped", 12)
+                ],
+                10,
+                12,
+                true));
+        }
+    }
+
+    [TestMethod]
+    public async Task DisconnectDuringFinalDrainFailsCleanlyWithoutDirectRecovery()
+    {
+        var ipc = new ScriptedIpcClient((operation, _, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.StopThermalControl => Success(new StopThermalControlResultDto(
+                true,
+                true,
+                "safe shutdown complete",
+                Status("Stopped", totalEventCount: 1))),
+            RuntimeIpcOperation.GetRuntimeEvents => throw new IOException("pipe disconnected"),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            cancellationToken: cancellation.Token);
+
+        Assert.AreEqual(RuntimeThermalClientOutcome.CommunicationFailed, result.Outcome);
+        StringAssert.Contains(result.Message, "final event draining failed");
+        StringAssert.Contains(result.Message, "pipe disconnected");
+        Assert.IsNotNull(result.StopResult);
+        Assert.IsTrue(result.StopResult.Succeeded);
+        Assert.AreEqual(1,
+            ipc.Operations.Count(item => item == RuntimeIpcOperation.StopThermalControl));
+        AssertNoDirectHardwareDependencies(client);
+    }
+
+    [TestMethod]
+    public async Task CursorMovingBackwardsFailsExplicitlyWithoutStopOrRetry()
+    {
+        var ipc = new ScriptedIpcClient((operation, _, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl =>
+                Success(Status("Running", totalEventCount: 5)),
+            RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
+                Status("Running", totalEventCount: 2),
+                [Event("TelemetrySample", 2)],
+                1,
+                2,
+                false)),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync("default");
+
+        Assert.AreEqual(RuntimeThermalClientOutcome.CommunicationFailed, result.Outcome);
+        StringAssert.Contains(result.Message, "cursor metadata moved backwards");
+        StringAssert.Contains(result.Message, "runtime may have restarted");
+        Assert.IsFalse(ipc.Operations.Contains(RuntimeIpcOperation.StopThermalControl));
+    }
+
+    [TestMethod]
+    public async Task DifferentSessionTransitionIsRejectedWithoutRenderingForeignEvent()
+    {
+        Guid differentSession = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var received = new List<long>();
+        var ipc = new ScriptedIpcClient((operation, _, _) => operation switch
+        {
+            RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
+            RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
+                Status("Running", totalEventCount: 1),
+                [Event("SessionStarted", 1) with { SessionId = differentSession }],
+                1,
+                1,
+                false)),
+            _ => throw new AssertFailedException($"Unexpected operation {operation}.")
+        });
+        var client = new RuntimeThermalClient(ipc, TimeSpan.Zero);
+
+        RuntimeThermalClientResult result = await client.RunAsync(
+            "default",
+            eventReceived: item => received.Add(item.Sequence));
+
+        Assert.AreEqual(RuntimeThermalClientOutcome.CommunicationFailed, result.Outcome);
+        StringAssert.Contains(result.Message, "different thermal session");
+        Assert.AreEqual(0, received.Count);
+        Assert.IsFalse(ipc.Operations.Contains(RuntimeIpcOperation.StopThermalControl));
+    }
+
+    [TestMethod]
     public void IpcThermalClientHoldsNoHardwareOrOwnershipObjects()
     {
         var client = new RuntimeThermalClient(
@@ -168,7 +470,7 @@ public sealed class RuntimeThermalClientTests
         {
             RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
             RuntimeIpcOperation.GetRuntimeEvents => Success(new RuntimeEventBatchDto(
-                Status("Stopped"),
+                Status("Stopped", totalEventCount: events[^1].Sequence),
                 events,
                 events[0].Sequence,
                 events[^1].Sequence,
@@ -187,11 +489,15 @@ public sealed class RuntimeThermalClientTests
         sequence,
         new DateTimeOffset(2026, 8, 17, 0, 0, 0, TimeSpan.Zero)
             .AddMilliseconds(sequence),
-        $"{kind} event");
+        $"{kind} event",
+        SessionId: kind is "SessionStarted" or "SessionStopped" ? SessionId : null);
 
-    private static RuntimeStatusDto Status(string state, string? failure = null) => new(
+    private static RuntimeStatusDto Status(
+        string state,
+        string? failure = null,
+        long totalEventCount = 0) => new(
         state,
-        state == "Running" ? Guid.Parse("11111111-1111-1111-1111-111111111111") : null,
+        SessionId,
         null,
         state == "Running" ? "Thermal/default" : null,
         null,
@@ -212,7 +518,7 @@ public sealed class RuntimeThermalClientTests
         failure,
         null,
         TimeSpan.Zero,
-        0,
+        totalEventCount,
         0,
         0,
         []);

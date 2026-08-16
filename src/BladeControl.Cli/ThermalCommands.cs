@@ -419,23 +419,41 @@ internal static partial class Program
         try
         {
             var client = new RuntimeThermalClient(ipc);
+            var summary = new RuntimeSessionSummary();
             RuntimeThermalClientResult result = await client.RunAsync(
                 "default",
-                started: _ => output.WriteLine(
-                    "Runtime Core V1 thermal control is active through IPC. " +
-                    "Ctrl+C requests the runtime's safe Auto handoff and performance restoration."),
-                eventReceived: verbose ? item => PrintRuntimeEvent(item, output) : null,
-                batchReceived: verbose
-                    ? batch =>
+                started: status =>
+                {
+                    summary.Start(status);
+                    output.WriteLine(
+                        "Runtime Core V1 thermal control is active through IPC. " +
+                        "Ctrl+C requests the runtime's safe Auto handoff and " +
+                        "performance restoration.");
+                },
+                eventReceived: item =>
+                {
+                    summary.Observe(item);
+                    if (verbose)
                     {
-                        if (batch.GapDetected)
-                        {
-                            output.WriteLine(
-                                $"Runtime event retention gap: oldest available sequence is " +
-                                $"#{batch.OldestAvailableSequence}.");
-                        }
+                        PrintRuntimeEvent(item, output);
                     }
-            : null,
+                },
+                batchReceived: batch =>
+                {
+                    summary.Observe(batch);
+                    if (verbose && batch.GapDetected)
+                    {
+                        output.WriteLine(
+                            $"Runtime event retention gap: oldest available sequence is " +
+                            $"#{batch.OldestAvailableSequence}; earlier events are no " +
+                            "longer retained.");
+                    }
+                },
+                stopping: verbose
+                    ? () => output.WriteLine(
+                        "Runtime Core stop requested; draining the actual Auto handoff, " +
+                        "verification, performance restoration, and SessionStopped events.")
+                    : null,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (result.Outcome == RuntimeThermalClientOutcome.RuntimeUnavailable)
@@ -452,11 +470,7 @@ internal static partial class Program
 
             if (result.FinalStatus is not null)
             {
-                RuntimeStatusDto status = result.FinalStatus;
-                output.WriteLine(
-                    $"Runtime state: {status.State}; scheduler: " +
-                    $"{status.Scheduler.CompletedCycles} cycles; " +
-                    $"overruns {status.Scheduler.OverrunCount}.");
+                PrintThermalCompletionSummary(result, summary, output);
             }
 
             return result.Succeeded ? 0 : 1;
@@ -512,6 +526,99 @@ internal static partial class Program
             {
                 output.WriteLine($"  response {item.Exchange.ResponseReportHex}");
             }
+        }
+    }
+
+    private static void PrintThermalCompletionSummary(
+        RuntimeThermalClientResult result,
+        RuntimeSessionSummary summary,
+        TextWriter output)
+    {
+        RuntimeStatusDto status = result.FinalStatus!;
+        bool stopped = status.State.Equals(nameof(RuntimeState.Stopped), StringComparison.Ordinal);
+        string shutdownState = result.StopResult is null
+            ? "Not reported (this client did not request stop)"
+            : result.StopResult.Succeeded
+                ? "Completed"
+                : "Not confirmed by Runtime Core";
+
+        output.WriteLine();
+        output.WriteLine("Thermal session completion summary");
+        output.WriteLine($"  Final Runtime state              {status.State}");
+        output.WriteLine(
+            $"  Session ID                       " +
+            $"{status.SessionId?.ToString() ?? summary.SessionId?.ToString() ?? "<unavailable>"}");
+        output.WriteLine($"  Completed cycles                 {status.Scheduler.CompletedCycles}");
+        output.WriteLine(
+            $"  Average actual start-to-start    {summary.FormatAverageStartToStart()}");
+        output.WriteLine(
+            $"  Last telemetry acquisition       " +
+            $"{status.LastTelemetryAcquisitionDuration.TotalMilliseconds:F1} ms");
+        output.WriteLine($"  Overrun count                    {status.Scheduler.OverrunCount}");
+        output.WriteLine(
+            $"  Maximum overrun                  " +
+            $"{status.Scheduler.MaximumOverrun.TotalMilliseconds:F1} ms");
+        output.WriteLine($"  Skipped deadlines                {status.Scheduler.SkippedDeadlines}");
+        output.WriteLine($"  Safe Auto handoff                {shutdownState}");
+        output.WriteLine($"  Original performance restoration {shutdownState}");
+        if (stopped)
+        {
+            output.WriteLine(
+                "  Historical-data note             Telemetry, watchdog, and scheduler " +
+                "fields above describe the finished session; no current hardware read was made.");
+        }
+    }
+
+    private sealed class RuntimeSessionSummary
+    {
+        private DateTimeOffset? _previousTelemetryTimestamp;
+        private double _totalStartToStartMilliseconds;
+        private long _startToStartIntervalCount;
+        private bool _retentionGap;
+
+        internal Guid? SessionId { get; private set; }
+
+        internal void Start(RuntimeStatusDto status) => SessionId = status.SessionId;
+
+        internal void Observe(RuntimeEventBatchDto batch)
+        {
+            _retentionGap |= batch.GapDetected;
+        }
+
+        internal void Observe(RuntimeEventDto item)
+        {
+            if (!item.Kind.Equals(nameof(RuntimeEventKind.TelemetrySample),
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (_previousTelemetryTimestamp.HasValue)
+            {
+                double interval =
+                    (item.Timestamp - _previousTelemetryTimestamp.Value).TotalMilliseconds;
+                if (interval >= 0)
+                {
+                    _totalStartToStartMilliseconds += interval;
+                    _startToStartIntervalCount++;
+                }
+            }
+
+            _previousTelemetryTimestamp = item.Timestamp;
+        }
+
+        internal string FormatAverageStartToStart()
+        {
+            if (_startToStartIntervalCount == 0)
+            {
+                return _retentionGap
+                    ? "<unavailable: retained event history was truncated>"
+                    : "<unavailable: fewer than two cycle samples>";
+            }
+
+            string qualifier = _retentionGap ? " (partial after retention gap)" : string.Empty;
+            return $"{_totalStartToStartMilliseconds / _startToStartIntervalCount:F1} ms" +
+                qualifier;
         }
     }
 
