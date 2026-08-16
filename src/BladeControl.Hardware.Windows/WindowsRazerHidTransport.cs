@@ -101,7 +101,7 @@ internal sealed class WindowsRazerHidTransport : IRazerTransport
             requestReport[0] != 0x00)
         {
             throw WindowsRazerTransportException.FromValidationFailure(
-                "Whitelisted GET request",
+                "Whitelisted Razer request",
                 $"Expected a {ProtocolFeatureReportLength}-byte feature report " +
                 "with report ID 0x00. No feature report was sent.",
                 requestReport);

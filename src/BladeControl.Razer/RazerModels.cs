@@ -12,34 +12,88 @@ internal enum RazerPerformanceCluster : byte
     Gpu = 0x02
 }
 
-public readonly record struct RazerPerformanceMode(byte RawValue)
+public readonly struct RazerPerformanceMode : IEquatable<RazerPerformanceMode>
 {
+    private readonly byte _value;
+
+    internal RazerPerformanceMode(byte value)
+    {
+        _value = value;
+    }
+
+    public static RazerPerformanceMode Balanced => new(0x00);
+
+    public static RazerPerformanceMode Custom => new(0x04);
+
+    public static RazerPerformanceMode Silent => new(0x05);
+
+    internal byte Value => _value;
+
     public override string ToString()
     {
-        return RawValue switch
+        return _value switch
         {
             0x00 => "Balanced",
             0x04 => "Custom",
             0x05 => "Silent",
-            _ => $"Unknown(0x{RawValue:X2})"
+            _ => $"Unknown(0x{_value:X2})"
         };
     }
+
+    public bool Equals(RazerPerformanceMode other) => _value == other._value;
+
+    public override bool Equals(object? obj) =>
+        obj is RazerPerformanceMode other && Equals(other);
+
+    public override int GetHashCode() => _value.GetHashCode();
+
+    public static bool operator ==(RazerPerformanceMode left, RazerPerformanceMode right) =>
+        left.Equals(right);
+
+    public static bool operator !=(RazerPerformanceMode left, RazerPerformanceMode right) =>
+        !left.Equals(right);
 }
 
-public readonly record struct RazerFanMode(byte RawValue)
+public readonly struct RazerFanMode : IEquatable<RazerFanMode>
 {
+    private readonly byte _value;
+
+    internal RazerFanMode(byte value)
+    {
+        _value = value;
+    }
+
+    public static RazerFanMode Auto => new(0x00);
+
+    public static RazerFanMode Manual => new(0x01);
+
+    internal byte Value => _value;
+
     public override string ToString()
     {
-        return RawValue switch
+        return _value switch
         {
             0x00 => "Auto",
             0x01 => "Manual",
-            _ => $"Unknown(0x{RawValue:X2})"
+            _ => $"Unknown(0x{_value:X2})"
         };
     }
+
+    public bool Equals(RazerFanMode other) => _value == other._value;
+
+    public override bool Equals(object? obj) =>
+        obj is RazerFanMode other && Equals(other);
+
+    public override int GetHashCode() => _value.GetHashCode();
+
+    public static bool operator ==(RazerFanMode left, RazerFanMode right) =>
+        left.Equals(right);
+
+    public static bool operator !=(RazerFanMode left, RazerFanMode right) =>
+        !left.Equals(right);
 }
 
-public readonly struct RazerCpuPerformanceLevel
+public readonly struct RazerCpuPerformanceLevel : IEquatable<RazerCpuPerformanceLevel>
 {
     private readonly byte _value;
 
@@ -49,6 +103,16 @@ public readonly struct RazerCpuPerformanceLevel
     }
 
     internal byte Value => _value;
+
+    public static RazerCpuPerformanceLevel Low => new(0x00);
+
+    public static RazerCpuPerformanceLevel Medium => new(0x01);
+
+    public static RazerCpuPerformanceLevel High => new(0x02);
+
+    public static RazerCpuPerformanceLevel Boost => new(0x03);
+
+    public static RazerCpuPerformanceLevel Overclock => new(0x04);
 
     public override string ToString()
     {
@@ -62,9 +126,24 @@ public readonly struct RazerCpuPerformanceLevel
             _ => $"Unknown(0x{_value:X2})"
         };
     }
+
+    public bool Equals(RazerCpuPerformanceLevel other) => _value == other._value;
+
+    public override bool Equals(object? obj) =>
+        obj is RazerCpuPerformanceLevel other && Equals(other);
+
+    public override int GetHashCode() => _value.GetHashCode();
+
+    public static bool operator ==(
+        RazerCpuPerformanceLevel left,
+        RazerCpuPerformanceLevel right) => left.Equals(right);
+
+    public static bool operator !=(
+        RazerCpuPerformanceLevel left,
+        RazerCpuPerformanceLevel right) => !left.Equals(right);
 }
 
-public readonly struct RazerGpuPerformanceLevel
+public readonly struct RazerGpuPerformanceLevel : IEquatable<RazerGpuPerformanceLevel>
 {
     private readonly byte _value;
 
@@ -74,6 +153,12 @@ public readonly struct RazerGpuPerformanceLevel
     }
 
     internal byte Value => _value;
+
+    public static RazerGpuPerformanceLevel Low => new(0x00);
+
+    public static RazerGpuPerformanceLevel Medium => new(0x01);
+
+    public static RazerGpuPerformanceLevel High => new(0x02);
 
     public override string ToString()
     {
@@ -85,6 +170,21 @@ public readonly struct RazerGpuPerformanceLevel
             _ => $"Unknown(0x{_value:X2})"
         };
     }
+
+    public bool Equals(RazerGpuPerformanceLevel other) => _value == other._value;
+
+    public override bool Equals(object? obj) =>
+        obj is RazerGpuPerformanceLevel other && Equals(other);
+
+    public override int GetHashCode() => _value.GetHashCode();
+
+    public static bool operator ==(
+        RazerGpuPerformanceLevel left,
+        RazerGpuPerformanceLevel right) => left.Equals(right);
+
+    public static bool operator !=(
+        RazerGpuPerformanceLevel left,
+        RazerGpuPerformanceLevel right) => !left.Equals(right);
 }
 
 public sealed record RazerDeviceInfo(

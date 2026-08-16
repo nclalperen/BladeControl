@@ -2,7 +2,7 @@ using BladeControl.Razer.Protocol;
 
 namespace BladeControl.Razer;
 
-public sealed class RazerClient
+public sealed partial class RazerClient
 {
     private readonly IRazerTransport _transport;
     private readonly ITransactionIdSource _transactionIds;
@@ -188,57 +188,20 @@ public sealed class RazerClient
 
     private RazerExchangeTrace WriteBackCustomAutoMode(RazerZone zone)
     {
-        byte transactionId = _transactionIds.NextTransactionId();
-        RazerPacket request = RazerCommands.CreateCustomAutoModeWriteBack(
-            transactionId,
-            zone);
-        (RazerPacket response, RazerExchangeTrace exchange) = ExchangeAndValidate(
-            request,
-            expectedSelector: (byte)zone,
-            selectorName: "zone",
-            minimumResponseDataSize: 4);
-
-        ReadOnlySpan<byte> expectedArguments = request.Arguments[..4];
-        ReadOnlySpan<byte> actualArguments = response.Arguments[..4];
-        if (!actualArguments.SequenceEqual(expectedArguments))
-        {
-            throw ValidationFailure(
-                request,
-                exchange,
-                "response argument echo",
-                FormatHex(expectedArguments),
-                FormatHex(actualArguments));
-        }
-
-        return exchange;
+        return WritePerformanceMode(zone, RazerPerformanceMode.Custom);
     }
 
     private RazerExchangeTrace WriteBackExpectedPerformanceLevel(
         RazerPerformanceCluster cluster)
     {
-        byte transactionId = _transactionIds.NextTransactionId();
-        RazerPacket request = RazerCommands.CreateExpectedPerformanceLevelWriteBack(
-            transactionId,
-            cluster);
-        (RazerPacket response, RazerExchangeTrace exchange) = ExchangeAndValidate(
-            request,
-            expectedSelector: (byte)cluster,
-            selectorName: "cluster",
-            minimumResponseDataSize: 3);
-
-        ReadOnlySpan<byte> expectedArguments = request.Arguments[..3];
-        ReadOnlySpan<byte> actualArguments = response.Arguments[..3];
-        if (!actualArguments.SequenceEqual(expectedArguments))
+        return cluster switch
         {
-            throw ValidationFailure(
-                request,
-                exchange,
-                "response argument echo",
-                FormatHex(expectedArguments),
-                FormatHex(actualArguments));
-        }
-
-        return exchange;
+            RazerPerformanceCluster.Cpu => WriteCpuPerformanceLevel(
+                RazerCpuPerformanceLevel.Medium),
+            RazerPerformanceCluster.Gpu => WriteGpuPerformanceLevel(
+                RazerGpuPerformanceLevel.Low),
+            _ => throw new ArgumentOutOfRangeException(nameof(cluster), cluster, null)
+        };
     }
 
     private static void ValidateWriteBackPreconditions(
@@ -256,8 +219,8 @@ public sealed class RazerClient
                 preWriteState);
         }
 
-        if (zone1.PerformanceMode.RawValue != 0x04 ||
-            zone2.PerformanceMode.RawValue != 0x04)
+        if (zone1.PerformanceMode.Value != 0x04 ||
+            zone2.PerformanceMode.Value != 0x04)
         {
             throw new RazerModeWriteBackPreconditionException(
                 "Write-back precondition failed: both zones must already report " +
@@ -265,8 +228,8 @@ public sealed class RazerClient
                 preWriteState);
         }
 
-        if (zone1.FanMode.RawValue != 0x00 ||
-            zone2.FanMode.RawValue != 0x00)
+        if (zone1.FanMode.Value != 0x00 ||
+            zone2.FanMode.Value != 0x00)
         {
             throw new RazerModeWriteBackPreconditionException(
                 "Write-back precondition failed: both zones must already report " +
@@ -290,8 +253,8 @@ public sealed class RazerClient
                 preWriteState);
         }
 
-        if (zone1.PerformanceMode.RawValue != 0x04 ||
-            zone2.PerformanceMode.RawValue != 0x04)
+        if (zone1.PerformanceMode.Value != 0x04 ||
+            zone2.PerformanceMode.Value != 0x04)
         {
             throw new RazerPerformanceLevelWriteBackPreconditionException(
                 "Performance-level write-back precondition failed: both zones " +
@@ -300,8 +263,8 @@ public sealed class RazerClient
                 preWriteState);
         }
 
-        if (zone1.FanMode.RawValue != 0x00 ||
-            zone2.FanMode.RawValue != 0x00)
+        if (zone1.FanMode.Value != 0x00 ||
+            zone2.FanMode.Value != 0x00)
         {
             throw new RazerPerformanceLevelWriteBackPreconditionException(
                 "Performance-level write-back precondition failed: both zones " +

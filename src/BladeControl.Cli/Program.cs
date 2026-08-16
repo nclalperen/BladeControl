@@ -22,6 +22,11 @@ internal static class Program
         }
 
         string command = args[0];
+        if (command.Equals("perf", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunPerformanceCommand(args.Skip(1).ToArray());
+        }
+
         if (!command.Equals("probe", StringComparison.OrdinalIgnoreCase) &&
             !command.Equals("status", StringComparison.OrdinalIgnoreCase) &&
             !command.Equals("writeback-mode", StringComparison.OrdinalIgnoreCase) &&
@@ -104,6 +109,11 @@ internal static class Program
         Console.WriteLine("  BladeControl.Cli status [--verbose]");
         Console.WriteLine("  BladeControl.Cli writeback-mode [--verbose]");
         Console.WriteLine("  BladeControl.Cli writeback-levels [--verbose]");
+        Console.WriteLine("  BladeControl.Cli perf status [--verbose]");
+        Console.WriteLine("  BladeControl.Cli perf apply balanced [--verbose]");
+        Console.WriteLine("  BladeControl.Cli perf apply silent [--verbose]");
+        Console.WriteLine("  BladeControl.Cli perf apply custom --cpu low|medium --gpu low [--verbose]");
+        Console.WriteLine("  BladeControl.Cli perf selftest --verbose");
     }
 
     private static int RunProbe(bool verbose)
@@ -298,6 +308,501 @@ internal static class Program
             }
 
             return 1;
+        }
+    }
+
+    private static int RunPerformanceCommand(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Missing perf subcommand.");
+            PrintUsage();
+            return 2;
+        }
+
+        string subcommand = args[0];
+        if (IsHelp(subcommand))
+        {
+            PrintUsage();
+            return 0;
+        }
+
+        if (subcommand.Equals("status", StringComparison.OrdinalIgnoreCase) ||
+            subcommand.Equals("selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryParseOptions(
+                    $"perf {subcommand}",
+                    args.Skip(1),
+                    out bool verbose,
+                    out bool helpRequested))
+            {
+                return 2;
+            }
+
+            if (helpRequested)
+            {
+                PrintUsage();
+                return 0;
+            }
+
+            return subcommand.Equals("status", StringComparison.OrdinalIgnoreCase)
+                ? RunPerformanceStatus(verbose)
+                : RunPerformanceSelfTest(verbose);
+        }
+
+        if (!subcommand.Equals("apply", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"Unknown perf subcommand: {subcommand}");
+            PrintUsage();
+            return 2;
+        }
+
+        if (!TryParsePerformanceProfile(
+                args.Skip(1).ToArray(),
+                out PerformanceProfile? profile,
+                out bool applyVerbose))
+        {
+            return 2;
+        }
+
+        return RunPerformanceApply(profile!, applyVerbose);
+    }
+
+    private static bool TryParsePerformanceProfile(
+        string[] args,
+        out PerformanceProfile? profile,
+        out bool verbose)
+    {
+        profile = null;
+        verbose = false;
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Missing performance profile.");
+            PrintUsage();
+            return false;
+        }
+
+        string profileName = args[0];
+        if (profileName.Equals("balanced", StringComparison.OrdinalIgnoreCase) ||
+            profileName.Equals("silent", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = profileName.Equals("balanced", StringComparison.OrdinalIgnoreCase)
+                ? PerformanceProfile.Balanced
+                : PerformanceProfile.Silent;
+            foreach (string option in args.Skip(1))
+            {
+                if (IsVerbose(option))
+                {
+                    verbose = true;
+                }
+                else
+                {
+                    Console.Error.WriteLine(
+                        $"Unknown perf apply {profileName} option: {option}");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        if (!profileName.Equals("custom", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"Unknown performance profile: {profileName}");
+            return false;
+        }
+
+        string? cpu = null;
+        string? gpu = null;
+        for (int index = 1; index < args.Length; index++)
+        {
+            string option = args[index];
+            if (IsVerbose(option))
+            {
+                verbose = true;
+                continue;
+            }
+
+            if ((option.Equals("--cpu", StringComparison.OrdinalIgnoreCase) ||
+                 option.Equals("--gpu", StringComparison.OrdinalIgnoreCase)) &&
+                index + 1 < args.Length)
+            {
+                string value = args[++index];
+                if (option.Equals("--cpu", StringComparison.OrdinalIgnoreCase))
+                {
+                    cpu = value;
+                }
+                else
+                {
+                    gpu = value;
+                }
+
+                continue;
+            }
+
+            Console.Error.WriteLine($"Unknown or incomplete perf apply custom option: {option}");
+            return false;
+        }
+
+        if (cpu is null || gpu is null)
+        {
+            Console.Error.WriteLine(
+                "Custom requires both --cpu low|medium and --gpu low.");
+            return false;
+        }
+
+        if (!TryParseCpuLevel(cpu, out RazerCpuPerformanceLevel cpuLevel) ||
+            !TryParseGpuLevel(gpu, out RazerGpuPerformanceLevel gpuLevel))
+        {
+            return false;
+        }
+
+        profile = PerformanceProfile.Custom(cpuLevel, gpuLevel);
+        return true;
+    }
+
+    private static bool TryParseCpuLevel(
+        string value,
+        out RazerCpuPerformanceLevel level)
+    {
+        if (value.Equals("low", StringComparison.OrdinalIgnoreCase))
+        {
+            level = RazerCpuPerformanceLevel.Low;
+            return true;
+        }
+
+        if (value.Equals("medium", StringComparison.OrdinalIgnoreCase))
+        {
+            level = RazerCpuPerformanceLevel.Medium;
+            return true;
+        }
+
+        level = default;
+        if (value.Equals("high", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("boost", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("overclock", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine(
+                $"CPU level '{value}' is known by the protocol but is not yet " +
+                "hardware-validated on this device.");
+        }
+        else
+        {
+            Console.Error.WriteLine($"Unknown CPU performance level: {value}");
+        }
+
+        return false;
+    }
+
+    private static bool TryParseGpuLevel(
+        string value,
+        out RazerGpuPerformanceLevel level)
+    {
+        if (value.Equals("low", StringComparison.OrdinalIgnoreCase))
+        {
+            level = RazerGpuPerformanceLevel.Low;
+            return true;
+        }
+
+        level = default;
+        if (value.Equals("medium", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("high", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine(
+                $"GPU level '{value}' is known by the protocol but is not yet " +
+                "hardware-validated on this device.");
+        }
+        else
+        {
+            Console.Error.WriteLine($"Unknown GPU performance level: {value}");
+        }
+
+        return false;
+    }
+
+    private static bool IsVerbose(string option) =>
+        option.Equals("--verbose", StringComparison.OrdinalIgnoreCase) ||
+        option.Equals("-v", StringComparison.OrdinalIgnoreCase);
+
+    private static int RunPerformanceStatus(bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            PerformanceState state = session.Client.GetPerformanceState();
+            PrintPerformanceState("Firmware state", state);
+            if (verbose)
+            {
+                PrintSelectedInterface(state.Device);
+                PrintLabeledExchanges(state.Exchanges, Console.Out, "GET");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("No settings were modified.");
+            return 0;
+        }
+        catch (Exception exception) when (PrintPerformanceException(exception, verbose))
+        {
+            return 1;
+        }
+    }
+
+    private static int RunPerformanceApply(
+        PerformanceProfile profile,
+        bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            PerformanceApplyResult result =
+                session.Client.ApplyPerformanceProfile(profile);
+            PrintPerformanceApplyResult(result, verbose);
+            return result.Succeeded ? 0 : 1;
+        }
+        catch (Exception exception) when (PrintPerformanceException(exception, verbose))
+        {
+            return 1;
+        }
+    }
+
+    private static int RunPerformanceSelfTest(bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            PerformanceSelfTestResult result =
+                session.Client.RunPerformanceSelfTest();
+            PrintPerformanceSelfTestResult(result, verbose);
+            return result.Succeeded ? 0 : 1;
+        }
+        catch (PerformanceSelfTestPreconditionException exception)
+        {
+            Console.Error.WriteLine(exception.Message);
+            PrintPerformanceState("Initial state", exception.InitialState);
+            if (verbose)
+            {
+                PrintLabeledExchanges(
+                    exception.InitialState.Exchanges,
+                    Console.Error,
+                    "GET");
+            }
+
+            return 1;
+        }
+        catch (Exception exception) when (PrintPerformanceException(exception, verbose))
+        {
+            return 1;
+        }
+    }
+
+    private static bool PrintPerformanceException(Exception exception, bool verbose)
+    {
+        switch (exception)
+        {
+            case WindowsRazerDeviceSelectionException selection:
+                PrintSelectionFailure(selection, verbose);
+                break;
+            case WindowsRazerTransportException transport:
+                Console.Error.WriteLine($"Razer HID transport error: {transport.Message}");
+                if (verbose)
+                {
+                    PrintTransportFailureReports(transport);
+                }
+
+                break;
+            case RazerProtocolException protocol:
+                Console.Error.WriteLine($"Razer response validation error: {protocol.Message}");
+                if (verbose)
+                {
+                    PrintExchanges(protocol.Exchanges, Console.Error, "FAILED");
+                }
+
+                break;
+            case PerformanceCapabilityException capability:
+                Console.Error.WriteLine(capability.Message);
+                break;
+            case PerformanceStateException state:
+                Console.Error.WriteLine(state.Message);
+                break;
+            default:
+                return false;
+        }
+
+        Console.Error.WriteLine("No automatic retry was attempted.");
+        return true;
+    }
+
+    private static void PrintPerformanceApplyResult(
+        PerformanceApplyResult result,
+        bool verbose)
+    {
+        Console.WriteLine("Performance apply");
+        PrintPerformanceState("Initial state", result.InitialState);
+        Console.WriteLine();
+        Console.WriteLine($"Requested state\n  {result.RequestedProfile}");
+        Console.WriteLine();
+        Console.WriteLine("Calculated write plan");
+        if (result.Plan.IsNoOp)
+        {
+            Console.WriteLine("  No SET operations required.");
+        }
+        else
+        {
+            foreach (PerformanceApplyOperation operation in result.Plan.Operations)
+            {
+                Console.WriteLine($"  {operation.Description}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Operations");
+        foreach (PerformanceOperationResult operation in result.Operations)
+        {
+            Console.WriteLine(
+                $"  {operation.Operation.Description}: " +
+                (operation.Succeeded ? "PASS" : $"FAILED - {operation.FailureReason}"));
+        }
+
+        if (result.Operations.Count == 0)
+        {
+            Console.WriteLine("  None");
+        }
+
+        if (result.FinalState is not null)
+        {
+            PrintPerformanceState("Final state", result.FinalState);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Verification: {result.Verification.Message}");
+        Console.WriteLine($"Outcome: {result.Outcome}");
+        if (result.Restoration is not null)
+        {
+            Console.WriteLine(result.Restoration.Message);
+            Console.WriteLine("Restoration operations");
+            if (result.Restoration.Operations.Count == 0)
+            {
+                Console.WriteLine("  No SET operations required.");
+            }
+            else
+            {
+                foreach (PerformanceOperationResult operation in
+                    result.Restoration.Operations)
+                {
+                    Console.WriteLine(
+                        $"  {operation.Operation.Description}: " +
+                        (operation.Succeeded
+                            ? "PASS"
+                            : $"FAILED - {operation.FailureReason}"));
+                }
+            }
+
+            if (result.Restoration.FinalState is not null)
+            {
+                PrintPerformanceState(
+                    "Last verified state",
+                    result.Restoration.FinalState);
+            }
+        }
+
+        if (verbose)
+        {
+            PrintSelectedInterface(result.InitialState.Device);
+            PrintLabeledExchanges(result.InitialState.Exchanges, Console.Out, "Initial GET");
+            foreach (PerformanceOperationResult operation in result.Operations)
+            {
+                if (operation.Exchange is not null)
+                {
+                    PrintExchange(
+                        operation.Exchange,
+                        1,
+                        Console.Out,
+                        operation.Succeeded ? "PASS" : "FAILED",
+                        operation.Operation.Description);
+                }
+            }
+
+            if (result.FinalState is not null)
+            {
+                PrintLabeledExchanges(result.FinalState.Exchanges, Console.Out, "Final GET");
+            }
+
+            if (result.Restoration is not null)
+            {
+                foreach (PerformanceOperationResult operation in result.Restoration.Operations)
+                {
+                    if (operation.Exchange is not null)
+                    {
+                        PrintExchange(
+                            operation.Exchange,
+                            1,
+                            Console.Out,
+                            operation.Succeeded ? "PASS" : "FAILED",
+                            $"RESTORE {operation.Operation.Description}");
+                    }
+                }
+
+                if (result.Restoration.FinalState is not null)
+                {
+                    PrintLabeledExchanges(
+                        result.Restoration.FinalState.Exchanges,
+                        Console.Out,
+                        "Restore final GET");
+                }
+            }
+        }
+    }
+
+    private static void PrintPerformanceSelfTestResult(
+        PerformanceSelfTestResult result,
+        bool verbose)
+    {
+        Console.WriteLine("Performance Control V1 selftest");
+        PrintPerformanceState("Stage A - captured initial state", result.InitialState);
+        foreach (PerformanceSelfTestStageResult stage in result.Stages)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Stage {stage.Stage}");
+            PrintPerformanceApplyResult(stage.ApplyResult, verbose);
+            if (!stage.ApplyResult.Succeeded)
+            {
+                break;
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(result.Message);
+    }
+
+    private static void PrintPerformanceState(string heading, PerformanceState state)
+    {
+        Console.WriteLine();
+        Console.WriteLine(heading);
+        Console.WriteLine($"  Fan 1       {state.Fan1.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Fan 2       {state.Fan2.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Performance {FormatZoneValues(
+            state.Zone1Mode.PerformanceMode,
+            state.Zone2Mode.PerformanceMode)}");
+        Console.WriteLine($"  CPU level   {state.CpuPerformanceLevel}");
+        Console.WriteLine($"  GPU level   {state.GpuPerformanceLevel}");
+        Console.WriteLine($"  Fan mode    {FormatZoneValues(
+            state.Zone1Mode.FanMode,
+            state.Zone2Mode.FanMode)}");
+    }
+
+    private static void PrintLabeledExchanges(
+        IReadOnlyList<RazerExchangeTrace> exchanges,
+        TextWriter writer,
+        string prefix)
+    {
+        for (int index = 0; index < exchanges.Count; index++)
+        {
+            PrintExchange(
+                exchanges[index],
+                index + 1,
+                writer,
+                "PASS",
+                $"{prefix} 0x{exchanges[index].CombinedCommand:X4}");
         }
     }
 
@@ -593,6 +1098,10 @@ internal static class Program
         }
         writer.WriteLine($"  Transaction ID            0x{exchange.TransactionId:X2}");
         writer.WriteLine($"  Command ID                0x{exchange.CombinedCommand:X4}");
+        int dataSize = exchange.RequestPacket.Span[5];
+        writer.WriteLine(
+            $"  Arguments                 " +
+            FormatHex(exchange.RequestPacket.Span.Slice(8, dataSize)));
         writer.WriteLine($"  HID report ID             0x{exchange.RequestReport.Span[0]:X2}");
         writer.WriteLine($"  Request CRC               0x{exchange.RequestPacket.Span[88]:X2}");
         writer.WriteLine($"  Response CRC              0x{exchange.ResponsePacket.Span[88]:X2}");

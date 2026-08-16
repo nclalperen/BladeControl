@@ -141,10 +141,8 @@ public sealed class RazerCommandsTests
     [DataTestMethod]
     [DataRow((byte)0x00, (byte)0x01, (byte)0x04, (byte)0x00)]
     [DataRow((byte)0x01, (byte)0x03, (byte)0x04, (byte)0x00)]
-    [DataRow((byte)0x01, (byte)0x01, (byte)0x00, (byte)0x00)]
-    [DataRow((byte)0x01, (byte)0x01, (byte)0x05, (byte)0x00)]
     [DataRow((byte)0x01, (byte)0x01, (byte)0x04, (byte)0x01)]
-    public void EveryNonCustomAutoWriteBackShapeIsRejected(
+    public void EveryNonPolicyModeWriteShapeIsRejected(
         byte selector,
         byte zone,
         byte performanceMode,
@@ -191,7 +189,6 @@ public sealed class RazerCommandsTests
     }
 
     [DataTestMethod]
-    [DataRow((byte)0x00, (byte)0x01, (byte)0x00)]
     [DataRow((byte)0x00, (byte)0x01, (byte)0x02)]
     [DataRow((byte)0x00, (byte)0x01, (byte)0x03)]
     [DataRow((byte)0x00, (byte)0x01, (byte)0x04)]

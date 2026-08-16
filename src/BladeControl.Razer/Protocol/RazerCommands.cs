@@ -47,8 +47,24 @@ internal static class RazerCommands
         byte transactionId,
         RazerZone zone)
     {
+        return CreateSetPerformanceAndFanMode(
+            transactionId,
+            zone,
+            RazerPerformanceMode.Custom,
+            RazerFanMode.Auto);
+    }
+
+    internal static RazerPacket CreateSetPerformanceAndFanMode(
+        byte transactionId,
+        RazerZone zone,
+        RazerPerformanceMode performanceMode,
+        RazerFanMode fanMode)
+    {
         byte zoneValue = ValidateZone(zone);
-        byte[] arguments = [0x01, zoneValue, 0x04, 0x00];
+        ValidateKnownPerformanceMode(performanceMode);
+        ValidateKnownFanMode(fanMode);
+        byte[] arguments =
+            [0x01, zoneValue, performanceMode.Value, fanMode.Value];
         return CreateRequest(
             transactionId,
             WriteBackPerformanceAndFanModeCommandId,
@@ -59,15 +75,41 @@ internal static class RazerCommands
         byte transactionId,
         RazerPerformanceCluster cluster)
     {
-        byte[] arguments = cluster switch
+        return cluster switch
         {
-            RazerPerformanceCluster.Cpu => [0x00, 0x01, 0x01],
-            RazerPerformanceCluster.Gpu => [0x00, 0x02, 0x00],
+            RazerPerformanceCluster.Cpu => CreateSetCpuPerformanceLevel(
+                transactionId,
+                RazerCpuPerformanceLevel.Medium),
+            RazerPerformanceCluster.Gpu => CreateSetGpuPerformanceLevel(
+                transactionId,
+                RazerGpuPerformanceLevel.Low),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(cluster),
                 cluster,
                 "Only the expected CPU and GPU performance levels are supported.")
         };
+    }
+
+    internal static RazerPacket CreateSetCpuPerformanceLevel(
+        byte transactionId,
+        RazerCpuPerformanceLevel level)
+    {
+        ValidateKnownCpuLevel(level);
+        byte[] arguments =
+            [0x00, (byte)RazerPerformanceCluster.Cpu, level.Value];
+        return CreateRequest(
+            transactionId,
+            WriteBackPerformanceLevelCommandId,
+            arguments);
+    }
+
+    internal static RazerPacket CreateSetGpuPerformanceLevel(
+        byte transactionId,
+        RazerGpuPerformanceLevel level)
+    {
+        ValidateKnownGpuLevel(level);
+        byte[] arguments =
+            [0x00, (byte)RazerPerformanceCluster.Gpu, level.Value];
         return CreateRequest(
             transactionId,
             WriteBackPerformanceLevelCommandId,
@@ -91,10 +133,10 @@ internal static class RazerCommands
         {
             WriteBackPerformanceAndFanModeCommandId =>
                 packet.DataSize == 4 &&
-                HasExactCustomAutoWriteBackArguments(packet),
+                HasPolicyAllowedModeWriteArguments(packet),
             WriteBackPerformanceLevelCommandId =>
                 packet.DataSize == 3 &&
-                HasExactExpectedPerformanceLevelWriteBackArguments(packet),
+                HasPolicyAllowedLevelWriteArguments(packet),
             GetFanRpmCommandId =>
                 packet.DataSize == 3 &&
                 HasAllowedZoneArguments(packet, expectedDataSize: 3),
@@ -111,6 +153,41 @@ internal static class RazerCommands
         {
             throw new InvalidOperationException(
                 $"Razer command 0x{packet.CombinedCommand:X4} is not on the strict BladeControl whitelist.");
+        }
+    }
+
+    internal static void EnsureProtocolShape(RazerPacket packet)
+    {
+        ArgumentNullException.ThrowIfNull(packet);
+
+        bool fixedFieldsAreValid =
+            packet.Status == 0x00 &&
+            packet.TransactionId != 0x00 &&
+            packet.RemainingPackets == 0 &&
+            packet.ProtocolType == 0x00 &&
+            packet.CommandClass == SystemCommandClass &&
+            packet.Crc == 0x00 &&
+            packet.Reserved == 0x00;
+
+        bool isKnownShape = fixedFieldsAreValid && packet.CommandId switch
+        {
+            WriteBackPerformanceAndFanModeCommandId =>
+                packet.DataSize == 4 && HasKnownModeWriteArguments(packet),
+            WriteBackPerformanceLevelCommandId =>
+                packet.DataSize == 3 && HasKnownLevelWriteArguments(packet),
+            GetFanRpmCommandId =>
+                packet.DataSize == 3 && HasAllowedZoneArguments(packet, 3),
+            GetPerformanceAndFanModeCommandId =>
+                packet.DataSize == 4 && HasAllowedZoneArguments(packet, 4),
+            GetPerformanceBoostLevelCommandId =>
+                packet.DataSize == 3 && HasAllowedClusterArguments(packet),
+            _ => false
+        };
+
+        if (!isKnownShape)
+        {
+            throw new InvalidOperationException(
+                $"Razer command 0x{packet.CombinedCommand:X4} is not a modeled BladeControl packet shape.");
         }
     }
 
@@ -138,7 +215,7 @@ internal static class RazerCommands
             crc: 0x00,
             reserved: 0x00);
 
-        EnsureAllowed(packet);
+        EnsureProtocolShape(packet);
         return packet;
     }
 
@@ -169,34 +246,96 @@ internal static class RazerCommands
         return allowedPrefix && IsAllZero(arguments[3..]);
     }
 
-    private static bool HasExactCustomAutoWriteBackArguments(RazerPacket packet)
+    private static bool HasKnownModeWriteArguments(RazerPacket packet)
     {
         ReadOnlySpan<byte> arguments = packet.Arguments;
         bool allowedPrefix =
             arguments[0] == 0x01 &&
             (arguments[1] == (byte)RazerZone.Zone1 ||
              arguments[1] == (byte)RazerZone.Zone2) &&
-            arguments[2] == 0x04 &&
-            arguments[3] == 0x00;
+            IsKnownPerformanceMode(arguments[2]) &&
+            IsKnownFanMode(arguments[3]);
 
         return allowedPrefix && IsAllZero(arguments[4..]);
     }
 
-    private static bool HasExactExpectedPerformanceLevelWriteBackArguments(
+    private static bool HasKnownLevelWriteArguments(
         RazerPacket packet)
     {
         ReadOnlySpan<byte> arguments = packet.Arguments;
-        bool isExpectedCpuLevel =
+        bool isKnownCpuLevel =
             arguments[0] == 0x00 &&
             arguments[1] == (byte)RazerPerformanceCluster.Cpu &&
-            arguments[2] == 0x01;
-        bool isExpectedGpuLevel =
+            arguments[2] <= RazerCpuPerformanceLevel.Overclock.Value;
+        bool isKnownGpuLevel =
             arguments[0] == 0x00 &&
             arguments[1] == (byte)RazerPerformanceCluster.Gpu &&
-            arguments[2] == 0x00;
+            arguments[2] <= RazerGpuPerformanceLevel.High.Value;
 
-        return (isExpectedCpuLevel || isExpectedGpuLevel) &&
+        return (isKnownCpuLevel || isKnownGpuLevel) &&
             IsAllZero(arguments[3..]);
+    }
+
+    private static bool HasPolicyAllowedModeWriteArguments(RazerPacket packet)
+    {
+        ReadOnlySpan<byte> arguments = packet.Arguments;
+        return HasKnownModeWriteArguments(packet) &&
+            arguments[3] == RazerFanMode.Auto.Value;
+    }
+
+    private static bool HasPolicyAllowedLevelWriteArguments(RazerPacket packet)
+    {
+        ReadOnlySpan<byte> arguments = packet.Arguments;
+        bool isAllowedCpu =
+            arguments[1] == (byte)RazerPerformanceCluster.Cpu &&
+            (arguments[2] == RazerCpuPerformanceLevel.Low.Value ||
+             arguments[2] == RazerCpuPerformanceLevel.Medium.Value);
+        bool isAllowedGpu =
+            arguments[1] == (byte)RazerPerformanceCluster.Gpu &&
+            arguments[2] == RazerGpuPerformanceLevel.Low.Value;
+
+        return HasKnownLevelWriteArguments(packet) &&
+            (isAllowedCpu || isAllowedGpu);
+    }
+
+    private static bool IsKnownPerformanceMode(byte value) =>
+        value == RazerPerformanceMode.Balanced.Value ||
+        value == RazerPerformanceMode.Custom.Value ||
+        value == RazerPerformanceMode.Silent.Value;
+
+    private static bool IsKnownFanMode(byte value) =>
+        value == RazerFanMode.Auto.Value || value == RazerFanMode.Manual.Value;
+
+    private static void ValidateKnownPerformanceMode(RazerPerformanceMode mode)
+    {
+        if (!IsKnownPerformanceMode(mode.Value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown performance mode.");
+        }
+    }
+
+    private static void ValidateKnownFanMode(RazerFanMode mode)
+    {
+        if (!IsKnownFanMode(mode.Value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown fan mode.");
+        }
+    }
+
+    private static void ValidateKnownCpuLevel(RazerCpuPerformanceLevel level)
+    {
+        if (level.Value > RazerCpuPerformanceLevel.Overclock.Value)
+        {
+            throw new ArgumentOutOfRangeException(nameof(level), level, "Unknown CPU performance level.");
+        }
+    }
+
+    private static void ValidateKnownGpuLevel(RazerGpuPerformanceLevel level)
+    {
+        if (level.Value > RazerGpuPerformanceLevel.High.Value)
+        {
+            throw new ArgumentOutOfRangeException(nameof(level), level, "Unknown GPU performance level.");
+        }
     }
 
     private static bool IsAllZero(ReadOnlySpan<byte> values)
