@@ -1,0 +1,194 @@
+<UserControl x:Class="BladeControl.UI.Views.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="30,0,30,30">
+            <Border Margin="0,0,0,14"
+                    Padding="14,11"
+                    CornerRadius="10"
+                    BorderThickness="1"
+                    Background="{StaticResource DangerBackgroundBrush}"
+                    BorderBrush="{StaticResource DangerBrush}"
+                    Visibility="{Binding HasRuntimeAlert, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="{Binding RuntimeAlert}"
+                           Foreground="{StaticResource DangerBrush}"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+            </Border>
+
+            <Border Margin="0,0,0,14"
+                    Padding="14,10"
+                    CornerRadius="10"
+                    BorderThickness="1"
+                    Background="{Binding StatusIsError, Converter={StaticResource StatusToneBrushConverter}, ConverterParameter=Background}"
+                    BorderBrush="{Binding StatusIsError, Converter={StaticResource StatusToneBrushConverter}}"
+                    Visibility="{Binding HasStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+            </Border>
+
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <Grid>
+                            <TextBlock Text="CPU PACKAGE" Style="{StaticResource EyebrowTextStyle}" />
+                            <Border HorizontalAlignment="Right"
+                                    Style="{StaticResource StatusPillStyle}"
+                                    Background="{Binding TelemetryFreshnessTone, Converter={StaticResource StatusToneBrushConverter}, ConverterParameter=Background}"
+                                    BorderBrush="{Binding TelemetryFreshnessTone, Converter={StaticResource StatusToneBrushConverter}}">
+                                <TextBlock Text="{Binding TelemetryFreshness}"
+                                           FontSize="10.5"
+                                           Foreground="{Binding TelemetryFreshnessTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            </Border>
+                        </Grid>
+                        <TextBlock Text="{Binding CpuTemperature}"
+                                   Margin="0,17,0,18"
+                                   Style="{StaticResource MetricTextStyle}"
+                                   ToolTip="{Binding CpuTemperatureDetail}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="POWER" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="{Binding CpuPower}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding CpuPowerDetail}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="UTILIZATION" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="{Binding CpuLoad}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding CpuLoadDetail}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="NVIDIA GPU" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding GpuTemperature}"
+                                   Margin="0,17,0,18"
+                                   Style="{StaticResource MetricTextStyle}"
+                                   ToolTip="{Binding GpuTemperatureDetail}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="POWER" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="{Binding GpuPower}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding GpuPowerDetail}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="UTILIZATION" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="{Binding GpuUtilization}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding GpuUtilizationDetail}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="QUICK ACTIONS" Style="{StaticResource EyebrowTextStyle}" />
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button Content="Balanced" Command="{Binding ApplyBalancedCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8" />
+                        <Button Content="Silent" Command="{Binding ApplySilentCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8" />
+                        <Button Content="{Binding CustomButtonLabel}" Command="{Binding ApplyCustomCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8" />
+                        <Button Content="Start Dynamic Cooling" Command="{Binding StartCoolingCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,8" />
+                        <Button Content="Stop Dynamic Cooling" Command="{Binding StopCoolingCommand}" Style="{StaticResource DangerButtonStyle}" Margin="0,0,0,8" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding ProfileBlockedReason}"
+                               Margin="0,5,0,0"
+                               Style="{StaticResource CaptionTextStyle}"
+                               TextWrapping="Wrap"
+                               Visibility="{Binding HasProfileBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <TextBlock Text="{Binding StartBlockedReason}"
+                               Margin="0,3,0,0"
+                               Foreground="{StaticResource WarningBrush}"
+                               FontSize="11.5"
+                               TextWrapping="Wrap"
+                               Visibility="{Binding HasStartBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="RUNTIME HEALTH" Style="{StaticResource EyebrowTextStyle}" Margin="0,0,0,13" />
+                    <UniformGrid Columns="4">
+                        <StackPanel Margin="0,0,12,0">
+                            <TextBlock Text="CONNECTION" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBlock Text="{Binding ConnectionText}"
+                                       Margin="0,5,0,0"
+                                       FontWeight="SemiBold"
+                                       Foreground="{Binding ConnectionTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,12,0">
+                            <TextBlock Text="RUNTIME STATE" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBlock Text="{Binding RuntimeState}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding RuntimeStateTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding RuntimeStateDescription}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,12,0">
+                            <TextBlock Text="TELEMETRY" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBlock Text="{Binding TelemetryHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding TelemetryHealthDetail}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="SCHEDULER" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBlock Text="{Binding SchedulerHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding SchedulerHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding SessionId}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SessionId}" />
+                        </StackPanel>
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
+
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="COOLING" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding FanTarget}" Margin="0,12,0,2" FontSize="22" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding FanTargetDetail}" Style="{StaticResource CaptionTextStyle}" />
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="FIRMWARE MODE" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="{Binding FirmwareFanMode}" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="REPORTED FAN STATE" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Margin="0,4,0,0">
+                                    <Run Text="1 · " /><Run Text="{Binding FirmwareFan1Value, Mode=OneWay}" /><Run Text="   2 · " /><Run Text="{Binding FirmwareFan2Value, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="PERFORMANCE" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding PerformanceMode}" Margin="0,12,0,2" FontSize="22" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource CaptionTextStyle}">
+                            <Run Text="CPU " /><Run Text="{Binding CpuPerformanceLevel, Mode=OneWay}" /><Run Text="  ·  GPU " /><Run Text="{Binding GpuPerformanceLevel, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock Text="{Binding ThermalSession}" Margin="0,16,0,0" FontWeight="SemiBold" Foreground="{Binding ThermalSessionTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

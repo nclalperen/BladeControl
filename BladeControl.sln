@@ -24,6 +24,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Runtime.Tests"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Cli.Tests", "tests\BladeControl.Cli.Tests\BladeControl.Cli.Tests.csproj", "{CA365A77-A24F-4C3F-A4E0-DA49547C56D1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.UI", "src\BladeControl.UI\BladeControl.UI.csproj", "{D72FC953-7758-44F1-94B4-903413881A8C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.UI.Tests", "tests\BladeControl.UI.Tests\BladeControl.UI.Tests.csproj", "{A49D3C85-5013-4EA0-93D6-37C60245F5A5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -74,6 +78,14 @@ Global
 		{CA365A77-A24F-4C3F-A4E0-DA49547C56D1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CA365A77-A24F-4C3F-A4E0-DA49547C56D1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CA365A77-A24F-4C3F-A4E0-DA49547C56D1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D72FC953-7758-44F1-94B4-903413881A8C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D72FC953-7758-44F1-94B4-903413881A8C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D72FC953-7758-44F1-94B4-903413881A8C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D72FC953-7758-44F1-94B4-903413881A8C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

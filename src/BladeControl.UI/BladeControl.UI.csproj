@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>BladeControl.UI</RootNamespace>
+    <AssemblyName>BladeControl.UI</AssemblyName>
+    <ApplicationIcon />
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    The Windows Forms SDK adds implicit global usings that collide with WPF
+    (Application, MessageBox, Clipboard). The notification-area host is the only
+    file that touches Windows Forms and it qualifies every type explicitly.
+  -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <!--
+    Runtime Core V1 currently owns its typed IPC DTOs and operations, so this is
+    the UI's sole production project reference. Runtime transitively exposes the
+    safe Razer/Telemetry/Thermal model assemblies, but the UI must NOT reference
+    BladeControl.Service or BladeControl.Hardware.Windows: those pull the Windows
+    host and hardware providers into the GUI process. Contract extraction is
+    tracked in docs/gui-backend-needs.md; the direct-reference boundary is tested
+    by BladeControl.UI.Tests.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\BladeControl.Runtime\BladeControl.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>
