@@ -362,12 +362,20 @@ public sealed partial class RazerClient
         RazerZone zone,
         RazerPerformanceMode mode)
     {
+        return WritePerformanceAndFanMode(zone, mode, RazerFanMode.Auto);
+    }
+
+    private RazerExchangeTrace WritePerformanceAndFanMode(
+        RazerZone zone,
+        RazerPerformanceMode mode,
+        RazerFanMode fanMode)
+    {
         byte transactionId = _transactionIds.NextTransactionId();
         RazerPacket request = RazerCommands.CreateSetPerformanceAndFanMode(
             transactionId,
             zone,
             mode,
-            RazerFanMode.Auto);
+            fanMode);
         return ExchangeWriteAndValidateEcho(
             request,
             (byte)zone,

@@ -115,8 +115,8 @@ public sealed class RazerCommandsTests
     }
 
     [DataTestMethod]
-    [DataRow((byte)0x0D, (byte)0x01, (byte)3)]
     [DataRow((byte)0x07, (byte)0x0F, (byte)1)]
+    [DataRow((byte)0x07, (byte)0x8F, (byte)1)]
     public void ExplicitlyBlockedCommandsAreRejected(
         byte commandClass,
         byte commandId,
@@ -142,6 +142,7 @@ public sealed class RazerCommandsTests
     [DataRow((byte)0x00, (byte)0x01, (byte)0x04, (byte)0x00)]
     [DataRow((byte)0x01, (byte)0x03, (byte)0x04, (byte)0x00)]
     [DataRow((byte)0x01, (byte)0x01, (byte)0x04, (byte)0x01)]
+    [DataRow((byte)0x01, (byte)0x01, (byte)0x05, (byte)0x01)]
     public void EveryNonPolicyModeWriteShapeIsRejected(
         byte selector,
         byte zone,

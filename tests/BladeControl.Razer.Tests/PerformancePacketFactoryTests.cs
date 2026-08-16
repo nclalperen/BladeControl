@@ -71,19 +71,20 @@ public sealed class PerformancePacketFactoryTests
     }
 
     [TestMethod]
-    public void ManualFanPacketIsModeledButBlockedAtTransportPolicy()
+    public void CustomManualPacketCannotBeConstructed()
     {
-        RazerPacket packet = RazerCommands.CreateSetPerformanceAndFanMode(
-            1,
-            RazerZone.Zone1,
-            RazerPerformanceMode.Custom,
-            RazerFanMode.Manual);
-
-        RazerCommands.EnsureProtocolShape(packet);
         Assert.ThrowsException<InvalidOperationException>(
-            () => RazerCommands.EnsureAllowed(packet));
+            () => RazerCommands.CreateSetPerformanceAndFanMode(
+                1,
+                RazerZone.Zone1,
+                RazerPerformanceMode.Custom,
+                RazerFanMode.Manual));
         Assert.ThrowsException<InvalidOperationException>(
-            () => new RazerTransportRequest(packet));
+            () => RazerCommands.CreateSetPerformanceAndFanMode(
+                1,
+                RazerZone.Zone1,
+                RazerPerformanceMode.Silent,
+                RazerFanMode.Manual));
     }
 
     private static void AssertPolicy(RazerPacket packet, bool allowed)

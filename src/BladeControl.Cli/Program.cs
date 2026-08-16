@@ -27,6 +27,11 @@ internal static class Program
             return RunPerformanceCommand(args.Skip(1).ToArray());
         }
 
+        if (command.Equals("fan", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunFanCommand(args.Skip(1).ToArray());
+        }
+
         if (!command.Equals("probe", StringComparison.OrdinalIgnoreCase) &&
             !command.Equals("status", StringComparison.OrdinalIgnoreCase) &&
             !command.Equals("writeback-mode", StringComparison.OrdinalIgnoreCase) &&
@@ -114,6 +119,10 @@ internal static class Program
         Console.WriteLine("  BladeControl.Cli perf apply silent [--verbose]");
         Console.WriteLine("  BladeControl.Cli perf apply custom --cpu low|medium --gpu low [--verbose]");
         Console.WriteLine("  BladeControl.Cli perf selftest --verbose");
+        Console.WriteLine("  BladeControl.Cli fan status [--verbose]");
+        Console.WriteLine("  BladeControl.Cli fan apply auto [--verbose]");
+        Console.WriteLine("  BladeControl.Cli fan apply fixed --fan1 RPM --fan2 RPM [--verbose]");
+        Console.WriteLine("  BladeControl.Cli fan selftest --verbose");
     }
 
     private static int RunProbe(bool verbose)
@@ -309,6 +318,253 @@ internal static class Program
 
             return 1;
         }
+    }
+
+    private static int RunFanCommand(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Missing fan subcommand.");
+            PrintUsage();
+            return 2;
+        }
+
+        string subcommand = args[0];
+        if (IsHelp(subcommand))
+        {
+            PrintUsage();
+            return 0;
+        }
+
+        if (subcommand.Equals("status", StringComparison.OrdinalIgnoreCase) ||
+            subcommand.Equals("selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryParseOptions(
+                    $"fan {subcommand}",
+                    args.Skip(1),
+                    out bool verbose,
+                    out bool helpRequested))
+            {
+                return 2;
+            }
+
+            if (helpRequested)
+            {
+                PrintUsage();
+                return 0;
+            }
+
+            return subcommand.Equals("status", StringComparison.OrdinalIgnoreCase)
+                ? RunFanStatus(verbose)
+                : RunFanSelfTest(verbose);
+        }
+
+        if (!subcommand.Equals("apply", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"Unknown fan subcommand: {subcommand}");
+            PrintUsage();
+            return 2;
+        }
+
+        if (!TryParseFanControlProfile(
+                args.Skip(1).ToArray(),
+                out FanControlProfile? profile,
+                out bool applyVerbose))
+        {
+            return 2;
+        }
+
+        return RunFanApply(profile!, applyVerbose);
+    }
+
+    private static bool TryParseFanControlProfile(
+        string[] args,
+        out FanControlProfile? profile,
+        out bool verbose)
+    {
+        profile = null;
+        verbose = false;
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Missing fan-control profile.");
+            return false;
+        }
+
+        string profileName = args[0];
+        if (profileName.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (string option in args.Skip(1))
+            {
+                if (IsVerbose(option))
+                {
+                    verbose = true;
+                }
+                else
+                {
+                    Console.Error.WriteLine($"Unknown fan apply auto option: {option}");
+                    return false;
+                }
+            }
+
+            profile = FanControlProfile.Auto;
+            return true;
+        }
+
+        if (!profileName.Equals("fixed", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"Unknown fan-control profile: {profileName}");
+            return false;
+        }
+
+        string? fan1Text = null;
+        string? fan2Text = null;
+        for (int index = 1; index < args.Length; index++)
+        {
+            string option = args[index];
+            if (IsVerbose(option))
+            {
+                verbose = true;
+                continue;
+            }
+
+            if ((option.Equals("--fan1", StringComparison.OrdinalIgnoreCase) ||
+                 option.Equals("--fan2", StringComparison.OrdinalIgnoreCase)) &&
+                index + 1 < args.Length)
+            {
+                string value = args[++index];
+                if (option.Equals("--fan1", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (fan1Text is not null)
+                    {
+                        Console.Error.WriteLine("--fan1 may be specified only once.");
+                        return false;
+                    }
+
+                    fan1Text = value;
+                }
+                else
+                {
+                    if (fan2Text is not null)
+                    {
+                        Console.Error.WriteLine("--fan2 may be specified only once.");
+                        return false;
+                    }
+
+                    fan2Text = value;
+                }
+
+                continue;
+            }
+
+            Console.Error.WriteLine($"Unknown or incomplete fan apply fixed option: {option}");
+            return false;
+        }
+
+        if (fan1Text is null || fan2Text is null)
+        {
+            Console.Error.WriteLine("Fixed fan control requires both --fan1 and --fan2.");
+            return false;
+        }
+
+        if (!int.TryParse(fan1Text, out int fan1Value) ||
+            !int.TryParse(fan2Text, out int fan2Value))
+        {
+            Console.Error.WriteLine("Fan RPM values must be base-10 integers.");
+            return false;
+        }
+
+        try
+        {
+            profile = FanControlProfile.Fixed(
+                new FanRpm(fan1Value),
+                new FanRpm(fan2Value));
+            return true;
+        }
+        catch (ArgumentException exception)
+        {
+            Console.Error.WriteLine(exception.Message);
+            return false;
+        }
+    }
+
+    private static int RunFanStatus(bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            FanControlState state = session.Client.GetFanControlState();
+            PrintFanControlState("Fan-control state", state);
+            if (verbose)
+            {
+                var trace = new ProtocolTraceSequence(Console.Out);
+                PrintSelectedInterface(state.Device);
+                trace.Write(state.InitialExchanges, "PASS", "GET");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("No settings were modified.");
+            return 0;
+        }
+        catch (Exception exception) when (PrintFanException(exception, verbose))
+        {
+            return 1;
+        }
+    }
+
+    private static int RunFanApply(FanControlProfile profile, bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            FanControlApplyResult result =
+                session.Client.ApplyFanControlProfile(profile);
+            PrintFanApplyResult(result, verbose);
+            return result.Succeeded ? 0 : 1;
+        }
+        catch (Exception exception) when (PrintFanException(exception, verbose))
+        {
+            return 1;
+        }
+    }
+
+    private static int RunFanSelfTest(bool verbose)
+    {
+        try
+        {
+            using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
+            FanControlSelfTestResult result =
+                session.Client.RunFanControlSelfTest();
+            PrintFanSelfTestResult(result, verbose);
+            return result.Succeeded ? 0 : 1;
+        }
+        catch (FanControlSelfTestPreconditionException exception)
+        {
+            Console.Error.WriteLine(exception.Message);
+            PrintFanControlState("Initial state", exception.InitialState);
+            if (verbose)
+            {
+                var trace = new ProtocolTraceSequence(Console.Error);
+                trace.Write(exception.InitialState.InitialExchanges, "PASS", "Initial GET");
+            }
+
+            return 1;
+        }
+        catch (Exception exception) when (PrintFanException(exception, verbose))
+        {
+            return 1;
+        }
+    }
+
+    private static bool PrintFanException(Exception exception, bool verbose)
+    {
+        if (exception is FanControlStateException state)
+        {
+            Console.Error.WriteLine(state.Message);
+            Console.Error.WriteLine("No SET command was sent.");
+            return true;
+        }
+
+        return PrintPerformanceException(exception, verbose);
     }
 
     private static int RunPerformanceCommand(string[] args)
@@ -632,9 +888,225 @@ internal static class Program
         return true;
     }
 
+    private static void PrintFanApplyResult(
+        FanControlApplyResult result,
+        bool verbose,
+        ProtocolTraceSequence? trace = null)
+    {
+        Console.WriteLine("Fan-control apply");
+        PrintFanControlState("Initial state", result.InitialState);
+        Console.WriteLine();
+        Console.WriteLine($"Requested state\n  {result.RequestedProfile}");
+        if (result.RequestedProfile.IsFixed)
+        {
+            Console.WriteLine(
+                "  Fixed RPM requires and applies Balanced + Manual mode.");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Calculated write plan");
+        if (result.Plan.IsNoOp)
+        {
+            Console.WriteLine("  No SET operations required.");
+        }
+        else
+        {
+            foreach (FanControlOperation operation in result.Plan.Operations)
+            {
+                Console.WriteLine($"  {operation.Description}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Operations");
+        PrintFanOperations(result.Operations);
+        if (result.FinalState is not null)
+        {
+            PrintFanControlState("Final state", result.FinalState);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Verification: {result.Verification.Message}");
+        Console.WriteLine($"Outcome: {result.Outcome}");
+        if (result.AutoRecovery is not null)
+        {
+            Console.WriteLine();
+            Console.WriteLine(result.AutoRecovery.Message);
+            Console.WriteLine("Emergency Auto operations");
+            PrintFanOperations(result.AutoRecovery.Operations);
+            if (result.AutoRecovery.FinalState is not null)
+            {
+                PrintFanControlState(
+                    "State after emergency Auto",
+                    result.AutoRecovery.FinalState);
+            }
+        }
+
+        if (!verbose)
+        {
+            return;
+        }
+
+        trace ??= new ProtocolTraceSequence(Console.Out);
+        PrintSelectedInterface(result.InitialState.Device);
+        trace.Write(result.InitialState.InitialExchanges, "PASS", "Initial GET");
+        foreach (FanControlOperationResult operation in result.Operations)
+        {
+            if (operation.Exchange is not null)
+            {
+                trace.Write(
+                    operation.Exchange,
+                    operation.Succeeded ? "PASS" : "FAILED",
+                    operation.Operation.Description);
+            }
+        }
+
+        if (result.FinalState is not null)
+        {
+            trace.Write(result.FinalState.InitialExchanges, "PASS", "Post-apply GET");
+        }
+
+        trace.Write(result.ObservationExchanges, "PASS", "RPM settling GET");
+        if (result.AutoRecovery is not null)
+        {
+            bool recoveryReusesApplyOperations =
+                result.AutoRecovery.Operations.SequenceEqual(result.Operations);
+            if (!recoveryReusesApplyOperations)
+            {
+                foreach (FanControlOperationResult operation in
+                    result.AutoRecovery.Operations)
+                {
+                    if (operation.Exchange is not null)
+                    {
+                        trace.Write(
+                            operation.Exchange,
+                            operation.Succeeded ? "PASS" : "FAILED",
+                            $"EMERGENCY {operation.Operation.Description}");
+                    }
+                }
+            }
+
+            if (result.AutoRecovery.FinalState is not null)
+            {
+                trace.Write(
+                    result.AutoRecovery.FinalState.InitialExchanges,
+                    "PASS",
+                    "Emergency Auto readback GET");
+            }
+        }
+    }
+
+    private static void PrintFanOperations(
+        IReadOnlyList<FanControlOperationResult> operations)
+    {
+        if (operations.Count == 0)
+        {
+            Console.WriteLine("  None");
+            return;
+        }
+
+        foreach (FanControlOperationResult operation in operations)
+        {
+            Console.WriteLine(
+                $"  {operation.Operation.Description}: " +
+                (operation.Succeeded
+                    ? "PASS"
+                    : $"FAILED - {operation.FailureReason}"));
+        }
+    }
+
+    private static void PrintFanSelfTestResult(
+        FanControlSelfTestResult result,
+        bool verbose)
+    {
+        Console.WriteLine("Fan Control V1 selftest");
+        PrintFanControlState("Stage A - captured initial state", result.InitialState);
+        ProtocolTraceSequence? trace = verbose
+            ? new ProtocolTraceSequence(Console.Out)
+            : null;
+        if (trace is not null)
+        {
+            PrintSelectedInterface(result.InitialState.Device);
+            trace.Write(result.InitialState.InitialExchanges, "PASS", "Stage A GET");
+        }
+
+        foreach (FanControlSelfTestStageResult stage in result.Stages)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Stage {stage.Stage}");
+            Console.WriteLine($"  {(stage.Succeeded ? "PASS" : "FAILED")} - {stage.Message}");
+            if (stage.State is not null)
+            {
+                PrintFanControlState("Stage state", stage.State);
+            }
+
+            if (stage.FanApply is not null)
+            {
+                PrintFanApplyResult(stage.FanApply, verbose, trace);
+            }
+            else if (stage.PerformanceApply is not null)
+            {
+                PrintPerformanceApplyResult(
+                    stage.PerformanceApply,
+                    verbose,
+                    trace);
+            }
+            else if (trace is not null)
+            {
+                trace.Write(
+                    stage.Exchanges,
+                    stage.Succeeded ? "PASS" : "FAILED",
+                    $"Stage {stage.Stage}");
+            }
+
+            if (!stage.Succeeded)
+            {
+                break;
+            }
+        }
+
+        bool restorationAlreadyPrinted = result.Stages.Any(stage =>
+            ReferenceEquals(stage.PerformanceApply, result.PerformanceRestoration));
+        if (result.PerformanceRestoration is not null &&
+            !restorationAlreadyPrinted)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Initial performance restoration");
+            PrintPerformanceApplyResult(
+                result.PerformanceRestoration,
+                verbose,
+                trace);
+        }
+
+        if (result.FinalState is not null)
+        {
+            PrintFanControlState("Final readable state", result.FinalState);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(result.Message);
+    }
+
+    private static void PrintFanControlState(string heading, FanControlState state)
+    {
+        Console.WriteLine();
+        Console.WriteLine(heading);
+        Console.WriteLine($"  Fan 1       {state.Fan1.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Fan 2       {state.Fan2.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Performance {FormatZoneValues(
+            state.Zone1Mode.PerformanceMode,
+            state.Zone2Mode.PerformanceMode)}");
+        Console.WriteLine($"  Fan mode    {FormatZoneValues(
+            state.Zone1Mode.FanMode,
+            state.Zone2Mode.FanMode)}");
+        Console.WriteLine($"  CPU level   {state.CpuPerformanceLevel}");
+        Console.WriteLine($"  GPU level   {state.GpuPerformanceLevel}");
+    }
+
     private static void PrintPerformanceApplyResult(
         PerformanceApplyResult result,
-        bool verbose)
+        bool verbose,
+        ProtocolTraceSequence? trace = null)
     {
         Console.WriteLine("Performance apply");
         PrintPerformanceState("Initial state", result.InitialState);
@@ -707,16 +1179,15 @@ internal static class Program
 
         if (verbose)
         {
+            trace ??= new ProtocolTraceSequence(Console.Out);
             PrintSelectedInterface(result.InitialState.Device);
-            PrintLabeledExchanges(result.InitialState.Exchanges, Console.Out, "Initial GET");
+            trace.Write(result.InitialState.Exchanges, "PASS", "Initial GET");
             foreach (PerformanceOperationResult operation in result.Operations)
             {
                 if (operation.Exchange is not null)
                 {
-                    PrintExchange(
+                    trace.Write(
                         operation.Exchange,
-                        1,
-                        Console.Out,
                         operation.Succeeded ? "PASS" : "FAILED",
                         operation.Operation.Description);
                 }
@@ -724,7 +1195,7 @@ internal static class Program
 
             if (result.FinalState is not null)
             {
-                PrintLabeledExchanges(result.FinalState.Exchanges, Console.Out, "Final GET");
+                trace.Write(result.FinalState.Exchanges, "PASS", "Final GET");
             }
 
             if (result.Restoration is not null)
@@ -733,10 +1204,8 @@ internal static class Program
                 {
                     if (operation.Exchange is not null)
                     {
-                        PrintExchange(
+                        trace.Write(
                             operation.Exchange,
-                            1,
-                            Console.Out,
                             operation.Succeeded ? "PASS" : "FAILED",
                             $"RESTORE {operation.Operation.Description}");
                     }
@@ -744,9 +1213,9 @@ internal static class Program
 
                 if (result.Restoration.FinalState is not null)
                 {
-                    PrintLabeledExchanges(
+                    trace.Write(
                         result.Restoration.FinalState.Exchanges,
-                        Console.Out,
+                        "PASS",
                         "Restore final GET");
                 }
             }
@@ -759,11 +1228,20 @@ internal static class Program
     {
         Console.WriteLine("Performance Control V1 selftest");
         PrintPerformanceState("Stage A - captured initial state", result.InitialState);
+        ProtocolTraceSequence? trace = verbose
+            ? new ProtocolTraceSequence(Console.Out)
+            : null;
+        if (trace is not null)
+        {
+            PrintSelectedInterface(result.InitialState.Device);
+            trace.Write(result.InitialState.Exchanges, "PASS", "Stage A GET");
+        }
+
         foreach (PerformanceSelfTestStageResult stage in result.Stages)
         {
             Console.WriteLine();
             Console.WriteLine($"Stage {stage.Stage}");
-            PrintPerformanceApplyResult(stage.ApplyResult, verbose);
+            PrintPerformanceApplyResult(stage.ApplyResult, verbose, trace);
             if (!stage.ApplyResult.Succeeded)
             {
                 break;
@@ -1283,4 +1761,42 @@ internal static class Program
 
     private static string FormatHex(ushort? value) =>
         value is ushort number ? $"0x{number:X4}" : Unavailable;
+
+    private sealed class ProtocolTraceSequence
+    {
+        private readonly TextWriter _writer;
+        private int _nextExchange = 1;
+
+        internal ProtocolTraceSequence(TextWriter writer)
+        {
+            _writer = writer;
+        }
+
+        internal void Write(
+            IReadOnlyList<RazerExchangeTrace> exchanges,
+            string validationResult,
+            string operationPrefix)
+        {
+            foreach (RazerExchangeTrace exchange in exchanges)
+            {
+                Write(
+                    exchange,
+                    validationResult,
+                    $"{operationPrefix} 0x{exchange.CombinedCommand:X4}");
+            }
+        }
+
+        internal void Write(
+            RazerExchangeTrace exchange,
+            string validationResult,
+            string operation)
+        {
+            PrintExchange(
+                exchange,
+                _nextExchange++,
+                _writer,
+                validationResult,
+                operation);
+        }
+    }
 }

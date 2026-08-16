@@ -3,6 +3,7 @@ namespace BladeControl.Razer.Protocol;
 internal static class RazerCommands
 {
     internal const byte SystemCommandClass = 0x0D;
+    internal const byte SetFanRpmCommandId = 0x01;
     internal const byte WriteBackPerformanceAndFanModeCommandId = 0x02;
     internal const byte WriteBackPerformanceLevelCommandId = 0x07;
     internal const byte GetFanRpmCommandId = 0x81;
@@ -17,6 +18,16 @@ internal static class RazerCommands
             transactionId,
             GetFanRpmCommandId,
             arguments);
+    }
+
+    internal static RazerPacket CreateSetFanRpm(
+        byte transactionId,
+        RazerZone zone,
+        FanRpm rpm)
+    {
+        byte zoneValue = ValidateZone(zone);
+        byte[] arguments = [0x00, zoneValue, rpm.EncodedValue];
+        return CreateRequest(transactionId, SetFanRpmCommandId, arguments);
     }
 
     internal static RazerPacket CreateGetPerformanceAndFanMode(
@@ -131,6 +142,8 @@ internal static class RazerCommands
 
         bool isAllowed = fixedFieldsAreValid && packet.CommandId switch
         {
+            SetFanRpmCommandId =>
+                packet.DataSize == 3 && HasPolicyAllowedFanRpmArguments(packet),
             WriteBackPerformanceAndFanModeCommandId =>
                 packet.DataSize == 4 &&
                 HasPolicyAllowedModeWriteArguments(packet),
@@ -171,6 +184,8 @@ internal static class RazerCommands
 
         bool isKnownShape = fixedFieldsAreValid && packet.CommandId switch
         {
+            SetFanRpmCommandId =>
+                packet.DataSize == 3 && HasKnownFanRpmArguments(packet),
             WriteBackPerformanceAndFanModeCommandId =>
                 packet.DataSize == 4 && HasKnownModeWriteArguments(packet),
             WriteBackPerformanceLevelCommandId =>
@@ -249,15 +264,34 @@ internal static class RazerCommands
     private static bool HasKnownModeWriteArguments(RazerPacket packet)
     {
         ReadOnlySpan<byte> arguments = packet.Arguments;
-        bool allowedPrefix =
+        bool commonPrefix =
             arguments[0] == 0x01 &&
             (arguments[1] == (byte)RazerZone.Zone1 ||
              arguments[1] == (byte)RazerZone.Zone2) &&
             IsKnownPerformanceMode(arguments[2]) &&
             IsKnownFanMode(arguments[3]);
+        bool allowedCombination =
+            arguments[3] == RazerFanMode.Auto.Value ||
+            (arguments[2] == RazerPerformanceMode.Balanced.Value &&
+             arguments[3] == RazerFanMode.Manual.Value);
 
-        return allowedPrefix && IsAllZero(arguments[4..]);
+        return commonPrefix && allowedCombination && IsAllZero(arguments[4..]);
     }
+
+    private static bool HasKnownFanRpmArguments(RazerPacket packet)
+    {
+        ReadOnlySpan<byte> arguments = packet.Arguments;
+        bool allowedPrefix =
+            arguments[0] == 0x00 &&
+            (arguments[1] == (byte)RazerZone.Zone1 ||
+             arguments[1] == (byte)RazerZone.Zone2) &&
+            arguments[2] >= FanRpm.Minimum.EncodedValue &&
+            arguments[2] <= FanRpm.Maximum.EncodedValue;
+        return allowedPrefix && IsAllZero(arguments[3..]);
+    }
+
+    private static bool HasPolicyAllowedFanRpmArguments(RazerPacket packet) =>
+        HasKnownFanRpmArguments(packet);
 
     private static bool HasKnownLevelWriteArguments(
         RazerPacket packet)
@@ -278,9 +312,7 @@ internal static class RazerCommands
 
     private static bool HasPolicyAllowedModeWriteArguments(RazerPacket packet)
     {
-        ReadOnlySpan<byte> arguments = packet.Arguments;
-        return HasKnownModeWriteArguments(packet) &&
-            arguments[3] == RazerFanMode.Auto.Value;
+        return HasKnownModeWriteArguments(packet);
     }
 
     private static bool HasPolicyAllowedLevelWriteArguments(RazerPacket packet)

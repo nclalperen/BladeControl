@@ -6,18 +6,32 @@ public sealed partial class RazerClient
 {
     private readonly IRazerTransport _transport;
     private readonly ITransactionIdSource _transactionIds;
+    private readonly IFanObservationDelay _fanObservationDelay;
 
     internal RazerClient(IRazerTransport transport)
-        : this(transport, new SequentialTransactionIdSource())
+        : this(
+            transport,
+            new SequentialTransactionIdSource(),
+            new ThreadFanObservationDelay())
     {
     }
 
     internal RazerClient(
         IRazerTransport transport,
         ITransactionIdSource transactionIds)
+        : this(transport, transactionIds, new ThreadFanObservationDelay())
+    {
+    }
+
+    internal RazerClient(
+        IRazerTransport transport,
+        ITransactionIdSource transactionIds,
+        IFanObservationDelay fanObservationDelay)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transactionIds = transactionIds ?? throw new ArgumentNullException(nameof(transactionIds));
+        _fanObservationDelay = fanObservationDelay ??
+            throw new ArgumentNullException(nameof(fanObservationDelay));
     }
 
     public RazerFanReading GetFanRpm(RazerZone zone)

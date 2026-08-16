@@ -121,12 +121,16 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
     internal StatefulPerformanceTransport(
         RazerPerformanceMode mode,
         RazerCpuPerformanceLevel cpu,
-        RazerGpuPerformanceLevel gpu)
+        RazerGpuPerformanceLevel gpu,
+        int fan1Rpm = 2000,
+        int fan2Rpm = 2000)
     {
         Zone1Mode = mode;
         Zone2Mode = mode;
         CpuLevel = cpu;
         GpuLevel = gpu;
+        Fan1Rpm = fan1Rpm;
+        Fan2Rpm = fan2Rpm;
     }
 
     public RazerDeviceInfo DeviceInfo { get; } = new(
@@ -149,6 +153,14 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
 
     internal RazerGpuPerformanceLevel GpuLevel { get; set; }
 
+    internal int Fan1Rpm { get; set; }
+
+    internal int Fan2Rpm { get; set; }
+
+    internal Queue<int> Fan1ReadSequence { get; } = [];
+
+    internal Queue<int> Fan2ReadSequence { get; } = [];
+
     internal HashSet<int> FailWriteNumbers { get; } = [];
 
     internal HashSet<int> FailCallNumbers { get; } = [];
@@ -159,10 +171,19 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
 
     internal HashSet<int> WrongEchoWriteNumbers { get; } = [];
 
+    internal HashSet<int> WrongZoneWriteNumbers { get; } = [];
+
+    internal HashSet<int> WrongCommandWriteNumbers { get; } = [];
+
+    internal HashSet<int> WrongTransactionWriteNumbers { get; } = [];
+
+    internal HashSet<int> ShortWriteResponseNumbers { get; } = [];
+
     internal List<RazerPacket> Requests { get; } = [];
 
     internal IReadOnlyList<RazerPacket> WriteRequests => Requests
         .Where(packet => packet.CommandId is
+            RazerCommands.SetFanRpmCommandId or
             RazerCommands.WriteBackPerformanceAndFanModeCommandId or
             RazerCommands.WriteBackPerformanceLevelCommandId)
         .ToArray();
@@ -175,6 +196,7 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
             request.FeatureReport.Span);
         Requests.Add(packet);
         bool isWrite = packet.CommandId is
+            RazerCommands.SetFanRpmCommandId or
             RazerCommands.WriteBackPerformanceAndFanModeCommandId or
             RazerCommands.WriteBackPerformanceLevelCommandId;
         if (isWrite)
@@ -194,11 +216,26 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
         {
             arguments[2] ^= 0x01;
         }
+        if (isWrite && WrongZoneWriteNumbers.Contains(_writeCount))
+        {
+            arguments[1] = arguments[1] == (byte)RazerZone.Zone1
+                ? (byte)RazerZone.Zone2
+                : (byte)RazerZone.Zone1;
+        }
         RazerPacket response = ScriptedRazerTransport.CreateResponse(
             packet,
             status: fail
                 ? (byte)RazerResponseStatus.Failure
                 : (byte)RazerResponseStatus.Success,
+            transactionId: isWrite && WrongTransactionWriteNumbers.Contains(_writeCount)
+                ? (byte)(packet.TransactionId + 1)
+                : null,
+            commandId: isWrite && WrongCommandWriteNumbers.Contains(_writeCount)
+                ? (byte)(packet.CommandId + 1)
+                : null,
+            dataSize: isWrite && ShortWriteResponseNumbers.Contains(_writeCount)
+                ? (byte)2
+                : null,
             arguments: arguments);
         byte[] report = RazerPacketCodec.EncodeHidFeatureReport(response);
         if (isWrite && CorruptWriteResponseNumbers.Contains(_writeCount))
@@ -215,7 +252,19 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
 
     private void ApplyWrite(RazerPacket packet)
     {
-        if (packet.CommandId == RazerCommands.WriteBackPerformanceAndFanModeCommandId)
+        if (packet.CommandId == RazerCommands.SetFanRpmCommandId)
+        {
+            int rpm = packet.Arguments[2] * 100;
+            if (packet.Arguments[1] == (byte)RazerZone.Zone1)
+            {
+                Fan1Rpm = rpm;
+            }
+            else
+            {
+                Fan2Rpm = rpm;
+            }
+        }
+        else if (packet.CommandId == RazerCommands.WriteBackPerformanceAndFanModeCommandId)
         {
             var mode = new RazerPerformanceMode(packet.Arguments[2]);
             var fanMode = new RazerFanMode(packet.Arguments[3]);
@@ -245,7 +294,15 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
         byte[] arguments = request.Arguments.ToArray();
         if (request.CommandId == RazerCommands.GetFanRpmCommandId)
         {
-            arguments[2] = 20;
+            bool zone1 = request.Arguments[1] == (byte)RazerZone.Zone1;
+            int rpm = zone1
+                ? Fan1ReadSequence.Count > 0
+                    ? Fan1ReadSequence.Dequeue()
+                    : Fan1Rpm
+                : Fan2ReadSequence.Count > 0
+                    ? Fan2ReadSequence.Dequeue()
+                    : Fan2Rpm;
+            arguments[2] = checked((byte)(rpm / 100));
         }
         else if (request.CommandId == RazerCommands.GetPerformanceAndFanModeCommandId)
         {
@@ -261,5 +318,15 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
         }
 
         return arguments;
+    }
+}
+
+internal sealed class RecordingFanObservationDelay : IFanObservationDelay
+{
+    internal List<TimeSpan> Waits { get; } = [];
+
+    public void Wait(TimeSpan duration)
+    {
+        Waits.Add(duration);
     }
 }
