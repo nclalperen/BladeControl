@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>BladeControl.UI</RootNamespace>
+    <AssemblyName>BladeControl.UI</AssemblyName>
+    <ApplicationIcon />
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    The Windows Forms SDK adds implicit global usings that collide with WPF
+    (Application, MessageBox, Clipboard). The notification-area host is the only
+    file that touches Windows Forms and it qualifies every type explicitly.
+  -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <!--
+    BladeControl.Runtime is the typed IPC contract (DTOs + operations) and is a
+    pure net8.0 library with no hardware package references. The UI must NOT
+    reference BladeControl.Service or BladeControl.Hardware.Windows: those pull
+    LibreHardwareMonitorLib/PawnIO into the GUI process. See
+    BladeControl.UI.Tests/ArchitectureBoundaryTests.cs.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\BladeControl.Runtime\BladeControl.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>
