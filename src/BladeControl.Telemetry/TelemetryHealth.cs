@@ -34,43 +34,57 @@ public static class TelemetryHealthEvaluator
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        TelemetryHealth cpu = EvaluateRequiredTemperature(
+        TelemetryHealth cpu = EvaluateRequiredCpuTemperature(
             snapshot.CpuPackageTemperatureCelsius,
-            now,
-            "CPU Package");
+            now);
         if (!cpu.IsHealthy)
         {
             return cpu;
         }
 
-        TelemetryHealth gpu = EvaluateRequiredTemperature(
+        TelemetryHealth gpu = EvaluateRequiredGpuTemperature(
             snapshot.GpuTemperatureCelsius,
-            now,
-            "GPU core");
+            now);
         if (!gpu.IsHealthy)
         {
             return gpu;
         }
 
-        if (snapshot.CpuPackageTemperatureCelsius.Value!.Value >=
-            CpuEmergencyTemperatureCelsius)
-        {
-            return new TelemetryHealth(
-                TelemetryHealthKind.Critical,
-                $"CPU Package temperature reached " +
-                $"{snapshot.CpuPackageTemperatureCelsius.Value.Value:F1} C.");
-        }
-
-        if (snapshot.GpuTemperatureCelsius.Value!.Value >=
-            GpuEmergencyTemperatureCelsius)
-        {
-            return new TelemetryHealth(
-                TelemetryHealthKind.Critical,
-                $"GPU core temperature reached " +
-                $"{snapshot.GpuTemperatureCelsius.Value.Value:F1} C.");
-        }
-
         return new TelemetryHealth(TelemetryHealthKind.Healthy, "Required telemetry is healthy.");
+    }
+
+    public static TelemetryHealth EvaluateRequiredCpuTemperature(
+        TelemetryMetric<double> metric,
+        DateTimeOffset now)
+    {
+        TelemetryHealth health = EvaluateRequiredTemperature(metric, now, "CPU Package");
+        if (!health.IsHealthy)
+        {
+            return health;
+        }
+
+        return metric.Value!.Value >= CpuEmergencyTemperatureCelsius
+            ? new TelemetryHealth(
+                TelemetryHealthKind.Critical,
+                $"CPU Package temperature reached {metric.Value.Value:F1} C.")
+            : health;
+    }
+
+    public static TelemetryHealth EvaluateRequiredGpuTemperature(
+        TelemetryMetric<double> metric,
+        DateTimeOffset now)
+    {
+        TelemetryHealth health = EvaluateRequiredTemperature(metric, now, "GPU core");
+        if (!health.IsHealthy)
+        {
+            return health;
+        }
+
+        return metric.Value!.Value >= GpuEmergencyTemperatureCelsius
+            ? new TelemetryHealth(
+                TelemetryHealthKind.Critical,
+                $"GPU core temperature reached {metric.Value.Value:F1} C.")
+            : health;
     }
 
     private static TelemetryHealth EvaluateRequiredTemperature(

@@ -7,6 +7,8 @@ public interface IControlTelemetryProvider : IDisposable
     TelemetryCapabilities Capabilities { get; }
 
     ThermalTelemetrySample GetControlSample();
+
+    ThermalOwnershipQualification QualifyThermalOwnership();
 }
 
 public interface ITelemetryProvider : IDisposable

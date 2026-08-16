@@ -33,11 +33,14 @@ internal static partial class Program
 
     private static int RunRuntimeCommand(string[] args)
     {
-        if (args.Length != 1 ||
+        bool verbose = args.Length == 2 &&
+            args[1].Equals("--verbose", StringComparison.OrdinalIgnoreCase);
+        if ((args.Length != 1 && !verbose) ||
             (!args[0].Equals("status", StringComparison.OrdinalIgnoreCase) &&
              !args[0].Equals("doctor", StringComparison.OrdinalIgnoreCase)))
         {
-            Console.Error.WriteLine("Expected: runtime status OR runtime doctor");
+            Console.Error.WriteLine(
+                "Expected: runtime status [--verbose] OR runtime doctor [--verbose]");
             return 2;
         }
 
@@ -59,6 +62,13 @@ internal static partial class Program
             Console.WriteLine(args[0].Equals("status", StringComparison.OrdinalIgnoreCase)
                 ? "BladeControl runtime status"
                 : "BladeControl runtime doctor");
+            if (verbose)
+            {
+                Console.WriteLine(
+                    $"IPC protocol {response.Version}; request {response.RequestId}; " +
+                    "verbose rendering does not alter runtime behavior.");
+            }
+
             Console.WriteLine(JsonSerializer.Serialize(response.Data, new JsonSerializerOptions
             {
                 WriteIndented = true
@@ -75,10 +85,12 @@ internal static partial class Program
 
     private static int RunServiceCommand(string[] args)
     {
-        if (args.Length != 1 ||
+        bool verbose = args.Length == 2 &&
+            args[1].Equals("--verbose", StringComparison.OrdinalIgnoreCase);
+        if ((args.Length != 1 && !verbose) ||
             !args[0].Equals("console", StringComparison.OrdinalIgnoreCase))
         {
-            Console.Error.WriteLine("Expected: service console");
+            Console.Error.WriteLine("Expected: service console [--verbose]");
             return 2;
         }
 
@@ -91,7 +103,8 @@ internal static partial class Program
         Console.CancelKeyPress += handler;
         try
         {
-            return RuntimeWindowsHost.RunAsync(cancellation.Token).GetAwaiter().GetResult();
+            return RuntimeWindowsHost.RunAsync(cancellation.Token, verbose)
+                .GetAwaiter().GetResult();
         }
         finally
         {

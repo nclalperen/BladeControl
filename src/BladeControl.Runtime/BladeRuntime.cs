@@ -218,59 +218,93 @@ public sealed class BladeRuntime : IAsyncDisposable
             throw new InvalidOperationException(_lastFailure ?? "Runtime host initialization failed.");
         }
 
-        lock (_sync)
-        {
-            if (_state != RuntimeState.Stopped)
-            {
-                throw new RuntimeOwnershipException(
-                    $"Thermal ownership cannot be acquired while runtime state is {_state}.");
-            }
-
-            if (_emergencyLatched)
-            {
-                throw new RuntimeOwnershipException(
-                    "This runtime experienced an emergency and cannot re-enter Manual mode. Restart the runtime first.");
-            }
-
-            if (_standaloneManualOriginal is not null)
-            {
-                throw new RuntimeOwnershipException(
-                    "A standalone fixed fan profile owns Manual mode. Apply Auto before starting thermal control.");
-            }
-
-            _state = RuntimeState.Starting;
-            _sessionId = Guid.NewGuid();
-            _startTimestamp = _clock.UtcNow;
-            _lastFailure = null;
-            _emergencyStatus = null;
-        }
-
+        _operationGate.Wait();
         try
         {
-            _controller = new ThermalRuntimeController(
-                _telemetryAdapter,
-                _hardware,
-                _profile,
-                clock: new ThermalClockAdapter(_clock));
-            _controller.Start();
-            _currentTarget = ThermalCurve.MinimumDynamicRpm;
-            _currentProfile = "Thermal/default";
-            _nextWatchdog = _clock.MonotonicNow + _watchdogInterval;
             lock (_sync)
             {
-                _state = RuntimeState.Running;
+                if (_state != RuntimeState.Stopped)
+                {
+                    throw new RuntimeOwnershipException(
+                        $"Thermal ownership cannot be acquired while runtime state is {_state}.");
+                }
+
+                if (_emergencyLatched)
+                {
+                    throw new RuntimeOwnershipException(
+                        "This runtime experienced an emergency and cannot re-enter Manual mode. Restart the runtime first.");
+                }
+
+                if (_standaloneManualOriginal is not null)
+                {
+                    throw new RuntimeOwnershipException(
+                        "A standalone fixed fan profile owns Manual mode. Apply Auto before starting thermal control.");
+                }
             }
 
-            AddEvent((sequence, timestamp) => new SessionStartedEvent(
-                sequence,
-                timestamp,
-                "Thermal session started with fast telemetry and deadline scheduling.",
-                _sessionId!.Value));
+            ThermalOwnershipQualification qualification =
+                _controlTelemetry.QualifyThermalOwnership();
+            if (!qualification.ThermalOwnershipReady)
+            {
+                throw new ThermalPreflightException(
+                    $"Fresh thermal ownership qualification failed: " +
+                    $"{string.Join(" ", qualification.Reasons)} No SET was sent.");
+            }
+
+            lock (_sync)
+            {
+                _state = RuntimeState.Starting;
+                _sessionId = Guid.NewGuid();
+                _startTimestamp = _clock.UtcNow;
+                _lastFailure = null;
+                _emergencyStatus = null;
+            }
+
+            try
+            {
+                _controller = new ThermalRuntimeController(
+                    _telemetryAdapter,
+                    _hardware,
+                    _profile,
+                    clock: new ThermalClockAdapter(_clock));
+                _controller.Start();
+                _currentTarget = ThermalCurve.MinimumDynamicRpm;
+                _currentProfile = "Thermal/default";
+                _nextWatchdog = _clock.MonotonicNow + _watchdogInterval;
+                lock (_sync)
+                {
+                    _state = RuntimeState.Running;
+                }
+
+                AddEvent((sequence, timestamp) => new SessionStartedEvent(
+                    sequence,
+                    timestamp,
+                    "Thermal session started with fast telemetry and deadline scheduling.",
+                    _sessionId!.Value));
+            }
+            catch (Exception exception)
+            {
+                Fault($"Thermal session start failed: {exception.Message}");
+                throw;
+            }
         }
-        catch (Exception exception)
+        finally
         {
-            Fault($"Thermal session start failed: {exception.Message}");
-            throw;
+            _operationGate.Release();
+        }
+    }
+
+    public ThermalOwnershipQualification QualifyThermalOwnership()
+    {
+        EnsureReadOperationAllowed();
+        _operationGate.Wait();
+        try
+        {
+            return _controlTelemetry.QualifyThermalOwnership();
+        }
+        finally
+        {
+            _operationGate.Release();
         }
     }
 

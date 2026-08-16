@@ -1,5 +1,6 @@
 using BladeControl.Razer;
 using BladeControl.Runtime;
+using BladeControl.Telemetry;
 using BladeControl.Thermal;
 
 namespace BladeControl.Runtime.Tests;
@@ -18,6 +19,67 @@ public sealed class RuntimeLifecycleTests
         Assert.AreEqual(RuntimeState.Stopped, runtime.State);
         Assert.AreEqual(0, rig.Hardware.AutoAttempts);
         Assert.AreEqual(0, rig.Hardware.FanWrites);
+    }
+
+    [TestMethod]
+    public async Task StartupKnownAutoStateTracesExactlyTwoModeGets()
+    {
+        RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+
+        Assert.IsTrue(runtime.InitializeHost());
+
+        ProtocolExchangeEvent[] exchanges = runtime.GetStatus().RecentEvents
+            .OfType<ProtocolExchangeEvent>()
+            .ToArray();
+        Assert.AreEqual(2, exchanges.Length);
+        Assert.IsTrue(exchanges.All(item => item.Exchange.CombinedCommand == 0x0D82));
+    }
+
+    [TestMethod]
+    public async Task FreshCpuQualificationFailurePreventsEverySet()
+    {
+        RuntimeRig rig = new();
+        rig.Telemetry.MissingCpu = true;
+        await using BladeRuntime runtime = rig.CreateRuntime();
+
+        Assert.ThrowsException<ThermalPreflightException>(runtime.StartThermalControl);
+
+        Assert.AreEqual(1, rig.Telemetry.QualificationReads);
+        Assert.AreEqual(0, rig.Hardware.FanWrites);
+        Assert.AreEqual(0, rig.Hardware.AutoAttempts);
+        CollectionAssert.DoesNotContain(rig.Hardware.Operations, "Capture");
+        Assert.AreEqual(RuntimeState.Stopped, runtime.State);
+    }
+
+    [TestMethod]
+    public async Task FreshGpuQualificationFailurePreventsEverySet()
+    {
+        RuntimeRig rig = new();
+        rig.Telemetry.MissingGpu = true;
+        await using BladeRuntime runtime = rig.CreateRuntime();
+
+        Assert.ThrowsException<ThermalPreflightException>(runtime.StartThermalControl);
+
+        Assert.AreEqual(0, rig.Hardware.FanWrites);
+        Assert.AreEqual(0, rig.Hardware.AutoAttempts);
+        CollectionAssert.DoesNotContain(rig.Hardware.Operations, "Capture");
+    }
+
+    [TestMethod]
+    public async Task ThermalStartDoesNotTrustEarlierSuccessfulDoctorQualification()
+    {
+        RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        ThermalOwnershipQualification doctor = runtime.QualifyThermalOwnership();
+        Assert.IsTrue(doctor.ThermalOwnershipReady);
+        rig.Telemetry.MissingCpu = true;
+
+        Assert.ThrowsException<ThermalPreflightException>(runtime.StartThermalControl);
+
+        Assert.AreEqual(2, rig.Telemetry.QualificationReads);
+        Assert.AreEqual(0, rig.Hardware.FanWrites);
+        Assert.AreEqual(0, rig.Hardware.AutoAttempts);
     }
 
     [TestMethod]

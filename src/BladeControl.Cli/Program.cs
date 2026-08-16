@@ -153,9 +153,9 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli thermal simulate <curve-file> <telemetry-trace-file>");
         Console.WriteLine("  BladeControl.Cli thermal run --curve default [--verbose]");
         Console.WriteLine("  BladeControl.Cli thermal selftest --verbose");
-        Console.WriteLine("  BladeControl.Cli runtime status");
-        Console.WriteLine("  BladeControl.Cli runtime doctor");
-        Console.WriteLine("  BladeControl.Cli service console");
+        Console.WriteLine("  BladeControl.Cli runtime status [--verbose]");
+        Console.WriteLine("  BladeControl.Cli runtime doctor [--verbose]");
+        Console.WriteLine("  BladeControl.Cli service console [--verbose]");
     }
 
     private static int RunProbe(bool verbose)

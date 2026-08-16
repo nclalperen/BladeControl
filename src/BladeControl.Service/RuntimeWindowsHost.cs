@@ -1,6 +1,7 @@
 using BladeControl.Hardware.Windows;
 using BladeControl.Hardware.Windows.Telemetry;
 using BladeControl.Runtime;
+using BladeControl.Telemetry;
 
 namespace BladeControl.Service;
 
@@ -8,7 +9,9 @@ public static class RuntimeWindowsHost
 {
     public const string ServiceName = "BladeControlRuntime";
 
-    public static async Task<int> RunAsync(CancellationToken cancellationToken)
+    public static async Task<int> RunAsync(
+        CancellationToken cancellationToken,
+        bool verbose = false)
     {
         WindowsRazerClientSession? razer = null;
         WindowsTelemetrySession? telemetry = null;
@@ -25,7 +28,7 @@ public static class RuntimeWindowsHost
                 new NamedSemaphoreRuntimeOwnershipGate());
             dispatcher = new RuntimeIpcDispatcher(
                 runtime,
-                () => CreateDoctorReport(telemetry));
+                () => CreateDoctorReport(telemetry, runtime));
             if (!runtime.InitializeHost())
             {
                 Console.Error.WriteLine(runtime.GetStatus().LastFailureReason);
@@ -35,6 +38,11 @@ public static class RuntimeWindowsHost
             Console.WriteLine("BladeControl Runtime Core V1 host is ready.");
             Console.WriteLine($"Local pipe: {RuntimeNamedPipeServer.PipeName}");
             Console.WriteLine("Ctrl+C/service stop uses the shared safe shutdown state machine.");
+            if (verbose)
+            {
+                Console.WriteLine(
+                    "Verbose console diagnostics enabled; hardware behavior is unchanged.");
+            }
             var pipe = new RuntimeNamedPipeServer(dispatcher);
             await pipe.RunAsync(cancellationToken).ConfigureAwait(false);
             return 0;
@@ -65,10 +73,23 @@ public static class RuntimeWindowsHost
         }
     }
 
-    private static object CreateDoctorReport(WindowsTelemetrySession telemetry) => new
+    private static object CreateDoctorReport(
+        WindowsTelemetrySession telemetry,
+        BladeRuntime runtime)
     {
-        telemetry.Capabilities,
-        telemetry.PawnIoProvenance,
-        CpuThermalOwnershipSafe = telemetry.PawnIoProvenance.IsSafeForThermalOwnership
-    };
+        ThermalOwnershipQualification qualification = runtime.QualifyThermalOwnership();
+        return new
+        {
+            qualification.Capabilities,
+            telemetry.PawnIoProvenance,
+            qualification.CpuProviderProvenanceSafe,
+            qualification.CpuPackageTemperatureHealthy,
+            qualification.GpuTemperatureHealthy,
+            qualification.GpuSelectionDeterministic,
+            qualification.RazerHidAvailable,
+            qualification.ThermalOwnershipReady,
+            qualification.Reasons,
+            QualificationTimestamp = qualification.Timestamp
+        };
+    }
 }

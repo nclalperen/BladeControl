@@ -68,6 +68,147 @@ public sealed class IpcAndConfigurationTests
             rig.Hardware.LastPerformanceProfile.GpuLevel);
     }
 
+    [DataTestMethod]
+    [DataRow(0x00, "Balanced")]
+    [DataRow(0x04, "Custom")]
+    [DataRow(0x05, "Silent")]
+    [DataRow(0x7E, "Unknown(0x7E)")]
+    public async Task PerformanceModesRoundTripAsMeaningfulStrings(
+        int rawMode,
+        string expected)
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        Assert.IsTrue(runtime.InitializeHost());
+        rig.Hardware.SetMode(
+            new RazerPerformanceMode(checked((byte)rawMode)),
+            RazerFanMode.Auto);
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+
+        JsonElement data = await DispatchRoundTripAsync(
+            dispatcher,
+            RuntimeIpcOperation.GetFanState);
+
+        Assert.AreEqual(expected,
+            data.GetProperty("Mode").GetProperty("Zone1PerformanceMode").GetString());
+    }
+
+    [DataTestMethod]
+    [DataRow(0x00, "Auto")]
+    [DataRow(0x01, "Manual")]
+    [DataRow(0x7D, "Unknown(0x7D)")]
+    public async Task FanModesRoundTripAsMeaningfulStrings(int rawMode, string expected)
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        Assert.IsTrue(runtime.InitializeHost());
+        rig.Hardware.SetMode(
+            RazerPerformanceMode.Balanced,
+            new RazerFanMode(checked((byte)rawMode)));
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+
+        JsonElement data = await DispatchRoundTripAsync(
+            dispatcher,
+            RuntimeIpcOperation.GetFanState);
+
+        Assert.AreEqual(expected,
+            data.GetProperty("Mode").GetProperty("Zone1FanMode").GetString());
+    }
+
+    [DataTestMethod]
+    [DataRow(0x00, "Low")]
+    [DataRow(0x01, "Medium")]
+    [DataRow(0x02, "High")]
+    [DataRow(0x03, "Boost")]
+    [DataRow(0x04, "Overclock")]
+    [DataRow(0x7C, "Unknown(0x7C)")]
+    public async Task CpuLevelsRoundTripAsMeaningfulStrings(int rawLevel, string expected)
+    {
+        JsonElement data = await PerformanceStateRoundTripAsync(
+            new RazerCpuPerformanceLevel(checked((byte)rawLevel)),
+            RazerGpuPerformanceLevel.Low);
+
+        Assert.AreEqual(expected, data.GetProperty("CpuLevel").GetString());
+    }
+
+    [DataTestMethod]
+    [DataRow(0x00, "Low")]
+    [DataRow(0x01, "Medium")]
+    [DataRow(0x02, "High")]
+    [DataRow(0x7B, "Unknown(0x7B)")]
+    public async Task GpuLevelsRoundTripAsMeaningfulStrings(int rawLevel, string expected)
+    {
+        JsonElement data = await PerformanceStateRoundTripAsync(
+            RazerCpuPerformanceLevel.Low,
+            new RazerGpuPerformanceLevel(checked((byte)rawLevel)));
+
+        Assert.AreEqual(expected, data.GetProperty("GpuLevel").GetString());
+    }
+
+    [TestMethod]
+    public async Task FanRpmAndFanStateRoundTripAsNumbers()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        Assert.IsTrue(runtime.InitializeHost());
+        rig.Hardware.SetFanRpm(3200, 4100);
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+
+        JsonElement data = await DispatchRoundTripAsync(
+            dispatcher,
+            RuntimeIpcOperation.GetFanState);
+
+        Assert.AreEqual(3200, data.GetProperty("Fan1Rpm").GetInt32());
+        Assert.AreEqual(4100, data.GetProperty("Fan2Rpm").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task RuntimeAndWatchdogStateRoundTripWithoutEmptyModeObjects()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        Assert.IsTrue(runtime.InitializeHost());
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+
+        RuntimeIpcResponse response = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.GetRuntimeStatus,
+            null));
+        string json = RuntimeIpcDispatcher.SerializeResponse(response);
+        JsonElement data = DeserializeData(json);
+        JsonElement watchdog = data.GetProperty("LastRazerWatchdogState");
+
+        Assert.AreEqual("Stopped", data.GetProperty("State").GetString());
+        Assert.AreEqual("Custom", watchdog.GetProperty("Zone1PerformanceMode").GetString());
+        Assert.AreEqual("Auto", watchdog.GetProperty("Zone1FanMode").GetString());
+        Assert.IsTrue(watchdog.GetProperty("ZonesAgree").GetBoolean());
+        Assert.IsFalse(json.Contains("{}", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task ThermalCurveDtoRoundTripsWithoutFanRpmValueObjects()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            new GetThermalCurveRequest("default"));
+        RuntimeIpcResponse response = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.GetThermalCurve,
+            payload));
+
+        string json = RuntimeIpcDispatcher.SerializeResponse(response);
+        JsonElement data = DeserializeData(json);
+
+        Assert.AreEqual("default", data.GetProperty("Name").GetString());
+        Assert.AreEqual(3000,
+            data.GetProperty("Cpu")[0].GetProperty("Rpm").GetInt32());
+        Assert.IsFalse(json.Contains("{}", StringComparison.Ordinal));
+    }
+
     [TestMethod]
     public void ConfigurationRoundTripUsesVersionedModels()
     {
@@ -143,5 +284,42 @@ public sealed class IpcAndConfigurationTests
             $"BladeControl.Runtime.Tests.{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static async Task<JsonElement> PerformanceStateRoundTripAsync(
+        RazerCpuPerformanceLevel cpu,
+        RazerGpuPerformanceLevel gpu)
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        Assert.IsTrue(runtime.InitializeHost());
+        rig.Hardware.SetPerformanceLevels(cpu, gpu);
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+        return await DispatchRoundTripAsync(
+            dispatcher,
+            RuntimeIpcOperation.GetPerformanceState);
+    }
+
+    private static async Task<JsonElement> DispatchRoundTripAsync(
+        RuntimeIpcDispatcher dispatcher,
+        RuntimeIpcOperation operation)
+    {
+        RuntimeIpcResponse response = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            operation,
+            null));
+        Assert.IsTrue(response.Succeeded, response.Error);
+        string json = RuntimeIpcDispatcher.SerializeResponse(response);
+        Assert.IsFalse(json.Contains("{}", StringComparison.Ordinal));
+        return DeserializeData(json);
+    }
+
+    private static JsonElement DeserializeData(string json)
+    {
+        RuntimeIpcResponse roundTrip = JsonSerializer.Deserialize<RuntimeIpcResponse>(json) ??
+            throw new AssertFailedException("IPC response did not deserialize.");
+        Assert.IsInstanceOfType<JsonElement>(roundTrip.Data);
+        return ((JsonElement)roundTrip.Data).Clone();
     }
 }

@@ -161,6 +161,17 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
         };
     }
 
+    public ThermalOwnershipQualification QualifyThermalOwnership()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ThermalTelemetrySample sample = GetControlSample();
+        return ThermalOwnershipQualifier.Evaluate(
+            DateTimeOffset.UtcNow,
+            PawnIoProvenance.IsSafeForThermalOwnership,
+            Capabilities,
+            sample);
+    }
+
     public void Dispose()
     {
         if (_disposed)

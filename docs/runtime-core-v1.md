@@ -20,12 +20,25 @@ packet, PawnIO, NVML, file-command, shell, or arbitrary execution operation.
 ## Development console host
 
 ```powershell
-dotnet run --project .\src\BladeControl.Cli\BladeControl.Cli.csproj -- service console
+dotnet run --project .\src\BladeControl.Cli\BladeControl.Cli.csproj -- service console [--verbose]
 ```
 
 The console host and Windows Service path share the same shutdown sequence: stop new
 cycles, establish and verify Balanced + Auto, restore captured performance state, close
 telemetry, and release ownership.
+
+`runtime status`, `runtime doctor`, and `service console` accept `--verbose`. The option
+changes diagnostics/rendering only and never changes hardware behavior. Runtime doctor
+performs a fresh authoritative sensor qualification; thermal ownership is ready only
+when PawnIO provenance, CPU Package temperature, NVML GPU temperature, deterministic GPU
+selection, and Razer HID availability all pass. `StartThermalControl` repeats this
+qualification immediately before any Manual-mode operation and does not trust an older
+doctor result.
+
+PawnIO diagnostics distinguish Windows catalog/file trust from the signer embedded in
+the PE image. A WHCP catalog signer and a different embedded signer can therefore both
+be reported without ambiguity. Thermal ownership uses the Windows trust result; the
+embedded signer is diagnostic and cannot make an untrusted driver safe.
 
 ## Windows Service (manual, later operation only)
 

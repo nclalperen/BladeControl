@@ -293,3 +293,90 @@ public sealed class TelemetryCapabilities
 
     public IReadOnlyList<string> Diagnostics { get; init; } = [];
 }
+
+public sealed record ThermalOwnershipQualification(
+    DateTimeOffset Timestamp,
+    bool CpuProviderProvenanceSafe,
+    bool CpuPackageTemperatureHealthy,
+    bool GpuTemperatureHealthy,
+    bool GpuSelectionDeterministic,
+    bool RazerHidAvailable,
+    bool ThermalOwnershipReady,
+    TelemetryCapabilities Capabilities,
+    IReadOnlyList<string> Reasons);
+
+public static class ThermalOwnershipQualifier
+{
+    public static ThermalOwnershipQualification Evaluate(
+        DateTimeOffset now,
+        bool cpuProviderProvenanceSafe,
+        TelemetryCapabilities capabilities,
+        ThermalTelemetrySample sample)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        ArgumentNullException.ThrowIfNull(sample);
+
+        TelemetryHealth cpuHealth = TelemetryHealthEvaluator.EvaluateRequiredCpuTemperature(
+            sample.CpuPackageTemperatureCelsius,
+            now);
+        TelemetryHealth gpuHealth = TelemetryHealthEvaluator.EvaluateRequiredGpuTemperature(
+            sample.GpuTemperatureCelsius,
+            now);
+        bool cpuHealthy = cpuHealth.IsHealthy &&
+            sample.CpuPackageTemperatureCelsius.Source ==
+                TelemetrySources.CpuPackageTemperature;
+        bool gpuHealthy = gpuHealth.IsHealthy &&
+            sample.GpuTemperatureCelsius.Source == TelemetrySources.GpuTemperature;
+        bool deterministicGpu = capabilities.NvmlAvailable &&
+            capabilities.SelectedGpu is not null &&
+            !capabilities.GpuSelectionAmbiguous;
+        bool razerAvailable = capabilities.RazerHidAvailable;
+        var reasons = new List<string>();
+        if (!cpuProviderProvenanceSafe)
+        {
+            reasons.Add("PawnIO/CPU provider provenance policy did not pass.");
+        }
+
+        if (!cpuHealthy)
+        {
+            reasons.Add(cpuHealth.IsHealthy
+                ? "CPU Package temperature did not come from the authoritative provider."
+                : cpuHealth.Reason);
+        }
+
+        if (!gpuHealthy)
+        {
+            reasons.Add(gpuHealth.IsHealthy
+                ? "GPU temperature did not come from the authoritative NVML provider."
+                : gpuHealth.Reason);
+        }
+
+        if (!deterministicGpu)
+        {
+            reasons.Add("NVML GPU selection is unavailable or ambiguous.");
+        }
+
+        if (!razerAvailable)
+        {
+            reasons.Add("The selected Razer HID management interface is unavailable.");
+        }
+
+        bool ready = cpuProviderProvenanceSafe && cpuHealthy && gpuHealthy &&
+            deterministicGpu && razerAvailable;
+        if (ready)
+        {
+            reasons.Add("Authoritative CPU/GPU telemetry and Razer HID are ready.");
+        }
+
+        return new ThermalOwnershipQualification(
+            sample.Timestamp,
+            cpuProviderProvenanceSafe,
+            cpuHealthy,
+            gpuHealthy,
+            deterministicGpu,
+            razerAvailable,
+            ready,
+            capabilities,
+            reasons);
+    }
+}

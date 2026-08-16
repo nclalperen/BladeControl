@@ -55,6 +55,14 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
 
     internal bool MissingGpu { get; set; }
 
+    internal bool CpuProviderProvenanceSafe { get; set; } = true;
+
+    internal bool GpuSelectionDeterministic { get; set; } = true;
+
+    internal bool RazerHidAvailable { get; set; } = true;
+
+    internal int QualificationReads { get; private set; }
+
     internal double? FixedCpuTemperature { get; set; }
 
     internal double? FixedGpuTemperature { get; set; }
@@ -63,11 +71,7 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
 
     public string Name => "fake runtime telemetry";
 
-    public TelemetryCapabilities Capabilities { get; } = new()
-    {
-        CpuPackageTemperatureAvailable = true,
-        GpuTemperatureSupported = true
-    };
+    public TelemetryCapabilities Capabilities => CreateCapabilities();
 
     public ThermalTelemetrySample GetControlSample()
     {
@@ -106,9 +110,33 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
         return GetControlSample().ToDiagnosticSnapshot();
     }
 
+    public ThermalOwnershipQualification QualifyThermalOwnership()
+    {
+        QualificationReads++;
+        ThermalTelemetrySample sample = GetControlSample();
+        return ThermalOwnershipQualifier.Evaluate(
+            _clock.UtcNow,
+            CpuProviderProvenanceSafe,
+            CreateCapabilities(),
+            sample);
+    }
+
     public void Dispose()
     {
     }
+
+    private TelemetryCapabilities CreateCapabilities() => new()
+    {
+        RazerHidAvailable = RazerHidAvailable,
+        NvmlAvailable = GpuSelectionDeterministic,
+        SelectedGpu = GpuSelectionDeterministic
+            ? new TelemetryGpuIdentity("Fake GPU", "GPU-fake", "00000000:01:00.0")
+            : null,
+        GpuTemperatureSupported = !MissingGpu,
+        PawnIoAvailable = CpuProviderProvenanceSafe,
+        CpuPackageTemperatureAvailable = !MissingCpu,
+        GpuSelectionAmbiguous = false
+    };
 }
 
 internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
@@ -166,6 +194,22 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
             Zone1FanMode = zone1Fan,
             Zone2PerformanceMode = zone2Performance ?? zone1Performance,
             Zone2FanMode = zone2Fan ?? zone1Fan
+        };
+    }
+
+    internal void SetPerformanceLevels(
+        RazerCpuPerformanceLevel cpu,
+        RazerGpuPerformanceLevel gpu)
+    {
+        _state = _state with { CpuLevel = cpu, GpuLevel = gpu };
+    }
+
+    internal void SetFanRpm(int fan1Rpm, int fan2Rpm)
+    {
+        _state = _state with
+        {
+            FirmwareReportedFan1Rpm = fan1Rpm,
+            FirmwareReportedFan2Rpm = fan2Rpm
         };
     }
 

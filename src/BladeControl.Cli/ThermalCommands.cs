@@ -95,9 +95,12 @@ internal static partial class Program
             Console.WriteLine($"PawnIO driver                {telemetry.PawnIoProvenance.DriverPath}");
             Console.WriteLine($"PawnIO file version          {telemetry.PawnIoProvenance.FileVersion}");
             Console.WriteLine($"PawnIO Authenticode          {telemetry.PawnIoProvenance.AuthenticodeStatus}");
-            Console.WriteLine($"PawnIO signer                {telemetry.PawnIoProvenance.SignerSubject}");
+            Console.WriteLine($"PawnIO signature source      {telemetry.PawnIoProvenance.SignatureSource}");
+            Console.WriteLine($"PawnIO Windows signer        {telemetry.PawnIoProvenance.WindowsTrustedSignerSubject}");
+            Console.WriteLine($"PawnIO embedded signer       {telemetry.PawnIoProvenance.EmbeddedSignerSubject}");
+            Console.WriteLine($"PawnIO timestamp signer      {telemetry.PawnIoProvenance.TimestampSignerSubject}");
             Console.WriteLine($"PawnIO SHA256                {telemetry.PawnIoProvenance.Sha256}");
-            Console.WriteLine($"PawnIO thermal safety        {(telemetry.PawnIoProvenance.IsSafeForThermalOwnership ? "safe" : "unsafe")}");
+            Console.WriteLine($"PawnIO CPU provenance safety {(telemetry.PawnIoProvenance.IsSafeForThermalOwnership ? "safe" : "unsafe")}");
             Console.WriteLine($"CPU Package temp             {Availability(capabilities.CpuPackageTemperatureAvailable)}");
             Console.WriteLine($"CPU Package power            {Availability(capabilities.CpuPackagePowerAvailable)}");
             Console.WriteLine($"ACPI zones                   {(capabilities.AcpiZonesAvailable ? "available" : "unavailable")} / diagnostic only");

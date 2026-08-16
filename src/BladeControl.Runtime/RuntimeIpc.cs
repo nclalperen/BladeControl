@@ -47,24 +47,6 @@ public sealed record StartThermalControlRequest(string Curve);
 
 public sealed record GetThermalCurveRequest(string Name);
 
-public sealed record RuntimeModeDto(
-    string Zone1Performance,
-    string Zone1Fan,
-    string Zone2Performance,
-    string Zone2Fan);
-
-public sealed record PerformanceStateDto(
-    RuntimeModeDto Mode,
-    string CpuLevel,
-    string GpuLevel,
-    int Fan1Rpm,
-    int Fan2Rpm);
-
-public sealed record FanStateDto(
-    RuntimeModeDto Mode,
-    int Fan1Rpm,
-    int Fan2Rpm);
-
 public sealed class RuntimeIpcDispatcher : IAsyncDisposable
 {
     public const int ProtocolVersion = 1;
@@ -126,12 +108,16 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
         {
             object? data = request.Operation switch
             {
-                RuntimeIpcOperation.GetRuntimeStatus => _runtime.GetStatus(),
+                RuntimeIpcOperation.GetRuntimeStatus =>
+                    RuntimeIpcDtoMapper.ToDto(_runtime.GetStatus()),
                 RuntimeIpcOperation.GetRuntimeDoctor => _doctorReport(),
-                RuntimeIpcOperation.GetTelemetrySnapshot => _runtime.GetDiagnosticSnapshot(),
-                RuntimeIpcOperation.GetPerformanceState => ToDto(_runtime.GetPerformanceState()),
+                RuntimeIpcOperation.GetTelemetrySnapshot =>
+                    RuntimeIpcDtoMapper.ToDto(_runtime.GetDiagnosticSnapshot()),
+                RuntimeIpcOperation.GetPerformanceState =>
+                    RuntimeIpcDtoMapper.ToDto(_runtime.GetPerformanceState()),
                 RuntimeIpcOperation.ApplyPerformanceProfile => ApplyPerformance(request),
-                RuntimeIpcOperation.GetFanState => ToDto(_runtime.GetFanState()),
+                RuntimeIpcOperation.GetFanState =>
+                    RuntimeIpcDtoMapper.ToDto(_runtime.GetFanState()),
                 RuntimeIpcOperation.ApplyFanProfile => ApplyFan(request),
                 RuntimeIpcOperation.StartThermalControl => StartThermal(request, cancellationToken),
                 RuntimeIpcOperation.StopThermalControl => await StopThermalAsync().ConfigureAwait(false),
@@ -231,7 +217,7 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
                 CancellationToken.None);
         }
 
-        return _runtime.GetStatus();
+        return RuntimeIpcDtoMapper.ToDto(_runtime.GetStatus());
     }
 
     private async ValueTask<object?> StopThermalAsync()
@@ -305,21 +291,4 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
         _ => throw new FormatException("GPU level must be Low.")
     };
 
-    private static PerformanceStateDto ToDto(PerformanceState state) => new(
-        ToDto(state.Zone1Mode, state.Zone2Mode),
-        state.CpuPerformanceLevel.ToString(),
-        state.GpuPerformanceLevel.ToString(),
-        state.Fan1.FirmwareReportedRpm,
-        state.Fan2.FirmwareReportedRpm);
-
-    private static FanStateDto ToDto(FanControlState state) => new(
-        ToDto(state.Zone1Mode, state.Zone2Mode),
-        state.Fan1.FirmwareReportedRpm,
-        state.Fan2.FirmwareReportedRpm);
-
-    private static RuntimeModeDto ToDto(RazerModeReading zone1, RazerModeReading zone2) => new(
-        zone1.PerformanceMode.ToString(),
-        zone1.FanMode.ToString(),
-        zone2.PerformanceMode.ToString(),
-        zone2.FanMode.ToString());
 }

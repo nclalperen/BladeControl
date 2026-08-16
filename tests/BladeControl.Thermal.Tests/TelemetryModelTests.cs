@@ -93,6 +93,130 @@ public sealed class TelemetryModelTests
             TelemetryHealthEvaluator.Evaluate(Snapshot(temperature, 45, Now, Now), Now).Kind);
     }
 
+    [TestMethod]
+    public void NvmlSelectionWithoutGpuMetricProbeIsNotThermalReady()
+    {
+        TelemetryCapabilities capabilities = ReadyCapabilities(
+            gpuTemperatureSupported: false);
+        var sample = new ThermalTelemetrySample(
+            Now,
+            TelemetryMetric<double>.Available(
+                55,
+                Now,
+                TelemetrySources.CpuPackageTemperature),
+            TelemetryMetric<double>.Unsupported(TelemetrySources.GpuTemperature));
+
+        ThermalOwnershipQualification qualification = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            capabilities,
+            sample);
+
+        Assert.IsFalse(qualification.GpuTemperatureHealthy);
+        Assert.IsFalse(qualification.ThermalOwnershipReady);
+    }
+
+    [TestMethod]
+    public void SafePawnIoProvenanceWithoutCpuPackageSensorIsNotThermalReady()
+    {
+        var sample = new ThermalTelemetrySample(
+            Now,
+            TelemetryMetric<double>.Missing(
+                Now,
+                TelemetrySources.CpuPackageTemperature,
+                "CPU Package sensor unavailable"),
+            TelemetryMetric<double>.Available(50, Now, TelemetrySources.GpuTemperature));
+
+        ThermalOwnershipQualification qualification = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            ReadyCapabilities(),
+            sample);
+
+        Assert.IsTrue(qualification.CpuProviderProvenanceSafe);
+        Assert.IsFalse(qualification.CpuPackageTemperatureHealthy);
+        Assert.IsFalse(qualification.ThermalOwnershipReady);
+    }
+
+    [TestMethod]
+    public void ProviderProvenanceAloneIsInsufficientForThermalReadiness()
+    {
+        var sample = new ThermalTelemetrySample(
+            Now,
+            TelemetryMetric<double>.Unsupported(TelemetrySources.CpuPackageTemperature),
+            TelemetryMetric<double>.Unsupported(TelemetrySources.GpuTemperature));
+
+        ThermalOwnershipQualification qualification = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            ReadyCapabilities(),
+            sample);
+
+        Assert.IsFalse(qualification.ThermalOwnershipReady);
+        Assert.IsTrue(qualification.Reasons.Count >= 2);
+    }
+
+    [TestMethod]
+    public void AllRequiredInputsAreNecessaryAndSufficientForThermalReadiness()
+    {
+        ThermalOwnershipQualification ready = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            ReadyCapabilities(),
+            ReadySample());
+        Assert.IsTrue(ready.ThermalOwnershipReady);
+
+        ThermalOwnershipQualification unsafeProvenance =
+            ThermalOwnershipQualifier.Evaluate(
+                Now,
+                cpuProviderProvenanceSafe: false,
+                ReadyCapabilities(),
+                ReadySample());
+        Assert.IsFalse(unsafeProvenance.ThermalOwnershipReady);
+
+        TelemetryCapabilities ambiguousGpu = ReadyCapabilities(
+            gpuSelectionAmbiguous: true);
+        ThermalOwnershipQualification ambiguous = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            ambiguousGpu,
+            ReadySample());
+        Assert.IsFalse(ambiguous.ThermalOwnershipReady);
+
+        TelemetryCapabilities noRazer = ReadyCapabilities(razerHidAvailable: false);
+        ThermalOwnershipQualification missingRazer = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            noRazer,
+            ReadySample());
+        Assert.IsFalse(missingRazer.ThermalOwnershipReady);
+    }
+
+    private static TelemetryCapabilities ReadyCapabilities(
+        bool gpuTemperatureSupported = true,
+        bool gpuSelectionAmbiguous = false,
+        bool razerHidAvailable = true) => new()
+        {
+            RazerHidAvailable = razerHidAvailable,
+            NvmlAvailable = true,
+            SelectedGpu = new TelemetryGpuIdentity(
+            "RTX 4090 Laptop GPU",
+            "GPU-test",
+            "00000000:01:00.0"),
+            GpuTemperatureSupported = gpuTemperatureSupported,
+            PawnIoAvailable = true,
+            CpuPackageTemperatureAvailable = true,
+            GpuSelectionAmbiguous = gpuSelectionAmbiguous
+        };
+
+    private static ThermalTelemetrySample ReadySample() => new(
+        Now,
+        TelemetryMetric<double>.Available(
+            55,
+            Now,
+            TelemetrySources.CpuPackageTemperature),
+        TelemetryMetric<double>.Available(50, Now, TelemetrySources.GpuTemperature));
+
     private static TelemetrySnapshot Snapshot(
         double cpu,
         double gpu,
