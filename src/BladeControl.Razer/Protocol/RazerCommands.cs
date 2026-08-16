@@ -4,6 +4,7 @@ internal static class RazerCommands
 {
     internal const byte SystemCommandClass = 0x0D;
     internal const byte WriteBackPerformanceAndFanModeCommandId = 0x02;
+    internal const byte WriteBackPerformanceLevelCommandId = 0x07;
     internal const byte GetFanRpmCommandId = 0x81;
     internal const byte GetPerformanceAndFanModeCommandId = 0x82;
     internal const byte GetPerformanceBoostLevelCommandId = 0x87;
@@ -54,6 +55,25 @@ internal static class RazerCommands
             arguments);
     }
 
+    internal static RazerPacket CreateExpectedPerformanceLevelWriteBack(
+        byte transactionId,
+        RazerPerformanceCluster cluster)
+    {
+        byte[] arguments = cluster switch
+        {
+            RazerPerformanceCluster.Cpu => [0x00, 0x01, 0x01],
+            RazerPerformanceCluster.Gpu => [0x00, 0x02, 0x00],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(cluster),
+                cluster,
+                "Only the expected CPU and GPU performance levels are supported.")
+        };
+        return CreateRequest(
+            transactionId,
+            WriteBackPerformanceLevelCommandId,
+            arguments);
+    }
+
     internal static void EnsureAllowed(RazerPacket packet)
     {
         ArgumentNullException.ThrowIfNull(packet);
@@ -72,6 +92,9 @@ internal static class RazerCommands
             WriteBackPerformanceAndFanModeCommandId =>
                 packet.DataSize == 4 &&
                 HasExactCustomAutoWriteBackArguments(packet),
+            WriteBackPerformanceLevelCommandId =>
+                packet.DataSize == 3 &&
+                HasExactExpectedPerformanceLevelWriteBackArguments(packet),
             GetFanRpmCommandId =>
                 packet.DataSize == 3 &&
                 HasAllowedZoneArguments(packet, expectedDataSize: 3),
@@ -157,6 +180,23 @@ internal static class RazerCommands
             arguments[3] == 0x00;
 
         return allowedPrefix && IsAllZero(arguments[4..]);
+    }
+
+    private static bool HasExactExpectedPerformanceLevelWriteBackArguments(
+        RazerPacket packet)
+    {
+        ReadOnlySpan<byte> arguments = packet.Arguments;
+        bool isExpectedCpuLevel =
+            arguments[0] == 0x00 &&
+            arguments[1] == (byte)RazerPerformanceCluster.Cpu &&
+            arguments[2] == 0x01;
+        bool isExpectedGpuLevel =
+            arguments[0] == 0x00 &&
+            arguments[1] == (byte)RazerPerformanceCluster.Gpu &&
+            arguments[2] == 0x00;
+
+        return (isExpectedCpuLevel || isExpectedGpuLevel) &&
+            IsAllZero(arguments[3..]);
     }
 
     private static bool IsAllZero(ReadOnlySpan<byte> values)

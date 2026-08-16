@@ -91,8 +91,31 @@ public sealed class RazerCommandsTests
     }
 
     [DataTestMethod]
+    [DataRow((byte)RazerPerformanceCluster.Cpu, (byte)0x01, (byte)0x01, (byte)0x09)]
+    [DataRow((byte)RazerPerformanceCluster.Gpu, (byte)0x02, (byte)0x00, (byte)0x0B)]
+    public void ExpectedPerformanceLevelWriteBackFactoryCreatesOnlyExactAllowedShape(
+        byte cluster,
+        byte expectedCluster,
+        byte expectedLevel,
+        byte expectedChecksum)
+    {
+        RazerPacket packet = RazerCommands.CreateExpectedPerformanceLevelWriteBack(
+            0x2E,
+            (RazerPerformanceCluster)cluster);
+
+        RazerCommands.EnsureAllowed(packet);
+        Assert.AreEqual(0x0D, packet.CommandClass);
+        Assert.AreEqual(0x07, packet.CommandId);
+        Assert.AreEqual(3, packet.DataSize);
+        CollectionAssert.AreEqual(
+            new byte[] { 0x00, expectedCluster, expectedLevel },
+            packet.Arguments[..3].ToArray());
+        Assert.IsTrue(packet.Arguments[3..].ToArray().All(value => value == 0));
+        Assert.AreEqual(expectedChecksum, RazerPacketCodec.Encode(packet)[88]);
+    }
+
+    [DataTestMethod]
     [DataRow((byte)0x0D, (byte)0x01, (byte)3)]
-    [DataRow((byte)0x0D, (byte)0x07, (byte)3)]
     [DataRow((byte)0x07, (byte)0x0F, (byte)1)]
     public void ExplicitlyBlockedCommandsAreRejected(
         byte commandClass,
@@ -167,6 +190,59 @@ public sealed class RazerCommandsTests
             () => RazerCommands.EnsureAllowed(packet));
     }
 
+    [DataTestMethod]
+    [DataRow((byte)0x00, (byte)0x01, (byte)0x00)]
+    [DataRow((byte)0x00, (byte)0x01, (byte)0x02)]
+    [DataRow((byte)0x00, (byte)0x01, (byte)0x03)]
+    [DataRow((byte)0x00, (byte)0x01, (byte)0x04)]
+    [DataRow((byte)0x00, (byte)0x02, (byte)0x01)]
+    [DataRow((byte)0x00, (byte)0x02, (byte)0x02)]
+    [DataRow((byte)0x00, (byte)0x03, (byte)0x00)]
+    [DataRow((byte)0x01, (byte)0x01, (byte)0x01)]
+    public void EveryNonExpectedPerformanceLevelWriteBackShapeIsRejected(
+        byte selector,
+        byte cluster,
+        byte level)
+    {
+        var packet = new RazerPacket(
+            status: 0,
+            transactionId: 1,
+            remainingPackets: 0,
+            protocolType: 0,
+            dataSize: 3,
+            commandClass: 0x0D,
+            commandId: 0x07,
+            arguments: new byte[] { selector, cluster, level },
+            crc: 0,
+            reserved: 0);
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => RazerCommands.EnsureAllowed(packet));
+    }
+
+    [TestMethod]
+    public void PerformanceLevelWriteBackWithNonzeroTrailingArgumentIsRejected()
+    {
+        var arguments = new byte[RazerPacketCodec.ArgumentLength];
+        arguments[1] = 0x01;
+        arguments[2] = 0x01;
+        arguments[3] = 0x01;
+        var packet = new RazerPacket(
+            status: 0,
+            transactionId: 1,
+            remainingPackets: 0,
+            protocolType: 0,
+            dataSize: 3,
+            commandClass: 0x0D,
+            commandId: 0x07,
+            arguments,
+            crc: 0,
+            reserved: 0);
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => RazerCommands.EnsureAllowed(packet));
+    }
+
     [TestMethod]
     public void MalformedArgumentsForAllowedCommandAreRejected()
     {
@@ -198,6 +274,15 @@ public sealed class RazerCommandsTests
     {
         Assert.ThrowsException<ArgumentOutOfRangeException>(
             () => RazerCommands.CreateGetPerformanceBoostLevel(
+                1,
+                (RazerPerformanceCluster)3));
+    }
+
+    [TestMethod]
+    public void UnsupportedWriteBackPerformanceClusterIsRejectedBeforeTransport()
+    {
+        Assert.ThrowsException<ArgumentOutOfRangeException>(
+            () => RazerCommands.CreateExpectedPerformanceLevelWriteBack(
                 1,
                 (RazerPerformanceCluster)3));
     }

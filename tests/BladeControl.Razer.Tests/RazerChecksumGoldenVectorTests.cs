@@ -14,6 +14,8 @@ public sealed class RazerChecksumGoldenVectorTests
     [DataRow((byte)0x87, (byte)0x02, (byte)0x06, (byte)0x8B)]
     [DataRow((byte)0x02, (byte)0x01, (byte)0x07, (byte)0x0F)]
     [DataRow((byte)0x02, (byte)0x02, (byte)0x08, (byte)0x0C)]
+    [DataRow((byte)0x07, (byte)0x01, (byte)0x09, (byte)0x09)]
+    [DataRow((byte)0x07, (byte)0x02, (byte)0x0A, (byte)0x0B)]
     public void OutgoingRequestsMatchKnownChecksums(
         byte commandId,
         byte selector,
@@ -26,6 +28,10 @@ public sealed class RazerChecksumGoldenVectorTests
                 RazerCommands.CreateCustomAutoModeWriteBack(
                     transactionId,
                     (RazerZone)selector),
+            RazerCommands.WriteBackPerformanceLevelCommandId =>
+                RazerCommands.CreateExpectedPerformanceLevelWriteBack(
+                    transactionId,
+                    (RazerPerformanceCluster)selector),
             RazerCommands.GetFanRpmCommandId =>
                 RazerCommands.CreateGetFanRpm(transactionId, (RazerZone)selector),
             RazerCommands.GetPerformanceAndFanModeCommandId =>
@@ -68,6 +74,23 @@ public sealed class RazerChecksumGoldenVectorTests
 
         Assert.AreNotEqual(transactionOne[1], transactionFe[1]);
         Assert.AreEqual(0x0F, transactionOne[88]);
+        Assert.AreEqual(transactionOne[88], transactionFe[88]);
+    }
+
+    [TestMethod]
+    public void PerformanceLevelWriteBackChecksumDoesNotIncludeTransactionId()
+    {
+        byte[] transactionOne = RazerPacketCodec.Encode(
+            RazerCommands.CreateExpectedPerformanceLevelWriteBack(
+                0x01,
+                RazerPerformanceCluster.Cpu));
+        byte[] transactionFe = RazerPacketCodec.Encode(
+            RazerCommands.CreateExpectedPerformanceLevelWriteBack(
+                0xFE,
+                RazerPerformanceCluster.Cpu));
+
+        Assert.AreNotEqual(transactionOne[1], transactionFe[1]);
+        Assert.AreEqual(0x09, transactionOne[88]);
         Assert.AreEqual(transactionOne[88], transactionFe[88]);
     }
 

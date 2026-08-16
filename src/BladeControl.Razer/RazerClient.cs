@@ -104,6 +104,54 @@ public sealed class RazerClient
             postWriteState);
     }
 
+    public RazerPerformanceLevelWriteBackResult RunPerformanceLevelWriteBackTest()
+    {
+        RazerStatusSnapshot preWriteState =
+            ReadCompleteStatus(requireZoneAgreement: false);
+        ValidatePerformanceLevelWriteBackPreconditions(preWriteState);
+
+        var writeExchanges = new List<RazerExchangeTrace>(capacity: 2);
+        RazerExchangeTrace cpuWrite;
+        try
+        {
+            cpuWrite = WriteBackExpectedPerformanceLevel(
+                RazerPerformanceCluster.Cpu);
+            writeExchanges.Add(cpuWrite);
+        }
+        catch (RazerProtocolException exception)
+        {
+            throw CreatePerformanceLevelWriteBackValidationException(
+                "CPU",
+                preWriteState,
+                writeExchanges,
+                exception);
+        }
+
+        RazerExchangeTrace gpuWrite;
+        try
+        {
+            gpuWrite = WriteBackExpectedPerformanceLevel(
+                RazerPerformanceCluster.Gpu);
+            writeExchanges.Add(gpuWrite);
+        }
+        catch (RazerProtocolException exception)
+        {
+            throw CreatePerformanceLevelWriteBackValidationException(
+                "GPU",
+                preWriteState,
+                writeExchanges,
+                exception);
+        }
+
+        RazerStatusSnapshot postWriteState =
+            ReadCompleteStatus(requireZoneAgreement: false);
+        return new RazerPerformanceLevelWriteBackResult(
+            preWriteState,
+            cpuWrite,
+            gpuWrite,
+            postWriteState);
+    }
+
     private RazerStatusSnapshot ReadCompleteStatus(bool requireZoneAgreement)
     {
         RazerFanReading fan1 = GetFanRpm(RazerZone.Zone1);
@@ -165,6 +213,34 @@ public sealed class RazerClient
         return exchange;
     }
 
+    private RazerExchangeTrace WriteBackExpectedPerformanceLevel(
+        RazerPerformanceCluster cluster)
+    {
+        byte transactionId = _transactionIds.NextTransactionId();
+        RazerPacket request = RazerCommands.CreateExpectedPerformanceLevelWriteBack(
+            transactionId,
+            cluster);
+        (RazerPacket response, RazerExchangeTrace exchange) = ExchangeAndValidate(
+            request,
+            expectedSelector: (byte)cluster,
+            selectorName: "cluster",
+            minimumResponseDataSize: 3);
+
+        ReadOnlySpan<byte> expectedArguments = request.Arguments[..3];
+        ReadOnlySpan<byte> actualArguments = response.Arguments[..3];
+        if (!actualArguments.SequenceEqual(expectedArguments))
+        {
+            throw ValidationFailure(
+                request,
+                exchange,
+                "response argument echo",
+                FormatHex(expectedArguments),
+                FormatHex(actualArguments));
+        }
+
+        return exchange;
+    }
+
     private static void ValidateWriteBackPreconditions(
         RazerStatusSnapshot preWriteState)
     {
@@ -199,6 +275,57 @@ public sealed class RazerClient
         }
     }
 
+    private static void ValidatePerformanceLevelWriteBackPreconditions(
+        RazerStatusSnapshot preWriteState)
+    {
+        RazerModeReading zone1 = preWriteState.Zone1Mode;
+        RazerModeReading zone2 = preWriteState.Zone2Mode;
+
+        if (zone1.PerformanceMode != zone2.PerformanceMode ||
+            zone1.FanMode != zone2.FanMode)
+        {
+            throw new RazerPerformanceLevelWriteBackPreconditionException(
+                "Performance-level write-back precondition failed: performance " +
+                "or fan mode disagrees between zones. No 0x0D07 packet was sent.",
+                preWriteState);
+        }
+
+        if (zone1.PerformanceMode.RawValue != 0x04 ||
+            zone2.PerformanceMode.RawValue != 0x04)
+        {
+            throw new RazerPerformanceLevelWriteBackPreconditionException(
+                "Performance-level write-back precondition failed: both zones " +
+                "must report Custom performance mode (0x04). " +
+                "No 0x0D07 packet was sent.",
+                preWriteState);
+        }
+
+        if (zone1.FanMode.RawValue != 0x00 ||
+            zone2.FanMode.RawValue != 0x00)
+        {
+            throw new RazerPerformanceLevelWriteBackPreconditionException(
+                "Performance-level write-back precondition failed: both zones " +
+                "must report Auto fan mode (0x00). No 0x0D07 packet was sent.",
+                preWriteState);
+        }
+
+        if (preWriteState.CpuPerformanceLevel.Value != 0x01)
+        {
+            throw new RazerPerformanceLevelWriteBackPreconditionException(
+                "Performance-level write-back precondition failed: CPU must " +
+                "report Medium (0x01). No 0x0D07 packet was sent.",
+                preWriteState);
+        }
+
+        if (preWriteState.GpuPerformanceLevel.Value != 0x00)
+        {
+            throw new RazerPerformanceLevelWriteBackPreconditionException(
+                "Performance-level write-back precondition failed: GPU must " +
+                "report Low (0x00). No 0x0D07 packet was sent.",
+                preWriteState);
+        }
+    }
+
     private static RazerModeWriteBackValidationException
         CreateWriteBackValidationException(
             string stage,
@@ -212,6 +339,25 @@ public sealed class RazerClient
             .. exception.Exchanges
         ];
         return new RazerModeWriteBackValidationException(
+            stage,
+            preWriteState,
+            writeExchanges,
+            exception);
+    }
+
+    private static RazerPerformanceLevelWriteBackValidationException
+        CreatePerformanceLevelWriteBackValidationException(
+            string stage,
+            RazerStatusSnapshot preWriteState,
+            IReadOnlyList<RazerExchangeTrace> completedWriteExchanges,
+            RazerProtocolException exception)
+    {
+        RazerExchangeTrace[] writeExchanges =
+        [
+            .. completedWriteExchanges,
+            .. exception.Exchanges
+        ];
+        return new RazerPerformanceLevelWriteBackValidationException(
             stage,
             preWriteState,
             writeExchanges,
