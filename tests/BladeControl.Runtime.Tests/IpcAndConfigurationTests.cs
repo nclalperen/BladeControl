@@ -45,6 +45,105 @@ public sealed class IpcAndConfigurationTests
     }
 
     [TestMethod]
+    public async Task RuntimeEventPollingUsesTypedBoundedCursorBatch()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        Assert.IsTrue(runtime.InitializeHost());
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            new GetRuntimeEventsRequest(0, 1));
+
+        RuntimeIpcResponse response = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.GetRuntimeEvents,
+            payload));
+
+        Assert.IsTrue(response.Succeeded, response.Error);
+        Assert.IsInstanceOfType<RuntimeEventBatchDto>(response.Data);
+        var batch = (RuntimeEventBatchDto)response.Data;
+        Assert.AreEqual(1, batch.Events.Count);
+        Assert.AreEqual("ProtocolExchange", batch.Events[0].Kind);
+        Assert.IsNotNull(batch.Events[0].Exchange?.RequestReportHex);
+        Assert.AreEqual("Stopped", batch.Status.State);
+        Assert.AreEqual(0, batch.Status.RecentEvents.Count);
+        Assert.IsTrue(batch.LatestAvailableSequence >= batch.Events[0].Sequence);
+    }
+
+    [TestMethod]
+    public async Task RuntimeEventPollingRejectsOversizedBatchWithoutHardwareAccess()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+        int operations = rig.Hardware.Operations.Count;
+        JsonElement payload = JsonSerializer.SerializeToElement(
+            new GetRuntimeEventsRequest(
+                0,
+                RuntimeIpcDispatcher.MaximumEventBatchSize + 1));
+
+        RuntimeIpcResponse response = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.GetRuntimeEvents,
+            payload));
+
+        Assert.IsFalse(response.Succeeded);
+        Assert.AreEqual(operations, rig.Hardware.Operations.Count);
+    }
+
+    [TestMethod]
+    public async Task StopThermalControlLeavesDispatcherAvailableForStatus()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        runtime.StartThermalControl();
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+
+        RuntimeIpcResponse stop = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.StopThermalControl,
+            null));
+        RuntimeIpcResponse status = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.GetRuntimeStatus,
+            null));
+
+        Assert.IsTrue(stop.Succeeded, stop.Error);
+        StopThermalControlResultDto? stopData = stop.Data as StopThermalControlResultDto;
+        Assert.IsNotNull(stopData);
+        Assert.IsTrue(stopData.Succeeded);
+        Assert.IsTrue(status.Succeeded, status.Error);
+        RuntimeStatusDto? statusData = status.Data as RuntimeStatusDto;
+        Assert.IsNotNull(statusData);
+        Assert.AreEqual("Stopped", statusData.State);
+    }
+
+    [TestMethod]
+    public async Task ReadOnlyRuntimeStatusWorksWhileThermalControlIsActive()
+    {
+        var rig = new RuntimeLifecycleTests.RuntimeRig();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        runtime.StartThermalControl();
+        await using var dispatcher = new RuntimeIpcDispatcher(runtime);
+
+        RuntimeIpcResponse response = await dispatcher.DispatchAsync(new RuntimeIpcRequest(
+            1,
+            Guid.NewGuid(),
+            RuntimeIpcOperation.GetRuntimeStatus,
+            null));
+
+        Assert.IsTrue(response.Succeeded, response.Error);
+        RuntimeStatusDto? status = response.Data as RuntimeStatusDto;
+        Assert.IsNotNull(status);
+        Assert.AreEqual("Running", status.State);
+        _ = await runtime.StopThermalControlAsync();
+    }
+
+    [TestMethod]
     public async Task TypedPerformanceProfileRoutesThroughExistingSafeApi()
     {
         var rig = new RuntimeLifecycleTests.RuntimeRig();

@@ -78,8 +78,20 @@ public sealed class RuntimeNamedPipeServer
                 exception.Message);
         }
 
-        await writer.WriteLineAsync(RuntimeIpcDispatcher.SerializeResponse(response))
-            .ConfigureAwait(false);
+        string responseJson = RuntimeIpcDispatcher.SerializeResponse(response);
+        if (Encoding.UTF8.GetByteCount(responseJson) >
+            RuntimeIpcDispatcher.MaximumMessageBytes)
+        {
+            response = new RuntimeIpcResponse(
+                RuntimeIpcDispatcher.ProtocolVersion,
+                response.RequestId,
+                false,
+                null,
+                "IPC response exceeded the 64-KiB limit.");
+            responseJson = RuntimeIpcDispatcher.SerializeResponse(response);
+        }
+
+        await writer.WriteLineAsync(responseJson).ConfigureAwait(false);
     }
 
     private static bool IsLocalClient(NamedPipeServerStream pipe)
@@ -133,12 +145,23 @@ public sealed class RuntimeNamedPipeServer
     }
 }
 
-public static class RuntimePipeClient
+public sealed class NamedPipeRuntimeIpcClient : IRuntimeIpcClient
 {
-    public static async Task<RuntimeIpcResponse> SendAsync(
+    private readonly int _connectTimeoutMilliseconds;
+
+    public NamedPipeRuntimeIpcClient(int connectTimeoutMilliseconds = 2000)
+    {
+        if (connectTimeoutMilliseconds <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(connectTimeoutMilliseconds));
+        }
+
+        _connectTimeoutMilliseconds = connectTimeoutMilliseconds;
+    }
+
+    public async Task<RuntimeIpcResponse> SendAsync(
         RuntimeIpcOperation operation,
         object? payload = null,
-        int connectTimeoutMilliseconds = 2000,
         CancellationToken cancellationToken = default)
     {
         using var pipe = new NamedPipeClientStream(
@@ -146,7 +169,7 @@ public static class RuntimePipeClient
             pipeName: RuntimeNamedPipeServer.PipeName,
             direction: PipeDirection.InOut,
             options: PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-        await pipe.ConnectAsync(connectTimeoutMilliseconds, cancellationToken).ConfigureAwait(false);
+        await pipe.ConnectAsync(_connectTimeoutMilliseconds, cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(
             pipe,
             new UTF8Encoding(false, true),
@@ -180,7 +203,33 @@ public static class RuntimePipeClient
             throw new IOException("Runtime pipe returned no response.");
         }
 
-        return JsonSerializer.Deserialize<RuntimeIpcResponse>(responseJson) ??
+        if (Encoding.UTF8.GetByteCount(responseJson) >
+            RuntimeIpcDispatcher.MaximumMessageBytes)
+        {
+            throw new IOException("Runtime pipe response exceeds the 64-KiB limit.");
+        }
+
+        RuntimeIpcResponse response = JsonSerializer.Deserialize<RuntimeIpcResponse>(responseJson) ??
             throw new IOException("Runtime pipe returned an invalid response.");
+        if (response.Version != RuntimeIpcDispatcher.ProtocolVersion ||
+            response.RequestId != request.RequestId)
+        {
+            throw new IOException("Runtime pipe returned a mismatched response envelope.");
+        }
+
+        return response;
     }
+}
+
+public static class RuntimePipeClient
+{
+    public static Task<RuntimeIpcResponse> SendAsync(
+        RuntimeIpcOperation operation,
+        object? payload = null,
+        int connectTimeoutMilliseconds = 2000,
+        CancellationToken cancellationToken = default) =>
+        new NamedPipeRuntimeIpcClient(connectTimeoutMilliseconds).SendAsync(
+            operation,
+            payload,
+            cancellationToken);
 }

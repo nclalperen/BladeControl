@@ -107,7 +107,22 @@ public sealed record ThermalDecisionDto(
 public sealed record ProtocolExchangeDto(
     byte TransactionId,
     string Command,
-    bool HasResponse);
+    bool HasResponse,
+    string? RequestReportHex = null,
+    string? ResponseReportHex = null);
+
+public sealed record RuntimeEventBatchDto(
+    RuntimeStatusDto Status,
+    IReadOnlyList<RuntimeEventDto> Events,
+    long OldestAvailableSequence,
+    long LatestAvailableSequence,
+    bool GapDetected);
+
+public sealed record StopThermalControlResultDto(
+    bool SessionWasActive,
+    bool Succeeded,
+    string Message,
+    RuntimeStatusDto FinalStatus);
 
 public sealed record RuntimeEventDto(
     string Kind,
@@ -146,7 +161,32 @@ public sealed record RuntimeStatusDto(
 
 internal static class RuntimeIpcDtoMapper
 {
-    internal static RuntimeStatusDto ToDto(RuntimeStatus status) => new(
+    internal static RuntimeStatusDto ToSummaryDto(RuntimeStatus status) =>
+        ToDto(status, includeEvents: false);
+
+    internal static RuntimeEventBatchDto ToEventBatch(
+        RuntimeStatus status,
+        long afterSequence,
+        int maximumEvents)
+    {
+        RuntimeEvent[] retained = status.RecentEvents.OrderBy(item => item.Sequence).ToArray();
+        long oldest = retained.Length == 0 ? 0 : retained[0].Sequence;
+        long latest = retained.Length == 0 ? 0 : retained[^1].Sequence;
+        bool gap = afterSequence > 0 && oldest > afterSequence + 1;
+        RuntimeEventDto[] events = retained
+            .Where(item => item.Sequence > afterSequence)
+            .Take(maximumEvents)
+            .Select(item => ToDto(item, includeProtocolHex: true))
+            .ToArray();
+        return new RuntimeEventBatchDto(
+            ToDto(status, includeEvents: false),
+            events,
+            oldest,
+            latest,
+            gap);
+    }
+
+    private static RuntimeStatusDto ToDto(RuntimeStatus status, bool includeEvents) => new(
         status.State.ToString(),
         status.SessionId,
         status.StartTimestamp,
@@ -170,7 +210,9 @@ internal static class RuntimeIpcDtoMapper
         status.TotalEventCount,
         status.RetainedThermalDecisionCount,
         status.RetainedThermalTraceCount,
-        status.RecentEvents.Select(ToDto).ToArray());
+        includeEvents
+            ? status.RecentEvents.Select(item => ToDto(item, includeProtocolHex: false)).ToArray()
+            : []);
 
     internal static PerformanceStateDto ToDto(PerformanceState state) => new(
         ToDto(state.Zone1Mode, state.Zone2Mode),
@@ -280,7 +322,7 @@ internal static class RuntimeIpcDtoMapper
         ToDto(state.Zone1Mode, state.Zone2Mode),
         state.CpuPerformanceLevel.ToString(),
         state.GpuPerformanceLevel.ToString(),
-        state.Exchanges.Select(ToDto).ToArray());
+        state.Exchanges.Select(exchange => ToDto(exchange, includeHex: false)).ToArray());
 
     private static TelemetryHealthDto ToDto(TelemetryHealth health) => new(
         health.Kind.ToString(),
@@ -300,44 +342,52 @@ internal static class RuntimeIpcDtoMapper
         decision.EmergencyAuto,
         decision.Reason);
 
-    private static ProtocolExchangeDto ToDto(RazerExchangeTrace exchange) => new(
+    private static ProtocolExchangeDto ToDto(
+        RazerExchangeTrace exchange,
+        bool includeHex) => new(
         exchange.TransactionId,
         $"0x{exchange.CombinedCommand:X4}",
-        exchange.HasResponse);
+        exchange.HasResponse,
+        includeHex ? Convert.ToHexString(exchange.RequestReport.Span) : null,
+        includeHex && exchange.HasResponse
+            ? Convert.ToHexString(exchange.ResponseReport.Span)
+            : null);
 
-    private static RuntimeEventDto ToDto(RuntimeEvent item) => item switch
-    {
-        TelemetrySampleEvent telemetry => new(
-            telemetry.Kind.ToString(), telemetry.Sequence, telemetry.Timestamp,
-            telemetry.Message, ToDto(telemetry.Sample),
-            telemetry.AcquisitionDuration.TotalMilliseconds),
-        ThermalDecisionEvent decision => new(
-            decision.Kind.ToString(), decision.Sequence, decision.Timestamp,
-            decision.Message, ThermalDecision: ToDto(decision.Decision)),
-        FanTargetChangedEvent target => new(
-            target.Kind.ToString(), target.Sequence, target.Timestamp,
-            target.Message, TargetRpm: target.TargetRpm),
-        RazerWatchdogCheckEvent watchdog => new(
-            watchdog.Kind.ToString(), watchdog.Sequence, watchdog.Timestamp,
-            watchdog.Message, WatchdogState: ToDto(watchdog.State)),
-        SchedulerOverrunEvent overrun => new(
-            overrun.Kind.ToString(), overrun.Sequence, overrun.Timestamp,
-            overrun.Message, OverrunMilliseconds: overrun.Overrun.TotalMilliseconds),
-        EmergencyHandoffEvent handoff => new(
-            handoff.Kind.ToString(), handoff.Sequence, handoff.Timestamp,
-            handoff.Message, Succeeded: handoff.Succeeded),
-        SessionStartedEvent started => new(
-            started.Kind.ToString(), started.Sequence, started.Timestamp,
-            started.Message, SessionId: started.SessionId),
-        SessionStoppedEvent stopped => new(
-            stopped.Kind.ToString(), stopped.Sequence, stopped.Timestamp,
-            stopped.Message, SessionId: stopped.SessionId),
-        RecoveryResultEvent recovery => new(
-            recovery.Kind.ToString(), recovery.Sequence, recovery.Timestamp,
-            recovery.Message, Succeeded: recovery.Succeeded),
-        ProtocolExchangeEvent exchange => new(
-            exchange.Kind.ToString(), exchange.Sequence, exchange.Timestamp,
-            exchange.Message, Exchange: ToDto(exchange.Exchange)),
-        _ => new(item.Kind.ToString(), item.Sequence, item.Timestamp, item.Message)
-    };
+    private static RuntimeEventDto ToDto(
+        RuntimeEvent item,
+        bool includeProtocolHex) => item switch
+        {
+            TelemetrySampleEvent telemetry => new(
+                telemetry.Kind.ToString(), telemetry.Sequence, telemetry.Timestamp,
+                telemetry.Message, ToDto(telemetry.Sample),
+                telemetry.AcquisitionDuration.TotalMilliseconds),
+            ThermalDecisionEvent decision => new(
+                decision.Kind.ToString(), decision.Sequence, decision.Timestamp,
+                decision.Message, ThermalDecision: ToDto(decision.Decision)),
+            FanTargetChangedEvent target => new(
+                target.Kind.ToString(), target.Sequence, target.Timestamp,
+                target.Message, TargetRpm: target.TargetRpm),
+            RazerWatchdogCheckEvent watchdog => new(
+                watchdog.Kind.ToString(), watchdog.Sequence, watchdog.Timestamp,
+                watchdog.Message, WatchdogState: ToDto(watchdog.State)),
+            SchedulerOverrunEvent overrun => new(
+                overrun.Kind.ToString(), overrun.Sequence, overrun.Timestamp,
+                overrun.Message, OverrunMilliseconds: overrun.Overrun.TotalMilliseconds),
+            EmergencyHandoffEvent handoff => new(
+                handoff.Kind.ToString(), handoff.Sequence, handoff.Timestamp,
+                handoff.Message, Succeeded: handoff.Succeeded),
+            SessionStartedEvent started => new(
+                started.Kind.ToString(), started.Sequence, started.Timestamp,
+                started.Message, SessionId: started.SessionId),
+            SessionStoppedEvent stopped => new(
+                stopped.Kind.ToString(), stopped.Sequence, stopped.Timestamp,
+                stopped.Message, SessionId: stopped.SessionId),
+            RecoveryResultEvent recovery => new(
+                recovery.Kind.ToString(), recovery.Sequence, recovery.Timestamp,
+                recovery.Message, Succeeded: recovery.Succeeded),
+            ProtocolExchangeEvent exchange => new(
+                exchange.Kind.ToString(), exchange.Sequence, exchange.Timestamp,
+                exchange.Message, Exchange: ToDto(exchange.Exchange, includeProtocolHex)),
+            _ => new(item.Kind.ToString(), item.Sequence, item.Timestamp, item.Message)
+        };
 }

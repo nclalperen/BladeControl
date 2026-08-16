@@ -16,6 +16,7 @@ public enum RuntimeIpcOperation
     ApplyFanProfile,
     StartThermalControl,
     StopThermalControl,
+    GetRuntimeEvents,
     GetThermalCurve,
     ListBuiltInCurves
 }
@@ -47,10 +48,23 @@ public sealed record StartThermalControlRequest(string Curve);
 
 public sealed record GetThermalCurveRequest(string Name);
 
+public sealed record GetRuntimeEventsRequest(
+    long AfterSequence,
+    int MaximumEvents = RuntimeIpcDispatcher.MaximumEventBatchSize);
+
+public interface IRuntimeIpcClient
+{
+    Task<RuntimeIpcResponse> SendAsync(
+        RuntimeIpcOperation operation,
+        object? payload = null,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class RuntimeIpcDispatcher : IAsyncDisposable
 {
     public const int ProtocolVersion = 1;
     public const int MaximumMessageBytes = 64 * 1024;
+    public const int MaximumEventBatchSize = 16;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -109,7 +123,7 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
             object? data = request.Operation switch
             {
                 RuntimeIpcOperation.GetRuntimeStatus =>
-                    RuntimeIpcDtoMapper.ToDto(_runtime.GetStatus()),
+                    RuntimeIpcDtoMapper.ToSummaryDto(_runtime.GetStatus()),
                 RuntimeIpcOperation.GetRuntimeDoctor => _doctorReport(),
                 RuntimeIpcOperation.GetTelemetrySnapshot =>
                     RuntimeIpcDtoMapper.ToDto(_runtime.GetDiagnosticSnapshot()),
@@ -121,6 +135,7 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
                 RuntimeIpcOperation.ApplyFanProfile => ApplyFan(request),
                 RuntimeIpcOperation.StartThermalControl => StartThermal(request, cancellationToken),
                 RuntimeIpcOperation.StopThermalControl => await StopThermalAsync().ConfigureAwait(false),
+                RuntimeIpcOperation.GetRuntimeEvents => GetRuntimeEvents(request),
                 RuntimeIpcOperation.GetThermalCurve => GetThermalCurve(request),
                 RuntimeIpcOperation.ListBuiltInCurves => new[] { "default" },
                 _ => throw new NotSupportedException(
@@ -217,7 +232,7 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
                 CancellationToken.None);
         }
 
-        return RuntimeIpcDtoMapper.ToDto(_runtime.GetStatus());
+        return RuntimeIpcDtoMapper.ToSummaryDto(_runtime.GetStatus());
     }
 
     private async ValueTask<object?> StopThermalAsync()
@@ -244,9 +259,35 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
             _thermalCancellation = null;
         }
 
+        RuntimeStatus status = _runtime.GetStatus();
         return result is null
-            ? null
-            : new { result.Succeeded, result.Message, State = result.State.ToString() };
+            ? new StopThermalControlResultDto(
+                false,
+                status.State == RuntimeState.Stopped,
+                "No thermal-control session was active.",
+                RuntimeIpcDtoMapper.ToSummaryDto(status))
+            : new StopThermalControlResultDto(
+                true,
+                result.Succeeded,
+                result.Message,
+                RuntimeIpcDtoMapper.ToSummaryDto(status));
+    }
+
+    private object GetRuntimeEvents(RuntimeIpcRequest request)
+    {
+        GetRuntimeEventsRequest payload = ReadPayload<GetRuntimeEventsRequest>(request);
+        if (payload.AfterSequence < 0 ||
+            payload.MaximumEvents is < 1 or > MaximumEventBatchSize)
+        {
+            throw new FormatException(
+                $"Runtime event cursor must be non-negative and MaximumEvents must be " +
+                $"1..{MaximumEventBatchSize}.");
+        }
+
+        return RuntimeIpcDtoMapper.ToEventBatch(
+            _runtime.GetStatus(),
+            payload.AfterSequence,
+            payload.MaximumEvents);
     }
 
     private static object GetThermalCurve(RuntimeIpcRequest request)

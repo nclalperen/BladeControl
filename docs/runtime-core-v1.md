@@ -40,6 +40,22 @@ the PE image. A WHCP catalog signer and a different embedded signer can therefor
 be reported without ambiguity. Thermal ownership uses the Windows trust result; the
 embedded signer is diagnostic and cannot make an untrusted driver safe.
 
+## Thermal IPC client
+
+`thermal run --curve default [--verbose]` is an IPC client for the already-running
+`BladeControl.Runtime.v1` host. It never opens Razer HID, PawnIO, NVML, or the named
+hardware-ownership semaphore and never falls back to a standalone controller. If the
+host is unavailable, the command tells the user to start `BladeControl.Cli service
+console` and exits.
+
+The client sends one typed `StartThermalControl` request, then follows cursor-based event
+batches from the runtime's bounded event log. Verbose rendering includes structured
+telemetry, decisions, watchdog checks, ownership/emergency events, and complete protocol
+exchange reports. Ctrl+C sends exactly one typed `StopThermalControl` request and waits
+for the runtime's safe Auto handoff and performance restoration. Stopping a thermal
+session does not stop the service host; Ctrl+C in the service-console terminal remains
+the separate host-shutdown action.
+
 ## Windows Service (manual, later operation only)
 
 Runtime Core V1 does not install or mutate a service. After publishing the service

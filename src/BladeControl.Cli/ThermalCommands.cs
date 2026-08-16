@@ -2,6 +2,7 @@ using BladeControl.Hardware.Windows;
 using BladeControl.Hardware.Windows.Telemetry;
 using BladeControl.Razer;
 using BladeControl.Runtime;
+using BladeControl.Service;
 using BladeControl.Telemetry;
 using BladeControl.Thermal;
 
@@ -383,82 +384,139 @@ internal static partial class Program
 
     private static async Task<int> RunThermalRuntimeAsync(bool verbose)
     {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler handler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += handler;
         try
         {
-            using WindowsRazerClientSession razer = WindowsRazerClientSession.Open();
-            using WindowsTelemetrySession telemetry = WindowsTelemetrySession.Open(razer.Client);
-            await using var runtime = new BladeRuntime(
-                telemetry,
-                telemetry,
-                new RazerRuntimeHardwareController(razer.Client),
-                new NamedSemaphoreRuntimeOwnershipGate());
-            if (verbose)
+            return await RunThermalIpcClientAsync(
+                verbose,
+                new NamedPipeRuntimeIpcClient(),
+                cancellation.Token,
+                Console.Out,
+                Console.Error).ConfigureAwait(false);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= handler;
+        }
+    }
+
+    internal static async Task<int> RunThermalIpcClientAsync(
+        bool verbose,
+        IRuntimeIpcClient ipc,
+        CancellationToken cancellationToken,
+        TextWriter output,
+        TextWriter error)
+    {
+        ArgumentNullException.ThrowIfNull(ipc);
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
+        try
+        {
+            var client = new RuntimeThermalClient(ipc);
+            RuntimeThermalClientResult result = await client.RunAsync(
+                "default",
+                started: _ => output.WriteLine(
+                    "Runtime Core V1 thermal control is active through IPC. " +
+                    "Ctrl+C requests the runtime's safe Auto handoff and performance restoration."),
+                eventReceived: verbose ? item => PrintRuntimeEvent(item, output) : null,
+                batchReceived: verbose
+                    ? batch =>
+                    {
+                        if (batch.GapDetected)
+                        {
+                            output.WriteLine(
+                                $"Runtime event retention gap: oldest available sequence is " +
+                                $"#{batch.OldestAvailableSequence}.");
+                        }
+                    }
+            : null,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            if (result.Outcome == RuntimeThermalClientOutcome.RuntimeUnavailable)
             {
-                runtime.EventPublished += PrintRuntimeEvent;
+                error.WriteLine("Runtime Core is not running.");
+                error.WriteLine("Start it with:");
+                error.WriteLine("BladeControl.Cli service console");
             }
-            using var cancellation = new CancellationTokenSource();
-            ConsoleCancelEventHandler handler = (_, eventArgs) =>
+            else
             {
-                eventArgs.Cancel = true;
-                cancellation.Cancel();
-            };
-            Console.CancelKeyPress += handler;
-            ThermalSessionResult? result;
-            try
-            {
-                runtime.StartThermalControl();
-                Console.WriteLine(
-                    "Runtime Core V1 thermal control active at a 500 ms monotonic deadline cadence. " +
-                    "Ctrl+C performs the safe Auto handoff and performance restoration.");
-                await runtime.RunScheduledAsync(cancellation.Token).ConfigureAwait(false);
-            }
-            finally
-            {
-                Console.CancelKeyPress -= handler;
-                result = await runtime.StopThermalControlAsync().ConfigureAwait(false);
+                TextWriter writer = result.Succeeded ? output : error;
+                writer.WriteLine(result.Message);
             }
 
-            RuntimeStatus status = runtime.GetStatus();
-            Console.WriteLine(result?.Message ?? status.LastFailureReason ?? "Thermal runtime stopped.");
-            Console.WriteLine(
-                $"Scheduler: {status.Scheduler.CompletedCycles} cycles; " +
-                $"last start-to-start {status.Scheduler.ActualStartToStart.TotalMilliseconds:F1} ms; " +
-                $"overruns {status.Scheduler.OverrunCount}; " +
-                $"max {status.Scheduler.MaximumOverrun.TotalMilliseconds:F1} ms.");
-            Console.WriteLine(
-                "Software cleanup cannot guarantee recovery after abrupt power loss, kernel bugcheck, " +
-                "forced process termination, or total OS failure.");
-            return result?.Succeeded == true && status.State == RuntimeState.Stopped ? 0 : 1;
+            if (result.FinalStatus is not null)
+            {
+                RuntimeStatusDto status = result.FinalStatus;
+                output.WriteLine(
+                    $"Runtime state: {status.State}; scheduler: " +
+                    $"{status.Scheduler.CompletedCycles} cycles; " +
+                    $"overruns {status.Scheduler.OverrunCount}.");
+            }
+
+            return result.Succeeded ? 0 : 1;
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"Thermal runtime stopped: {exception.Message}");
-            Console.Error.WriteLine("No automatic retry was attempted.");
+            error.WriteLine($"Thermal IPC client stopped: {exception.Message}");
+            error.WriteLine("No automatic retry was attempted.");
             return 1;
         }
     }
 
-    private static void PrintRuntimeEvents(IEnumerable<RuntimeEvent> events)
+    private static void PrintRuntimeEvent(RuntimeEventDto item, TextWriter output)
     {
-        foreach (RuntimeEvent item in events)
+        output.WriteLine();
+        output.WriteLine($"{item.Kind} #{item.Sequence} {item.Timestamp:O}");
+        output.WriteLine($"  {item.Message}");
+        if (item.Telemetry is not null)
         {
-            Console.WriteLine();
-            Console.WriteLine($"{item.Kind} #{item.Sequence} {item.Timestamp:O}");
-            Console.WriteLine($"  {item.Message}");
-            if (item is ProtocolExchangeEvent protocol)
+            output.WriteLine(
+                $"  CPU {FormatMetric(item.Telemetry.CpuPackageTemperatureCelsius)}; " +
+                $"GPU {FormatMetric(item.Telemetry.GpuTemperatureCelsius)}");
+        }
+
+        if (item.ThermalDecision is not null)
+        {
+            output.WriteLine(
+                $"  target {item.ThermalDecision.EffectiveTargetRpm} RPM; " +
+                $"write {item.ThermalDecision.ShouldWrite}; " +
+                $"health {item.ThermalDecision.Health.Kind}");
+        }
+
+        if (item.WatchdogState is not null)
+        {
+            output.WriteLine(
+                $"  Zone 1 {item.WatchdogState.Zone1PerformanceMode} + " +
+                $"{item.WatchdogState.Zone1FanMode}; Zone 2 " +
+                $"{item.WatchdogState.Zone2PerformanceMode} + " +
+                $"{item.WatchdogState.Zone2FanMode}");
+        }
+
+        if (item.Exchange is not null)
+        {
+            output.WriteLine(
+                $"  {item.Exchange.Command}; Tx 0x{item.Exchange.TransactionId:X2}; " +
+                $"response {item.Exchange.HasResponse}");
+            if (item.Exchange.RequestReportHex is not null)
             {
-                PrintExchange(
-                    protocol.Exchange,
-                    checked((int)protocol.Sequence),
-                    Console.Out,
-                    protocol.Exchange.HasResponse ? "PASS" : "FAILED",
-                    item.Message);
+                output.WriteLine($"  request  {item.Exchange.RequestReportHex}");
+            }
+
+            if (item.Exchange.ResponseReportHex is not null)
+            {
+                output.WriteLine($"  response {item.Exchange.ResponseReportHex}");
             }
         }
     }
 
-    private static void PrintRuntimeEvent(RuntimeEvent item) =>
-        PrintRuntimeEvents([item]);
+    private static string FormatMetric(TelemetryMetricDto<double> metric) =>
+        metric.HasValue ? $"{metric.Value:F1} C" : metric.Diagnostic ?? "unavailable";
 
     private static int RunThermalSelfTestCommand(string[] args)
     {

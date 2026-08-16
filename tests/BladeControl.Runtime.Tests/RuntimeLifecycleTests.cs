@@ -157,6 +157,17 @@ public sealed class RuntimeLifecycleTests
     }
 
     [TestMethod]
+    public void SeparateDirectStateChangingOwnerIsRejectedWhileRuntimeOwnsGate()
+    {
+        using var gate = new SharedTestOwnershipGate();
+        using IRuntimeOwnershipLease runtimeOwner = gate.TryAcquire()!;
+
+        IRuntimeOwnershipLease? directOwner = gate.TryAcquire();
+
+        Assert.IsNull(directOwner);
+    }
+
+    [TestMethod]
     public async Task ExternalManualToAutoChangeStopsWithoutFightingController()
     {
         RuntimeRig rig = new();

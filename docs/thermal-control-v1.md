@@ -52,7 +52,7 @@ least one second.
 
 ## Runtime state machine
 
-Before any write, `thermal run` validates both authoritative temperatures,
+Before any write, Runtime Core validates both authoritative temperatures,
 captures the complete non-telemetry firmware state, requires consistent Auto fan
 mode, and confirms that the original performance profile is within the
 hardware-validated restoration policy.
@@ -68,6 +68,11 @@ or an internal/controller failure causes exactly one emergency attempt to return
 to Balanced + Auto. The loop stops and cannot automatically re-enter Manual.
 Performance restoration is attempted once only after Auto is verified. There is
 no SET retry.
+
+The `thermal run --curve default [--verbose]` command is only a Runtime Core IPC client.
+It does not instantiate the thermal controller or telemetry providers and does not
+acquire direct hardware ownership. The service/runtime process performs the control loop
+and remains alive after the client requests a safe session stop.
 
 Software cleanup cannot guarantee recovery after abrupt power loss, kernel
 bugcheck, forced process termination, or total operating-system failure. Firmware
