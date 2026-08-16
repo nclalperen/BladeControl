@@ -1,0 +1,204 @@
+<UserControl x:Class="BladeControl.UI.Views.PerformanceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <UserControl.Resources>
+        <Style x:Key="PolicyListStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+        </Style>
+        <Style x:Key="PolicyItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="0,0,9,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="IsEnabled" Value="{Binding IsAvailable}" />
+            <Setter Property="ToolTip" Value="{Binding Tooltip}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="OptionBorder"
+                                MinHeight="76"
+                                Padding="13,11"
+                                CornerRadius="10"
+                                BorderThickness="1"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                Background="{StaticResource SurfaceRaisedBrush}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="OptionBorder" Property="Background" Value="{StaticResource SurfaceHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="OptionBorder" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="OptionBorder" Property="Opacity" Value="0.42" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <DataTemplate x:Key="PolicyOptionTemplate">
+            <StackPanel>
+                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding Description}"
+                           Margin="0,5,0,0"
+                           Style="{StaticResource CaptionTextStyle}"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="Not hardware validated"
+                           Margin="0,5,0,0"
+                           Foreground="{StaticResource WarningBrush}"
+                           FontSize="10.5">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsAvailable}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="30,0,30,30">
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="CURRENT POLICY" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding CurrentSummary}" Margin="0,9,0,0" FontSize="23" FontWeight="SemiBold" />
+                        <TextBlock Margin="0,5,0,0" FontSize="11.5">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+                                    <Setter Property="Text" Value="Reported live by Runtime Core" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Connection.IsOnline}" Value="False">
+                                            <Setter Property="Text" Value="Last known state · Runtime Core offline" />
+                                            <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="Restore selection" Command="{Binding RestoreCommand}" Style="{StaticResource GhostButtonStyle}" Margin="0,0,7,0" />
+                        <Button Content="Refresh" Command="{Binding RefreshCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="MODE" Style="{StaticResource EyebrowTextStyle}" />
+                    <TextBlock Text="Choose one of the Runtime Core V1 validated profiles."
+                               Margin="0,5,0,12"
+                               Style="{StaticResource CaptionTextStyle}" />
+                    <ListBox ItemsSource="{Binding Modes}"
+                             SelectedValuePath="Value"
+                             SelectedValue="{Binding SelectedMode, Mode=TwoWay}"
+                             ItemTemplate="{StaticResource PolicyOptionTemplate}"
+                             ItemContainerStyle="{StaticResource PolicyItemStyle}"
+                             Style="{StaticResource PolicyListStyle}">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,0,0,14">
+                <Border.Style>
+                    <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCustomSelected}" Value="False">
+                                <Setter Property="Opacity" Value="0.55" />
+                                <Setter Property="IsEnabled" Value="False" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Text="CUSTOM LEVELS" Style="{StaticResource EyebrowTextStyle}" />
+                    <TextBlock Text="Only the levels validated on the reference Blade are selectable."
+                               Margin="0,5,0,14"
+                               Style="{StaticResource CaptionTextStyle}" />
+
+                    <TextBlock Text="CPU" Style="{StaticResource SectionTitleTextStyle}" Margin="0,0,0,9" />
+                    <ListBox ItemsSource="{Binding CpuLevels}"
+                             SelectedValuePath="Value"
+                             SelectedValue="{Binding SelectedCpuLevel, Mode=TwoWay}"
+                             ItemTemplate="{StaticResource PolicyOptionTemplate}"
+                             ItemContainerStyle="{StaticResource PolicyItemStyle}"
+                             Style="{StaticResource PolicyListStyle}"
+                             Margin="0,0,0,18">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+
+                    <TextBlock Text="GPU" Style="{StaticResource SectionTitleTextStyle}" Margin="0,0,0,9" />
+                    <ListBox ItemsSource="{Binding GpuLevels}"
+                             SelectedValuePath="Value"
+                             SelectedValue="{Binding SelectedGpuLevel, Mode=TwoWay}"
+                             ItemTemplate="{StaticResource PolicyOptionTemplate}"
+                             ItemContainerStyle="{StaticResource PolicyItemStyle}"
+                             Style="{StaticResource PolicyListStyle}">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="PENDING" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding PendingSummary}" Margin="0,5,0,0" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding ApplyBlockedReason}"
+                                   Margin="0,5,18,0"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding HasApplyBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock Text="{Binding StatusMessage}"
+                                   Margin="0,5,18,0"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding HasStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="Apply performance policy"
+                            Command="{Binding ApplyCommand}"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,241 @@
+<UserControl x:Class="BladeControl.UI.Views.FansThermalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="30,0,30,30">
+            <Border Margin="0,0,0,14"
+                    Padding="14,10"
+                    CornerRadius="10"
+                    BorderThickness="1"
+                    Background="{StaticResource NeutralBackgroundBrush}"
+                    BorderBrush="{StaticResource BorderStrongBrush}"
+                    Visibility="{Binding HasStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="SESSION" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding ThermalSession}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding ThermalSessionTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="ACTIVE CURVE" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding ActiveCurve}" Margin="0,5,0,0" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="FAN TARGET" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding EffectiveFanTarget}" Margin="0,5,0,0" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3">
+                        <TextBlock Text="TELEMETRY" Style="{StaticResource EyebrowTextStyle}" />
+                        <TextBlock Text="{Binding TelemetryHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" ToolTip="{Binding TelemetryHealthDetail}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="COOLING MODE" Style="{StaticResource EyebrowTextStyle}" Margin="0,0,0,10" />
+                    <Border Padding="4" CornerRadius="10" Background="{StaticResource SurfaceRaisedBrush}" HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Content="Firmware Auto" IsChecked="{Binding IsFirmwareAutoSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CoolingMode" />
+                            <RadioButton Content="Fixed" IsChecked="{Binding IsFixedSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CoolingMode" />
+                            <RadioButton Content="Dynamic Curve" IsChecked="{Binding IsDynamicSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CoolingMode" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}"
+                    Margin="0,0,0,14"
+                    Visibility="{Binding IsFirmwareAutoSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Firmware Auto" Style="{StaticResource SectionTitleTextStyle}" />
+                        <TextBlock Text="Return fan ownership to the firmware controller. Runtime Core performs and verifies the typed Auto operation."
+                                   Margin="0,7,24,0"
+                                   Style="{StaticResource CaptionTextStyle}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Margin="0,12,0,0" Style="{StaticResource CaptionTextStyle}">
+                            <Run Text="Firmware mode: " /><Run Text="{Binding FirmwareFanMode, Mode=OneWay}" /><Run Text="  ·  Reported state: Fan 1 " /><Run Text="{Binding FirmwareFan1Value, Mode=OneWay}" /><Run Text=" / Fan 2 " /><Run Text="{Binding FirmwareFan2Value, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock Text="{Binding ProfileBlockedReason}"
+                                   Margin="0,8,20,0"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding HasProfileBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Use Firmware Auto" Command="{Binding ApplyFirmwareAutoCommand}" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}"
+                    Margin="0,0,0,14"
+                    Visibility="{Binding IsFixedSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Fixed targets" Style="{StaticResource SectionTitleTextStyle}" />
+                            <TextBlock Text="2,000–5,000 RPM in 100-RPM steps. Values are commands, not physical tachometer readings."
+                                       Margin="0,6,20,0"
+                                       Style="{StaticResource CaptionTextStyle}" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Content="Link fans" IsChecked="{Binding LinkFans}" Style="{StaticResource SubtleCheckBoxStyle}" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <Grid Margin="0,20,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="100" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Fan 1" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <Slider Grid.Column="1"
+                                Minimum="{Binding MinimumFanRpm}"
+                                Maximum="{Binding MaximumFanRpm}"
+                                TickFrequency="{Binding FanRpmIncrement}"
+                                IsSnapToTickEnabled="True"
+                                Value="{Binding Fan1Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Fan1Target, StringFormat={}{0:N0} RPM}" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </Grid>
+                    <Grid Margin="0,4,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="100" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Fan 2" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <Slider Grid.Column="1"
+                                Minimum="{Binding MinimumFanRpm}"
+                                Maximum="{Binding MaximumFanRpm}"
+                                TickFrequency="{Binding FanRpmIncrement}"
+                                IsSnapToTickEnabled="True"
+                                Value="{Binding Fan2Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Fan2Target, StringFormat={}{0:N0} RPM}" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </Grid>
+                    <Grid>
+                        <TextBlock Text="{Binding ProfileBlockedReason}"
+                                   Margin="0,0,190,0"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"
+                                   Visibility="{Binding HasProfileBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Button Content="Apply fixed targets" Command="{Binding ApplyFixedCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Right" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Visibility="{Binding IsDynamicSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Runtime-owned dynamic cooling" Style="{StaticResource SectionTitleTextStyle}" />
+                            <TextBlock Text="Runtime Core owns interpolation, hysteresis, rate limits, watchdogs and emergency Auto handoff."
+                                       Margin="0,6,24,0"
+                                       Style="{StaticResource CaptionTextStyle}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding StartBlockedReason}"
+                                       Margin="0,8,24,0"
+                                       Foreground="{StaticResource WarningBrush}"
+                                       FontSize="11.5"
+                                       TextWrapping="Wrap"
+                                       Visibility="{Binding HasStartBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Stop" Command="{Binding StopDynamicCommand}" Style="{StaticResource DangerButtonStyle}" Margin="0,0,8,0" />
+                            <Button Content="Start built-in default" Command="{Binding StartDynamicCommand}" Style="{StaticResource PrimaryButtonStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,13">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Curve editor" Style="{StaticResource SectionTitleTextStyle}" />
+                                <TextBlock Text="{Binding CurveEditor.SourceLabel}" Margin="0,5,0,0" Style="{StaticResource CaptionTextStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button Content="Reload" Command="{Binding ReloadCurveCommand}" Style="{StaticResource GhostButtonStyle}" Margin="0,0,6,0" />
+                                <Button Content="Copy JSON" Command="{Binding CurveEditor.CopyJsonCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Border Padding="11,9" CornerRadius="8" Background="{StaticResource WarningBackgroundBrush}" Margin="0,0,0,13">
+                            <TextBlock Text="{Binding CurveEditor.ApplyBlockedReason}"
+                                       Foreground="{StaticResource WarningBrush}"
+                                       FontSize="11.5"
+                                       TextWrapping="Wrap" />
+                        </Border>
+
+                        <Border Padding="4" CornerRadius="10" Background="{StaticResource SurfaceRaisedBrush}" HorizontalAlignment="Left" Margin="0,0,0,12">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Content="CPU curve" IsChecked="{Binding CurveEditor.IsCpuSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CurveTarget" />
+                                <RadioButton Content="GPU curve" IsChecked="{Binding CurveEditor.IsGpuSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CurveTarget" />
+                            </StackPanel>
+                        </Border>
+
+                        <DataGrid ItemsSource="{Binding CurveEditor.ActivePoints}"
+                                  SelectedItem="{Binding CurveEditor.SelectedPoint, Mode=TwoWay}"
+                                  AutoGenerateColumns="False"
+                                  Height="250">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Temperature (°C)" Width="*" Binding="{Binding TemperatureCelsius, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat=0.#}" />
+                                <DataGridTextColumn Header="Target (RPM)" Width="*" Binding="{Binding Rpm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <DataGridTextColumn Header="Validation" Width="2*" IsReadOnly="True" Binding="{Binding Error}" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <Grid Margin="0,12,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Add point" Command="{Binding CurveEditor.AddPointCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" />
+                                <Button Content="Remove selected" Command="{Binding CurveEditor.RemovePointCommand}" Style="{StaticResource GhostButtonStyle}" />
+                            </StackPanel>
+                            <Button Content="Apply edited curve"
+                                    IsEnabled="{Binding CurveEditor.CanApply}"
+                                    ToolTip="{Binding CurveEditor.ApplyBlockedReason}"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    HorizontalAlignment="Right" />
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding CurveEditor.Errors}" Margin="0,11,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Foreground="{StaticResource DangerBrush}" FontSize="11.5" Margin="0,2" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding CurveEditor.LoadError}" Foreground="{StaticResource DangerBrush}" Margin="0,9,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding CurveEditor.CopyStatus}" Foreground="{StaticResource AccentBrush}" Margin="0,6,0,0" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

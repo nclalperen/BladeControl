@@ -199,7 +199,7 @@ public sealed class MonitoringViewModel : PageViewModel
         _ => "Source: waiting for the first runtime sample"
     };
 
-    public bool IsStale => Connection.IsTelemetryStale;
+    public bool IsStale => !Connection.IsOnline || Connection.IsTelemetryStale;
 
     public string StaleLabel => Connection.IsOnline
         ? "Graph paused — telemetry is stale"

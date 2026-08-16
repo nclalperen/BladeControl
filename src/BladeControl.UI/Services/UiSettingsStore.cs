@@ -46,10 +46,10 @@ public sealed class UiSettingsStore
 
     public UiSettingsStore(string? directory = null)
     {
-        string root = directory ?? Path.Combine(
+        string root = directory ?? System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "BladeControl");
-        _path = Path.Combine(root, "ui-settings.json");
+        _path = System.IO.Path.Combine(root, "ui-settings.json");
     }
 
     public string Path => _path;

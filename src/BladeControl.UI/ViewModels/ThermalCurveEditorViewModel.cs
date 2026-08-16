@@ -80,22 +80,26 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
 {
     private static readonly JsonSerializerOptions ExportOptions = new() { WriteIndented = true };
 
+    private readonly Action<string>? _copyToClipboard;
     private readonly ObservableCollection<string> _errors = [];
     private ThermalCurveTarget _target = ThermalCurveTarget.Cpu;
     private string _curveName = "default";
     private bool _isValid = true;
     private bool _isDirty;
+    private bool _isLoadedFromRuntime;
     private string? _loadError;
+    private string? _copyStatus;
 
-    public ThermalCurveEditorViewModel()
+    public ThermalCurveEditorViewModel(Action<string>? copyToClipboard = null)
     {
+        _copyToClipboard = copyToClipboard;
         CpuPoints = [];
         GpuPoints = [];
         Errors = new ReadOnlyObservableCollection<string>(_errors);
-        AddPointCommand = new RelayCommand(AddPoint);
+        AddPointCommand = new RelayCommand(AddPoint, () => CanAddPoint);
         RemovePointCommand = new RelayCommand(RemoveSelectedPoint, () => ActivePoints.Count > 0);
-        Load(RuntimeUiDefaults.DefaultCurveDocument);
-        _isDirty = false;
+        CopyJsonCommand = new RelayCommand(CopyJson, () => _copyToClipboard is not null);
+        Validate();
     }
 
     public ObservableCollection<ThermalCurvePointViewModel> CpuPoints { get; }
@@ -107,6 +111,8 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
     public RelayCommand AddPointCommand { get; }
 
     public RelayCommand RemovePointCommand { get; }
+
+    public RelayCommand CopyJsonCommand { get; }
 
     public int MinimumRpm => ThermalCurveValidator.MinimumRpm;
 
@@ -125,7 +131,10 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
                     nameof(ActivePoints),
                     nameof(IsCpuSelected),
                     nameof(IsGpuSelected),
-                    nameof(ActiveTargetLabel));
+                    nameof(ActiveTargetLabel),
+                    nameof(CanAddPoint));
+                AddPointCommand.RaiseCanExecuteChanged();
+                RemovePointCommand.RaiseCanExecuteChanged();
                 Validate();
             }
         }
@@ -180,11 +189,37 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
         private set => Set(ref _isDirty, value);
     }
 
+    public bool IsLoadedFromRuntime
+    {
+        get => _isLoadedFromRuntime;
+        private set
+        {
+            if (Set(ref _isLoadedFromRuntime, value))
+            {
+                Raise(nameof(SourceLabel));
+            }
+        }
+    }
+
+    public string SourceLabel => IsLoadedFromRuntime
+        ? $"Loaded from Runtime Core · {CurveName}"
+        : "No runtime curve loaded";
+
     public string? LoadError
     {
         get => _loadError;
         private set => Set(ref _loadError, value);
     }
+
+    public string? CopyStatus
+    {
+        get => _copyStatus;
+        private set => Set(ref _copyStatus, value);
+    }
+
+    public bool CanAddPoint => ActivePoints.Count == 0 ||
+        ActivePoints[^1].TemperatureCelsius <
+        ThermalCurveValidator.MaximumExclusiveTemperature - 1;
 
     /// <summary>
     /// Runtime Core V1 accepts only its immutable built-in curve, so the GUI never offers to
@@ -212,13 +247,16 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
         Replace(CpuPoints, document.Cpu);
         Replace(GpuPoints, document.Gpu);
         LoadError = null;
+        IsLoadedFromRuntime = true;
         Validate();
         IsDirty = false;
+        Raise(nameof(SourceLabel));
     }
 
     public void ReportLoadFailure(string message)
     {
         LoadError = message;
+        IsLoadedFromRuntime = false;
     }
 
     public void AddPoint()
@@ -233,6 +271,7 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
             ? ThermalCurveValidator.MinimumRpm
             : Math.Min(ThermalCurveValidator.MaximumRpm, points[^1].Rpm + 200);
         points.Add(Track(new ThermalCurvePointViewModel(temperature, Align(rpm))));
+        AddPointCommand.RaiseCanExecuteChanged();
         RemovePointCommand.RaiseCanExecuteChanged();
         MarkDirty();
     }
@@ -246,6 +285,7 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
         }
 
         point.Edited -= MarkDirty;
+        AddPointCommand.RaiseCanExecuteChanged();
         RemovePointCommand.RaiseCanExecuteChanged();
         MarkDirty();
     }
@@ -275,10 +315,30 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
         new StoredThermalCurveDocument(1, CurveName, CpuSnapshot, GpuSnapshot),
         ExportOptions);
 
+    private void CopyJson()
+    {
+        if (_copyToClipboard is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _copyToClipboard(ToJson());
+            CopyStatus = "Curve JSON copied to the clipboard.";
+        }
+        catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or
+            System.Runtime.InteropServices.ExternalException)
+        {
+            CopyStatus = $"Clipboard unavailable: {exception.Message}";
+        }
+    }
+
     private void MarkDirty()
     {
         IsDirty = true;
         Validate();
+        AddPointCommand.RaiseCanExecuteChanged();
         RaiseAll(nameof(ActiveSnapshot), nameof(CpuSnapshot), nameof(GpuSnapshot));
     }
 
@@ -328,29 +388,4 @@ public sealed class ThermalCurveEditorViewModel : ObservableObject
 
     private static int Align(int rpm) =>
         rpm / ThermalCurveValidator.RpmIncrement * ThermalCurveValidator.RpmIncrement;
-}
-
-internal static class RuntimeUiDefaults
-{
-    /// <summary>
-    /// Shown before the runtime answers <c>GetThermalCurve</c>, so the editor is never blank.
-    /// Replaced by the runtime's own document as soon as it arrives.
-    /// </summary>
-    internal static StoredThermalCurveDocument DefaultCurveDocument { get; } = new(
-        1,
-        "default",
-        [
-            new StoredThermalCurvePoint(50, 3000),
-            new StoredThermalCurvePoint(60, 3300),
-            new StoredThermalCurvePoint(70, 3800),
-            new StoredThermalCurvePoint(80, 4400),
-            new StoredThermalCurvePoint(88, 5000)
-        ],
-        [
-            new StoredThermalCurvePoint(45, 3000),
-            new StoredThermalCurvePoint(55, 3300),
-            new StoredThermalCurvePoint(65, 3800),
-            new StoredThermalCurvePoint(72, 4400),
-            new StoredThermalCurvePoint(78, 5000)
-        ]);
 }

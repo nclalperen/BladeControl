@@ -44,7 +44,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     /// <summary>Telemetry older than this is presented as stale rather than live.</summary>
     public static readonly TimeSpan StaleTelemetryThreshold = TimeSpan.FromSeconds(3);
 
-    private const int TelemetryTickDivisor = 2;
+    private const int TelemetryTickDivisor = 1;
     private const int EventTickDivisor = 2;
     private const int ProfileTickDivisor = 10;
     private const int DoctorTickDivisor = 10;
@@ -55,6 +55,8 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _reconnectInterval;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SemaphoreSlim _pollGate = new(1, 1);
+    private readonly object _startSync = new();
 
     private Task? _loop;
     private long _tick;
@@ -69,7 +71,8 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     private RuntimeDoctorReportDto? _doctor;
     private string? _transportError;
     private string? _lastReadError;
-    private bool _commandInFlight;
+    private int _commandInFlight;
+    private volatile bool _doctorRefreshRequired = true;
     private bool _disposed;
 
     public RuntimeConnection(
@@ -93,6 +96,9 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
 
     /// <summary>Raised on the UI thread with newly observed runtime events, in order.</summary>
     public event Action<IReadOnlyList<RuntimeEventDto>, bool>? EventsReceived;
+
+    /// <summary>Raised when Runtime Core's event sequence moved backwards after a restart.</summary>
+    public event Action? EventStreamReset;
 
     /// <summary>Raised on the UI thread once per distinct telemetry timestamp.</summary>
     public event Action<ThermalTelemetrySampleDto>? TelemetryObserved;
@@ -167,18 +173,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         private set => Set(ref _lastReadError, value);
     }
 
-    public bool IsCommandInFlight
-    {
-        get => _commandInFlight;
-        private set
-        {
-            if (Set(ref _commandInFlight, value))
-            {
-                Raise(nameof(CanIssueCommand));
-                RaiseGating();
-            }
-        }
-    }
+    public bool IsCommandInFlight => Volatile.Read(ref _commandInFlight) != 0;
 
     public bool CanIssueCommand => IsOnline && !IsCommandInFlight;
 
@@ -285,8 +280,13 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _loop ??= Task.Run(() => RunLoopAsync(_lifetime.Token), CancellationToken.None);
+        lock (_startSync)
+        {
+            _loop ??= Task.Run(() => RunLoopAsync(_lifetime.Token), CancellationToken.None);
+        }
     }
+
+    public Task Completion => _loop ?? Task.CompletedTask;
 
     /// <summary>
     /// Executes exactly one poll tick. The loop calls this on a timer; tests call it
@@ -294,42 +294,20 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     /// </summary>
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
-        long tick = Interlocked.Increment(ref _tick);
+        await _pollGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            RuntimeStatusDto status = await _client.GetStatusAsync(cancellationToken)
-                .ConfigureAwait(false);
-            Publish(() =>
-            {
-                Status = status;
-                TransportError = null;
-                State = RuntimeConnectionState.Online;
-            });
-
-            await RefreshTelemetryAsync(status, tick, cancellationToken).ConfigureAwait(false);
-            await RefreshEventsAsync(tick, cancellationToken).ConfigureAwait(false);
-            await RefreshProfilesAsync(tick, cancellationToken).ConfigureAwait(false);
-            await RefreshDoctorAsync(tick, cancellationToken).ConfigureAwait(false);
+            await PollOnceCoreAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        finally
         {
-            throw;
+            _pollGate.Release();
         }
-        catch (RuntimeUiException exception) when (exception.IsDisconnect)
-        {
-            GoOffline(exception.Message);
-        }
-        catch (RuntimeUiException exception)
-        {
-            Publish(() => LastReadError = exception.Message);
-        }
-
-        Publish(() => Updated?.Invoke());
     }
 
     /// <summary>
-    /// Forces an immediate read-only reconnect probe. Safe at any time: it issues
-    /// GetRuntimeStatus only and never touches hardware state.
+    /// Forces an immediate read-only reconnect refresh. Safe at any time: it uses only
+    /// bounded IPC reads and never changes hardware state.
     /// </summary>
     public async Task ReconnectAsync(CancellationToken cancellationToken)
     {
@@ -364,7 +342,13 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
                 "Another Runtime Core request is still in flight.");
         }
 
-        IsCommandInFlight = true;
+        if (Interlocked.CompareExchange(ref _commandInFlight, 1, 0) != 0)
+        {
+            return RuntimeCommandOutcome.Fail(
+                "Another Runtime Core request is still in flight.");
+        }
+
+        Publish(NotifyCommandStateChanged);
         try
         {
             return await command(_client, cancellationToken).ConfigureAwait(false);
@@ -384,8 +368,21 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            Publish(() => IsCommandInFlight = false);
+            Interlocked.Exchange(ref _commandInFlight, 0);
+            Publish(NotifyCommandStateChanged);
         }
+    }
+
+    /// <summary>Publishes the authoritative state returned by a successful start/stop command.</summary>
+    public void AcceptCommandStatus(RuntimeStatusDto status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        Publish(() =>
+        {
+            Status = status;
+            LastReadError = null;
+            State = RuntimeConnectionState.Online;
+        });
     }
 
     /// <summary>Re-reads the performance and fan state after a state change.</summary>
@@ -431,12 +428,38 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         (_client as IDisposable)?.Dispose();
     }
 
+    /// <summary>Stops and awaits the background poller before the IPC client is disposed.</summary>
+    public async Task StopAsync()
+    {
+        _lifetime.Cancel();
+        Task? loop;
+        lock (_startSync)
+        {
+            loop = _loop;
+        }
+
+        if (loop is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await loop.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown.
+        }
+    }
+
     private async Task RefreshTelemetryAsync(
         RuntimeStatusDto status,
         long tick,
         CancellationToken cancellationToken)
     {
-        if (status.LatestAuthoritativeTelemetry is { } authoritative)
+        if (string.Equals(status.State, "Running", StringComparison.Ordinal) &&
+            status.LatestAuthoritativeTelemetry is { } authoritative)
         {
             ApplyTelemetry(authoritative, TelemetryOrigin.ThermalSession);
             return;
@@ -492,6 +515,14 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
                 cursor,
                 RuntimeIpcDispatcher.MaximumEventBatchSize,
                 cancellationToken).ConfigureAwait(false);
+
+            if (cursor > 0 && batch.LatestAvailableSequence < cursor)
+            {
+                Interlocked.Exchange(ref _eventCursor, 0);
+                Publish(() => EventStreamReset?.Invoke());
+                return;
+            }
+
             if (batch.Events.Count == 0)
             {
                 return;
@@ -527,7 +558,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
 
     private async Task RefreshDoctorAsync(long tick, CancellationToken cancellationToken)
     {
-        if (tick % DoctorTickDivisor != 2 && _doctor is not null)
+        if (!_doctorRefreshRequired && tick % DoctorTickDivisor != 2 && _doctor is not null)
         {
             return;
         }
@@ -536,6 +567,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         {
             RuntimeDoctorReportDto doctor = await _client.GetDoctorAsync(cancellationToken)
                 .ConfigureAwait(false);
+            _doctorRefreshRequired = false;
             Publish(() =>
             {
                 Doctor = doctor;
@@ -552,10 +584,12 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
 
     private void GoOffline(string reason)
     {
+        _doctorRefreshRequired = true;
         Publish(() =>
         {
             State = RuntimeConnectionState.Offline;
             TransportError = reason;
+            Doctor = null;
             Raise(nameof(IsTelemetryStale));
             Raise(nameof(IsThermalOwnershipReady));
             Raise(nameof(ThermalReadinessReason));
@@ -591,6 +625,56 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     }
 
     private void Publish(Action action) => _dispatcher.Post(action);
+
+    private async Task PollOnceCoreAsync(CancellationToken cancellationToken)
+    {
+        long tick = Interlocked.Increment(ref _tick);
+        try
+        {
+            RuntimeStatusDto status = await _client.GetStatusAsync(cancellationToken)
+                .ConfigureAwait(false);
+            Publish(() =>
+            {
+                bool reconnected = State != RuntimeConnectionState.Online;
+                if (reconnected)
+                {
+                    Doctor = null;
+                    _doctorRefreshRequired = true;
+                }
+
+                Status = status;
+                TransportError = null;
+                LastReadError = null;
+                State = RuntimeConnectionState.Online;
+            });
+
+            await RefreshTelemetryAsync(status, tick, cancellationToken).ConfigureAwait(false);
+            await RefreshEventsAsync(tick, cancellationToken).ConfigureAwait(false);
+            await RefreshProfilesAsync(tick, cancellationToken).ConfigureAwait(false);
+            await RefreshDoctorAsync(tick, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (RuntimeUiException exception) when (exception.IsDisconnect)
+        {
+            GoOffline(exception.Message);
+        }
+        catch (RuntimeUiException exception)
+        {
+            Publish(() => LastReadError = exception.Message);
+        }
+
+        Publish(() => Updated?.Invoke());
+    }
+
+    private void NotifyCommandStateChanged()
+    {
+        Raise(nameof(IsCommandInFlight));
+        Raise(nameof(CanIssueCommand));
+        RaiseGating();
+    }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {

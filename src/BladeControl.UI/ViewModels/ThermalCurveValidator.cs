@@ -1,6 +1,4 @@
-using BladeControl.Razer;
 using BladeControl.Runtime;
-using BladeControl.Thermal;
 
 namespace BladeControl.UI.ViewModels;
 
@@ -22,13 +20,13 @@ public sealed record ThermalCurveValidationResult(
 public static class ThermalCurveValidator
 {
     /// <summary>Lowest RPM a dynamic curve point may request (Runtime Core constraint).</summary>
-    public static int MinimumRpm => ThermalCurve.MinimumDynamicRpm;
+    public static int MinimumRpm => RuntimeUiPolicy.MinimumDynamicRpm;
 
     /// <summary>Highest RPM the fan model accepts.</summary>
-    public static int MaximumRpm => FanRpm.MaximumValue;
+    public static int MaximumRpm => RuntimeUiPolicy.MaximumFanRpm;
 
     /// <summary>RPM values must land on this increment.</summary>
-    public static int RpmIncrement => FanRpm.Increment;
+    public static int RpmIncrement => RuntimeUiPolicy.FanRpmIncrement;
 
     public const double MinimumExclusiveTemperature = 0;
 
@@ -108,4 +106,20 @@ public static class ThermalCurveValidator
 
         return null;
     }
+}
+
+/// <summary>
+/// User-input bounds mirrored from Runtime Core V1's validated IPC policy. These values
+/// improve editor ergonomics only; Runtime Core remains authoritative and validates every
+/// request again before touching hardware.
+/// </summary>
+public static class RuntimeUiPolicy
+{
+    public const int MinimumFanRpm = 2000;
+
+    public const int MinimumDynamicRpm = 3000;
+
+    public const int MaximumFanRpm = 5000;
+
+    public const int FanRpmIncrement = 100;
 }

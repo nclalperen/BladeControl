@@ -101,6 +101,7 @@ public sealed class RuntimeEventViewModel : ObservableObject
 
         if (item.WatchdogState is { } watchdog)
         {
+            Separate(builder);
             builder.AppendLine(CultureInfo.CurrentCulture,
                 $"Zone 1: {watchdog.Zone1PerformanceMode}/{watchdog.Zone1FanMode} · " +
                 $"Zone 2: {watchdog.Zone2PerformanceMode}/{watchdog.Zone2FanMode}");
@@ -111,55 +112,54 @@ public sealed class RuntimeEventViewModel : ObservableObject
 
         if (item.TargetRpm is { } target)
         {
+            Separate(builder);
             builder.Append(CultureInfo.CurrentCulture, $"Fan target: {target} RPM");
         }
 
         if (item.OverrunMilliseconds is { } overrun)
         {
+            Separate(builder);
             builder.Append(CultureInfo.CurrentCulture,
                 $"Overrun: {overrun.ToString("0.0", CultureInfo.CurrentCulture)} ms");
         }
 
         if (item.AcquisitionDurationMilliseconds is { } acquisition)
         {
+            Separate(builder);
             builder.Append(CultureInfo.CurrentCulture,
                 $"Acquisition: {acquisition.ToString("0.0", CultureInfo.CurrentCulture)} ms");
         }
 
         if (item.Succeeded is { } succeeded)
         {
-            if (builder.Length > 0)
-            {
-                builder.AppendLine();
-            }
-
+            Separate(builder);
             builder.Append(CultureInfo.CurrentCulture,
                 $"Succeeded: {Display.Boolean(succeeded)}");
         }
 
         if (item.SessionId is { } sessionId)
         {
-            if (builder.Length > 0)
-            {
-                builder.AppendLine();
-            }
-
+            Separate(builder);
             builder.Append(CultureInfo.CurrentCulture, $"Session: {sessionId:D}");
         }
 
         if (item.Exchange is { } exchange)
         {
-            if (builder.Length > 0)
-            {
-                builder.AppendLine();
-            }
-
+            Separate(builder);
             builder.Append(CultureInfo.CurrentCulture,
                 $"Exchange {exchange.Command} (transaction 0x{exchange.TransactionId:X2}), " +
                 $"response: {Display.Boolean(exchange.HasResponse)}");
         }
 
         return builder.Length == 0 ? null : builder.ToString();
+    }
+
+    private static void Separate(StringBuilder builder)
+    {
+        if (builder.Length > 0 && builder[^1] != '\n')
+        {
+            builder.AppendLine();
+        }
     }
 
     private static string Nullable(int? value) =>
@@ -207,6 +207,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
         CopyDiagnosticsCommand = new RelayCommand(CopyDiagnostics, () => _copyToClipboard is not null);
         ClearEventsCommand = new RelayCommand(ClearEvents);
         Connection.EventsReceived += OnEventsReceived;
+        Connection.EventStreamReset += OnEventStreamReset;
     }
 
     public DiagnosticGroup Runtime { get; }
@@ -266,6 +267,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
     public void ClearEvents()
     {
         _events.Clear();
+        GapDetected = false;
         ApplyFilter();
         Raise(nameof(EventSummary));
     }
@@ -345,13 +347,33 @@ public sealed class DiagnosticsViewModel : PageViewModel
             return;
         }
 
-        _copyToClipboard(BuildDiagnosticsText());
-        StatusMessage = "Diagnostics copied to the clipboard.";
-        StatusIsError = false;
+        try
+        {
+            _copyToClipboard(BuildDiagnosticsText());
+            StatusMessage = "Diagnostics copied to the clipboard.";
+            StatusIsError = false;
+        }
+        catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or
+            System.Runtime.InteropServices.ExternalException)
+        {
+            StatusMessage = $"Clipboard unavailable: {exception.Message}";
+            StatusIsError = true;
+        }
     }
 
     private void OnEventsReceived(IReadOnlyList<RuntimeEventDto> items, bool gap) =>
         AppendEvents(items, gap);
+
+    private void OnEventStreamReset()
+    {
+        _events.Clear();
+        _kinds.Clear();
+        _kinds.Add("All");
+        SelectedKind = "All";
+        GapDetected = true;
+        ApplyFilter();
+        Raise(nameof(EventSummary));
+    }
 
     private void ApplyFilter()
     {

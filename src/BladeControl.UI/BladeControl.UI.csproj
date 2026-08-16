@@ -25,11 +25,13 @@
   </ItemGroup>
 
   <!--
-    BladeControl.Runtime is the typed IPC contract (DTOs + operations) and is a
-    pure net8.0 library with no hardware package references. The UI must NOT
-    reference BladeControl.Service or BladeControl.Hardware.Windows: those pull
-    LibreHardwareMonitorLib/PawnIO into the GUI process. See
-    BladeControl.UI.Tests/ArchitectureBoundaryTests.cs.
+    Runtime Core V1 currently owns its typed IPC DTOs and operations, so this is
+    the UI's sole production project reference. Runtime transitively exposes the
+    safe Razer/Telemetry/Thermal model assemblies, but the UI must NOT reference
+    BladeControl.Service or BladeControl.Hardware.Windows: those pull the Windows
+    host and hardware providers into the GUI process. Contract extraction is
+    tracked in docs/gui-backend-needs.md; the direct-reference boundary is tested
+    by BladeControl.UI.Tests.
   -->
   <ItemGroup>
     <ProjectReference Include="..\BladeControl.Runtime\BladeControl.Runtime.csproj" />

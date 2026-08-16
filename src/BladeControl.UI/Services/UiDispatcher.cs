@@ -33,7 +33,15 @@ public sealed class WpfUiDispatcher : IUiDispatcher
             return;
         }
 
-        _dispatcher.BeginInvoke(action, DispatcherPriority.Background);
+        if (_dispatcher.HasShutdownStarted || _dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        // Keep the connection's backing state and its UI notifications in the same order.
+        // This blocks only the background poller for the short property-update callback;
+        // IPC and telemetry work never run on the UI thread.
+        _dispatcher.Invoke(action, DispatcherPriority.Background);
     }
 }
 

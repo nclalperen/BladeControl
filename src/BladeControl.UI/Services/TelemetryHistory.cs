@@ -192,7 +192,9 @@ public sealed class TelemetryHistory
     public bool Append(ThermalTelemetrySampleDto sample, int? effectiveFanTargetRpm)
     {
         ArgumentNullException.ThrowIfNull(sample);
-        if (LatestTimestamp == sample.Timestamp)
+        // A restarted or delayed producer can briefly deliver a sample older than the
+        // newest point already displayed. Ignore it so chart time never runs backwards.
+        if (LatestTimestamp is { } latest && sample.Timestamp <= latest)
         {
             return false;
         }

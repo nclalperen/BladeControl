@@ -235,6 +235,16 @@ public sealed class DashboardViewModel : PageViewModel
                 return $"Runtime failure: {Status.LastFailureReason}";
             }
 
+            if (string.Equals(Status.State, "EmergencyHandoff", StringComparison.Ordinal))
+            {
+                return "Runtime Core is performing an emergency handoff to firmware Auto.";
+            }
+
+            if (string.Equals(Status.State, "Faulted", StringComparison.Ordinal))
+            {
+                return "Runtime Core is faulted. Open Diagnostics before attempting recovery.";
+            }
+
             return null;
         }
     }
@@ -302,6 +312,7 @@ public sealed class DashboardViewModel : PageViewModel
         {
             RuntimeStatusDto status = await client
                 .StartThermalControlAsync("default", token).ConfigureAwait(false);
+            Connection.AcceptCommandStatus(status);
             return string.Equals(status.State, "Running", StringComparison.Ordinal)
                 ? RuntimeCommandOutcome.Ok(
                     "Dynamic cooling started on the built-in curve.")
@@ -315,6 +326,7 @@ public sealed class DashboardViewModel : PageViewModel
         {
             StopThermalControlResultDto result = await client
                 .StopThermalControlAsync(token).ConfigureAwait(false);
+            Connection.AcceptCommandStatus(result.FinalStatus);
             return result.Succeeded
                 ? RuntimeCommandOutcome.Ok(result.Message)
                 : RuntimeCommandOutcome.Fail(result.Message);

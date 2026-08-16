@@ -1,4 +1,3 @@
-using BladeControl.Razer;
 using BladeControl.Runtime;
 using BladeControl.UI.Ipc;
 using BladeControl.UI.Services;
@@ -25,7 +24,10 @@ public sealed class FansThermalViewModel : PageViewModel
     private bool _linkFans = true;
     private bool _curveLoaded;
 
-    public FansThermalViewModel(RuntimeConnection connection, CancellationToken lifetime)
+    public FansThermalViewModel(
+        RuntimeConnection connection,
+        CancellationToken lifetime,
+        Action<string>? copyToClipboard = null)
         : base(
             connection,
             lifetime,
@@ -34,7 +36,7 @@ public sealed class FansThermalViewModel : PageViewModel
             "Cooling ownership, fixed targets and the dynamic curve",
             Icons.Fans)
     {
-        CurveEditor = new ThermalCurveEditorViewModel();
+        CurveEditor = new ThermalCurveEditorViewModel(copyToClipboard);
         ApplyFirmwareAutoCommand = new AsyncRelayCommand(
             ApplyFirmwareAutoAsync,
             () => Connection.CanApplyStaticProfile);
@@ -64,11 +66,11 @@ public sealed class FansThermalViewModel : PageViewModel
 
     public AsyncRelayCommand ReloadCurveCommand { get; }
 
-    public int MinimumFanRpm => FanRpm.MinimumValue;
+    public int MinimumFanRpm => RuntimeUiPolicy.MinimumFanRpm;
 
-    public int MaximumFanRpm => FanRpm.MaximumValue;
+    public int MaximumFanRpm => RuntimeUiPolicy.MaximumFanRpm;
 
-    public int FanRpmIncrement => FanRpm.Increment;
+    public int FanRpmIncrement => RuntimeUiPolicy.FanRpmIncrement;
 
     public CoolingMode Mode
     {
@@ -292,6 +294,7 @@ public sealed class FansThermalViewModel : PageViewModel
         {
             RuntimeStatusDto status = await client
                 .StartThermalControlAsync("default", token).ConfigureAwait(false);
+            Connection.AcceptCommandStatus(status);
             return string.Equals(status.State, "Running", StringComparison.Ordinal)
                 ? RuntimeCommandOutcome.Ok("Dynamic cooling started on the built-in curve.")
                 : RuntimeCommandOutcome.Fail(
@@ -304,6 +307,7 @@ public sealed class FansThermalViewModel : PageViewModel
         {
             StopThermalControlResultDto result = await client
                 .StopThermalControlAsync(token).ConfigureAwait(false);
+            Connection.AcceptCommandStatus(result.FinalStatus);
             return result.Succeeded
                 ? RuntimeCommandOutcome.Ok(result.Message)
                 : RuntimeCommandOutcome.Fail(result.Message);
@@ -321,10 +325,16 @@ public sealed class FansThermalViewModel : PageViewModel
 
     private int Snap(int value)
     {
-        int clamped = Math.Clamp(value, FanRpm.MinimumValue, FanRpm.MaximumValue);
+        int clamped = Math.Clamp(
+            value,
+            RuntimeUiPolicy.MinimumFanRpm,
+            RuntimeUiPolicy.MaximumFanRpm);
         int rounded = (int)Math.Round(
-            clamped / (double)FanRpm.Increment,
-            MidpointRounding.AwayFromZero) * FanRpm.Increment;
-        return Math.Clamp(rounded, FanRpm.MinimumValue, FanRpm.MaximumValue);
+            clamped / (double)RuntimeUiPolicy.FanRpmIncrement,
+            MidpointRounding.AwayFromZero) * RuntimeUiPolicy.FanRpmIncrement;
+        return Math.Clamp(
+            rounded,
+            RuntimeUiPolicy.MinimumFanRpm,
+            RuntimeUiPolicy.MaximumFanRpm);
     }
 }
