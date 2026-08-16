@@ -16,6 +16,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Thermal", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Thermal.Tests", "tests\BladeControl.Thermal.Tests\BladeControl.Thermal.Tests.csproj", "{A36F033A-B95A-486B-83E2-9A0F3126DD42}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Runtime", "src\BladeControl.Runtime\BladeControl.Runtime.csproj", "{E5A96AF0-8F48-4E4B-A02C-164EF2164F08}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Service", "src\BladeControl.Service\BladeControl.Service.csproj", "{5A4834C1-912E-46A2-9DB5-8DCE4A2F3656}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Runtime.Tests", "tests\BladeControl.Runtime.Tests\BladeControl.Runtime.Tests.csproj", "{90FB82FD-5DEB-41D2-9C03-8BF7982E9734}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,6 +56,18 @@ Global
 		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5A96AF0-8F48-4E4B-A02C-164EF2164F08}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5A96AF0-8F48-4E4B-A02C-164EF2164F08}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5A96AF0-8F48-4E4B-A02C-164EF2164F08}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5A96AF0-8F48-4E4B-A02C-164EF2164F08}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5A4834C1-912E-46A2-9DB5-8DCE4A2F3656}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5A4834C1-912E-46A2-9DB5-8DCE4A2F3656}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5A4834C1-912E-46A2-9DB5-8DCE4A2F3656}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5A4834C1-912E-46A2-9DB5-8DCE4A2F3656}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90FB82FD-5DEB-41D2-9C03-8BF7982E9734}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90FB82FD-5DEB-41D2-9C03-8BF7982E9734}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90FB82FD-5DEB-41D2-9C03-8BF7982E9734}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90FB82FD-5DEB-41D2-9C03-8BF7982E9734}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

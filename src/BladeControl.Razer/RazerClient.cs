@@ -8,6 +8,8 @@ public sealed partial class RazerClient
     private readonly ITransactionIdSource _transactionIds;
     private readonly IFanObservationDelay _fanObservationDelay;
 
+    public event Action<RazerExchangeTrace>? ExchangeCompleted;
+
     internal RazerClient(IRazerTransport transport)
         : this(
             transport,
@@ -370,9 +372,23 @@ public sealed partial class RazerClient
     {
         RazerCommands.EnsureAllowed(request);
         var transportRequest = new RazerTransportRequest(request);
-        RazerTransportResponse transportResponse = _transport.Exchange(transportRequest);
-
         byte[] requestReport = transportRequest.FeatureReport.ToArray();
+        RazerTransportResponse transportResponse;
+        try
+        {
+            transportResponse = _transport.Exchange(transportRequest);
+        }
+        catch
+        {
+            PublishExchange(new RazerExchangeTrace(
+                request.TransactionId,
+                request.CommandClass,
+                request.CommandId,
+                requestReport,
+                []));
+            throw;
+        }
+
         byte[] responseReport = transportResponse.FeatureReport.ToArray();
         var exchange = new RazerExchangeTrace(
             request.TransactionId,
@@ -380,6 +396,7 @@ public sealed partial class RazerClient
             request.CommandId,
             requestReport,
             responseReport);
+        PublishExchange(exchange);
 
         RazerPacket response;
         try
@@ -403,6 +420,28 @@ public sealed partial class RazerClient
             minimumResponseDataSize,
             exchange);
         return (response, exchange);
+    }
+
+    private void PublishExchange(RazerExchangeTrace exchange)
+    {
+        Action<RazerExchangeTrace>? handlers = ExchangeCompleted;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (Action<RazerExchangeTrace> handler in handlers.GetInvocationList()
+                     .Cast<Action<RazerExchangeTrace>>())
+        {
+            try
+            {
+                handler(exchange);
+            }
+            catch
+            {
+                // Diagnostic observers must never alter protocol behavior.
+            }
+        }
     }
 
     private static void ValidateResponse(

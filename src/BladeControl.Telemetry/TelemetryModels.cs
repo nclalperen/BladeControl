@@ -129,6 +129,79 @@ public static class TelemetrySources
         TelemetryAuthority.Diagnostic);
 }
 
+public sealed class ThermalTelemetrySample
+{
+    public ThermalTelemetrySample(
+        DateTimeOffset timestamp,
+        TelemetryMetric<double> cpuPackageTemperatureCelsius,
+        TelemetryMetric<double> gpuTemperatureCelsius)
+    {
+        Timestamp = timestamp;
+        CpuPackageTemperatureCelsius = cpuPackageTemperatureCelsius;
+        GpuTemperatureCelsius = gpuTemperatureCelsius;
+    }
+
+    public DateTimeOffset Timestamp { get; }
+
+    public TelemetryMetric<double> CpuPackageTemperatureCelsius { get; }
+
+    public TelemetryMetric<double> GpuTemperatureCelsius { get; }
+
+    public TelemetryMetric<double> CpuPackagePowerWatts { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.CpuOptional);
+
+    public TelemetryMetric<double> CpuCoreMaxTemperatureCelsius { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.CpuOptional);
+
+    public TelemetryMetric<double> CpuTotalLoadPercent { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.CpuOptional);
+
+    public TelemetryMetric<double> CpuClockMegahertz { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.CpuOptional);
+
+    public TelemetryMetric<double> GpuPowerWatts { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.GpuOptional);
+
+    public TelemetryMetric<double> GpuUtilizationPercent { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.GpuOptional);
+
+    public TelemetryMetric<double> GpuMemoryUtilizationPercent { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.GpuOptional);
+
+    public TelemetryMetric<double> GpuGraphicsClockMegahertz { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.GpuOptional);
+
+    public TelemetryMetric<double> GpuMemoryClockMegahertz { get; init; } =
+        TelemetryMetric<double>.Unsupported(TelemetrySources.GpuOptional);
+
+    public TelemetryMetric<ulong> GpuVramUsedBytes { get; init; } =
+        TelemetryMetric<ulong>.Unsupported(TelemetrySources.GpuOptional);
+
+    public TelemetryMetric<ulong> GpuVramTotalBytes { get; init; } =
+        TelemetryMetric<ulong>.Unsupported(TelemetrySources.GpuOptional);
+
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+
+    public TelemetrySnapshot ToDiagnosticSnapshot() => new(
+        Timestamp,
+        CpuPackageTemperatureCelsius,
+        GpuTemperatureCelsius)
+    {
+        CpuCoreMaxTemperatureCelsius = CpuCoreMaxTemperatureCelsius,
+        CpuPackagePowerWatts = CpuPackagePowerWatts,
+        CpuTotalLoadPercent = CpuTotalLoadPercent,
+        CpuClockMegahertz = CpuClockMegahertz,
+        GpuPowerWatts = GpuPowerWatts,
+        GpuUtilizationPercent = GpuUtilizationPercent,
+        GpuMemoryUtilizationPercent = GpuMemoryUtilizationPercent,
+        GpuGraphicsClockMegahertz = GpuGraphicsClockMegahertz,
+        GpuMemoryClockMegahertz = GpuMemoryClockMegahertz,
+        GpuVramUsedBytes = GpuVramUsedBytes,
+        GpuVramTotalBytes = GpuVramTotalBytes,
+        Warnings = Warnings
+    };
+}
+
 public sealed class TelemetrySnapshot
 {
     public TelemetrySnapshot(

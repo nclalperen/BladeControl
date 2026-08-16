@@ -1,18 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BladeControl.Hardware.Windows\BladeControl.Hardware.Windows.csproj" />
     <ProjectReference Include="..\BladeControl.Razer\BladeControl.Razer.csproj" />
-    <ProjectReference Include="..\BladeControl.Runtime\BladeControl.Runtime.csproj" />
-    <ProjectReference Include="..\BladeControl.Service\BladeControl.Service.csproj" />
     <ProjectReference Include="..\BladeControl.Telemetry\BladeControl.Telemetry.csproj" />
     <ProjectReference Include="..\BladeControl.Thermal\BladeControl.Thermal.csproj" />
   </ItemGroup>

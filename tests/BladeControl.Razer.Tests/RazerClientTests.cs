@@ -6,6 +6,45 @@ namespace BladeControl.Razer.Tests;
 public sealed class RazerClientTests
 {
     [TestMethod]
+    public void GlobalTraceObserverReceivesEveryStatusExchange()
+    {
+        using var transport = new ScriptedRazerTransport();
+        var client = new RazerClient(
+            transport,
+            new SequenceTransactionIdSource(1, 2, 3, 4, 5, 6));
+        var observed = new List<RazerExchangeTrace>();
+        client.ExchangeCompleted += observed.Add;
+
+        _ = client.GetStatus();
+
+        Assert.AreEqual(6, transport.CallCount);
+        Assert.AreEqual(6, observed.Count);
+        CollectionAssert.AreEqual(
+            new byte[] { 1, 2, 3, 4, 5, 6 },
+            observed.Select(exchange => exchange.TransactionId).ToArray());
+    }
+
+    [TestMethod]
+    public void GlobalTraceObserverRecordsTransportFailureWithoutRetry()
+    {
+        using var transport = new ScriptedRazerTransport(
+            (_, _) => throw new InvalidOperationException("injected transport failure"));
+        var client = new RazerClient(
+            transport,
+            new SequenceTransactionIdSource(0x44));
+        var observed = new List<RazerExchangeTrace>();
+        client.ExchangeCompleted += observed.Add;
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            client.GetFanRpm(RazerZone.Zone1));
+
+        Assert.AreEqual(1, transport.CallCount);
+        Assert.AreEqual(1, observed.Count);
+        Assert.AreEqual(0x44, observed[0].TransactionId);
+        Assert.IsFalse(observed[0].HasResponse);
+    }
+
+    [TestMethod]
     public void GetStatusUsesSixOrderedWhitelistedGetsAndInjectedTransactions()
     {
         using var transport = new ScriptedRazerTransport();

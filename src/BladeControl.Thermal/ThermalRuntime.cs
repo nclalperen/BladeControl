@@ -47,12 +47,15 @@ public sealed class ThermalPreflightException : Exception
 
 public sealed class ThermalRuntimeController
 {
+    private const int DefaultHistoryCapacity = 4096;
+
     private readonly ITelemetryProvider _telemetry;
     private readonly IThermalControlDevice _control;
     private readonly IThermalClock _clock;
     private readonly ThermalDecisionEngine _engine;
-    private readonly List<ThermalDecision> _decisions = [];
-    private readonly List<ThermalTraceEntry> _trace = [];
+    private readonly Queue<ThermalDecision> _decisions = [];
+    private readonly Queue<ThermalTraceEntry> _trace = [];
+    private readonly int _historyCapacity;
     private long _telemetrySequence;
     private long _protocolSequence;
     private bool _autoAttempted;
@@ -63,12 +66,19 @@ public sealed class ThermalRuntimeController
         IThermalControlDevice control,
         ThermalProfile profile,
         ThermalPolicy? policy = null,
-        IThermalClock? clock = null)
+        IThermalClock? clock = null,
+        int historyCapacity = DefaultHistoryCapacity)
     {
         _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         _control = control ?? throw new ArgumentNullException(nameof(control));
         _clock = clock ?? new SystemThermalClock();
         _engine = new ThermalDecisionEngine(profile, policy);
+        if (historyCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(historyCapacity));
+        }
+
+        _historyCapacity = historyCapacity;
     }
 
     public ThermalControllerStateKind State { get; private set; } =
@@ -78,9 +88,9 @@ public sealed class ThermalRuntimeController
 
     public ThermalMachineState? FinalState { get; private set; }
 
-    public IReadOnlyList<ThermalDecision> Decisions => _decisions;
+    public IReadOnlyList<ThermalDecision> Decisions => _decisions.ToArray();
 
-    public IReadOnlyList<ThermalTraceEntry> Trace => _trace;
+    public IReadOnlyList<ThermalTraceEntry> Trace => _trace.ToArray();
 
     public void Start()
     {
@@ -143,7 +153,7 @@ public sealed class ThermalRuntimeController
         FinalState = entry.FinalState;
         _engine.InitializeBaseline(_clock.UtcNow);
         State = ThermalControllerStateKind.Manual;
-        _trace.Add(new ThermalTraceEntry(
+        AddTrace(new ThermalTraceEntry(
             ThermalTraceKind.State,
             1,
             _clock.UtcNow,
@@ -262,10 +272,38 @@ public sealed class ThermalRuntimeController
             _trace.ToArray());
     }
 
+    public void EmergencyHandoff(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (State != ThermalControllerStateKind.Manual)
+        {
+            return;
+        }
+
+        EmergencyAutoAndRestore(reason);
+    }
+
+    public void AbandonAfterOwnershipLoss(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (State != ThermalControllerStateKind.Manual)
+        {
+            return;
+        }
+
+        _engine.MarkEmergencyStopped();
+        State = ThermalControllerStateKind.EmergencyStopped;
+        AddTrace(new ThermalTraceEntry(
+            ThermalTraceKind.State,
+            0,
+            _clock.UtcNow,
+            $"Manual ownership lost: {reason}. No further firmware write was attempted."));
+    }
+
     private TelemetrySnapshot CollectTelemetry()
     {
         TelemetrySnapshot snapshot = _telemetry.GetSnapshot();
-        _trace.Add(new ThermalTraceEntry(
+        AddTrace(new ThermalTraceEntry(
             ThermalTraceKind.Telemetry,
             ++_telemetrySequence,
             snapshot.Timestamp,
@@ -275,8 +313,8 @@ public sealed class ThermalRuntimeController
 
     private void RecordDecision(ThermalDecision decision)
     {
-        _decisions.Add(decision);
-        _trace.Add(new ThermalTraceEntry(
+        AddDecision(decision);
+        AddTrace(new ThermalTraceEntry(
             ThermalTraceKind.Decision,
             decision.Sequence,
             decision.Timestamp,
@@ -308,7 +346,7 @@ public sealed class ThermalRuntimeController
         if (!auto.Succeeded || !auto.AutoActive)
         {
             State = ThermalControllerStateKind.EmergencyStopped;
-            _trace.Add(new ThermalTraceEntry(
+            AddTrace(new ThermalTraceEntry(
                 ThermalTraceKind.State,
                 0,
                 _clock.UtcNow,
@@ -329,7 +367,7 @@ public sealed class ThermalRuntimeController
         FinalState = restore.FinalState;
         if (!restore.Succeeded)
         {
-            _trace.Add(new ThermalTraceEntry(
+            AddTrace(new ThermalTraceEntry(
                 ThermalTraceKind.State,
                 0,
                 _clock.UtcNow,
@@ -343,13 +381,33 @@ public sealed class ThermalRuntimeController
     {
         foreach (RazerExchangeTrace exchange in exchanges)
         {
-            _trace.Add(new ThermalTraceEntry(
+            AddTrace(new ThermalTraceEntry(
                 ThermalTraceKind.Protocol,
                 ++_protocolSequence,
                 _clock.UtcNow,
                 operation,
                 exchange));
         }
+    }
+
+    private void AddDecision(ThermalDecision decision)
+    {
+        if (_decisions.Count == _historyCapacity)
+        {
+            _decisions.Dequeue();
+        }
+
+        _decisions.Enqueue(decision);
+    }
+
+    private void AddTrace(ThermalTraceEntry entry)
+    {
+        if (_trace.Count == _historyCapacity)
+        {
+            _trace.Dequeue();
+        }
+
+        _trace.Enqueue(entry);
     }
 
     private static bool NonTelemetryStateEquals(

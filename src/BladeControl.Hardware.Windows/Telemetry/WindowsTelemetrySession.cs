@@ -4,7 +4,7 @@ using BladeControl.Telemetry;
 
 namespace BladeControl.Hardware.Windows.Telemetry;
 
-public sealed class WindowsTelemetrySession : ITelemetryProvider
+public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTelemetryProvider
 {
     private const string PinnedLibreHardwareMonitorVersion = "0.9.6";
 
@@ -22,6 +22,7 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider
         NvmlTelemetryProvider? gpu,
         bool gpuAmbiguous,
         IReadOnlyList<TelemetryGpuIdentity> enumeratedGpus,
+        PawnIoProvenance pawnIoProvenance,
         IReadOnlyList<string> diagnostics)
     {
         _razerClient = razerClient;
@@ -29,6 +30,7 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider
         _gpu = gpu;
         _gpuAmbiguous = gpuAmbiguous;
         _enumeratedGpus = enumeratedGpus.ToArray();
+        PawnIoProvenance = pawnIoProvenance;
         _diagnostics = diagnostics.ToList();
         Capabilities = CreateCapabilities(null, null);
     }
@@ -37,16 +39,29 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider
 
     public TelemetryCapabilities Capabilities { get; private set; }
 
+    public PawnIoProvenance PawnIoProvenance { get; }
+
     public static WindowsTelemetrySession Open(
         RazerClient? razerClient = null,
         string? preferredGpuPciBusId = null)
     {
         var diagnostics = new List<string>();
+        PawnIoProvenance pawnIoProvenance = PawnIoProvenanceReader.Read();
+        diagnostics.AddRange(pawnIoProvenance.Diagnostics);
         LibreHardwareMonitorCpuProvider? cpu = null;
         try
         {
-            cpu = LibreHardwareMonitorCpuProvider.Open();
-            if (!cpu.PawnIoInstalled)
+            if (pawnIoProvenance.IsSafeForThermalOwnership)
+            {
+                cpu = LibreHardwareMonitorCpuProvider.Open();
+            }
+            else
+            {
+                diagnostics.Add(
+                    "PawnIO provenance is not safe; authoritative CPU telemetry was not opened.");
+            }
+
+            if (cpu is not null && !cpu.PawnIoInstalled)
             {
                 diagnostics.Add(
                     "PawnIO is not installed. Static Razer controls remain available, " +
@@ -71,20 +86,16 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider
             gpu,
             ambiguous,
             gpus,
+            pawnIoProvenance,
             diagnostics);
     }
 
     public TelemetrySnapshot GetSnapshot()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        DateTimeOffset timestamp = DateTimeOffset.UtcNow;
-        CpuTelemetryReading cpu = _cpu?.Read(timestamp) ??
-            CpuTelemetryReading.ProviderFailure(
-                timestamp,
-                "The CPU telemetry provider did not initialize.");
-        NvmlGpuReading gpu = _gpu?.Read(timestamp) ?? UnavailableGpuReading(timestamp);
+        ThermalTelemetrySample control = GetControlSample();
         RazerStatusSnapshot? firmware = null;
-        var warnings = new List<string>();
+        var warnings = new List<string>(control.Warnings);
         if (_razerClient is not null)
         {
             try
@@ -97,8 +108,40 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider
             }
         }
 
-        Capabilities = CreateCapabilities(cpu, gpu);
+        TelemetrySnapshot snapshot = control.ToDiagnosticSnapshot();
         return new TelemetrySnapshot(
+            snapshot.Timestamp,
+            snapshot.CpuPackageTemperatureCelsius,
+            snapshot.GpuTemperatureCelsius)
+        {
+            CpuCoreMaxTemperatureCelsius = snapshot.CpuCoreMaxTemperatureCelsius,
+            CpuPackagePowerWatts = snapshot.CpuPackagePowerWatts,
+            CpuTotalLoadPercent = snapshot.CpuTotalLoadPercent,
+            CpuClockMegahertz = snapshot.CpuClockMegahertz,
+            GpuPowerWatts = snapshot.GpuPowerWatts,
+            GpuUtilizationPercent = snapshot.GpuUtilizationPercent,
+            GpuMemoryUtilizationPercent = snapshot.GpuMemoryUtilizationPercent,
+            GpuGraphicsClockMegahertz = snapshot.GpuGraphicsClockMegahertz,
+            GpuMemoryClockMegahertz = snapshot.GpuMemoryClockMegahertz,
+            GpuVramUsedBytes = snapshot.GpuVramUsedBytes,
+            GpuVramTotalBytes = snapshot.GpuVramTotalBytes,
+            AcpiThermalZonesCelsius = snapshot.AcpiThermalZonesCelsius,
+            RazerFirmwareState = firmware,
+            Warnings = warnings
+        };
+    }
+
+    public ThermalTelemetrySample GetControlSample()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        DateTimeOffset timestamp = DateTimeOffset.UtcNow;
+        CpuTelemetryReading cpu = _cpu?.Read(timestamp) ??
+            CpuTelemetryReading.ProviderFailure(
+                timestamp,
+                "The CPU telemetry provider did not initialize.");
+        NvmlGpuReading gpu = _gpu?.Read(timestamp) ?? UnavailableGpuReading(timestamp);
+        Capabilities = CreateCapabilities(cpu, gpu);
+        return new ThermalTelemetrySample(
             timestamp,
             cpu.PackageTemperatureCelsius,
             gpu.TemperatureCelsius)
@@ -114,9 +157,7 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider
             GpuMemoryClockMegahertz = gpu.MemoryClockMegahertz,
             GpuVramUsedBytes = gpu.VramUsedBytes,
             GpuVramTotalBytes = gpu.VramTotalBytes,
-            AcpiThermalZonesCelsius = [],
-            RazerFirmwareState = firmware,
-            Warnings = warnings
+            Warnings = []
         };
     }
 

@@ -1,6 +1,7 @@
 using BladeControl.Hardware.Windows;
 using BladeControl.Hardware.Windows.Telemetry;
 using BladeControl.Razer;
+using BladeControl.Runtime;
 using BladeControl.Telemetry;
 using BladeControl.Thermal;
 
@@ -89,6 +90,14 @@ internal static partial class Program
             Console.WriteLine($"GPU power                    {Support(capabilities.GpuPowerSupported)}");
             Console.WriteLine($"LibreHardwareMonitor version {capabilities.LibreHardwareMonitorVersion}");
             Console.WriteLine($"PawnIO                       {Availability(capabilities.PawnIoAvailable)}");
+            Console.WriteLine($"PawnIO version               {telemetry.PawnIoProvenance.Version}");
+            Console.WriteLine($"PawnIO service               {telemetry.PawnIoProvenance.ServiceState}");
+            Console.WriteLine($"PawnIO driver                {telemetry.PawnIoProvenance.DriverPath}");
+            Console.WriteLine($"PawnIO file version          {telemetry.PawnIoProvenance.FileVersion}");
+            Console.WriteLine($"PawnIO Authenticode          {telemetry.PawnIoProvenance.AuthenticodeStatus}");
+            Console.WriteLine($"PawnIO signer                {telemetry.PawnIoProvenance.SignerSubject}");
+            Console.WriteLine($"PawnIO SHA256                {telemetry.PawnIoProvenance.Sha256}");
+            Console.WriteLine($"PawnIO thermal safety        {(telemetry.PawnIoProvenance.IsSafeForThermalOwnership ? "safe" : "unsafe")}");
             Console.WriteLine($"CPU Package temp             {Availability(capabilities.CpuPackageTemperatureAvailable)}");
             Console.WriteLine($"CPU Package power            {Availability(capabilities.CpuPackagePowerAvailable)}");
             Console.WriteLine($"ACPI zones                   {(capabilities.AcpiZonesAvailable ? "available" : "unavailable")} / diagnostic only");
@@ -113,6 +122,11 @@ internal static partial class Program
                 foreach (string diagnostic in capabilities.Diagnostics.Concat(snapshot.Warnings))
                 {
                     Console.WriteLine($"Diagnostic: {diagnostic}");
+                }
+
+                if (snapshot.RazerFirmwareState is not null)
+                {
+                    PrintExchanges(snapshot.RazerFirmwareState.Exchanges, Console.Out, "PASS");
                 }
             }
 
@@ -361,68 +375,57 @@ internal static partial class Program
             return 2;
         }
 
+        return RunThermalRuntimeAsync(verbose).GetAwaiter().GetResult();
+    }
+
+    private static async Task<int> RunThermalRuntimeAsync(bool verbose)
+    {
         try
         {
             using WindowsRazerClientSession razer = WindowsRazerClientSession.Open();
             using WindowsTelemetrySession telemetry = WindowsTelemetrySession.Open(razer.Client);
-            var controller = new ThermalRuntimeController(
+            await using var runtime = new BladeRuntime(
                 telemetry,
-                new RazerThermalControlDevice(razer.Client),
-                BuiltInThermalProfiles.Default);
+                telemetry,
+                new RazerRuntimeHardwareController(razer.Client),
+                new NamedSemaphoreRuntimeOwnershipGate());
+            if (verbose)
+            {
+                runtime.EventPublished += PrintRuntimeEvent;
+            }
             using var cancellation = new CancellationTokenSource();
-            ThermalSessionResult? result = null;
-            Exception? runtimeFailure = null;
             ConsoleCancelEventHandler handler = (_, eventArgs) =>
             {
                 eventArgs.Cancel = true;
                 cancellation.Cancel();
             };
             Console.CancelKeyPress += handler;
+            ThermalSessionResult? result;
             try
             {
-                controller.Start();
-                Console.WriteLine("Thermal Control V1 active. Ctrl+C returns to Balanced + Auto, then restores performance.");
-                while (!cancellation.IsCancellationRequested &&
-                       controller.State == ThermalControllerStateKind.Manual)
-                {
-                    if (cancellation.Token.WaitHandle.WaitOne(500))
-                    {
-                        break;
-                    }
-
-                    ThermalDecision decision = controller.RunCycle();
-                    Console.WriteLine(
-                        $"{decision.Timestamp:O} CPU {decision.CpuCurveTarget?.Value} / " +
-                        $"GPU {decision.GpuCurveTarget?.Value} / effective {decision.EffectiveTarget.Value} RPM - " +
-                        decision.Reason);
-                }
-            }
-            catch (Exception exception)
-            {
-                runtimeFailure = exception;
+                runtime.StartThermalControl();
+                Console.WriteLine(
+                    "Runtime Core V1 thermal control active at a 500 ms monotonic deadline cadence. " +
+                    "Ctrl+C performs the safe Auto handoff and performance restoration.");
+                await runtime.RunScheduledAsync(cancellation.Token).ConfigureAwait(false);
             }
             finally
             {
                 Console.CancelKeyPress -= handler;
-                result = controller.Stop();
+                result = await runtime.StopThermalControlAsync().ConfigureAwait(false);
             }
 
-            if (verbose)
-            {
-                PrintThermalTrace(result.Trace);
-            }
-
-            if (runtimeFailure is not null)
-            {
-                Console.Error.WriteLine($"Thermal runtime failure: {runtimeFailure.Message}");
-                Console.Error.WriteLine("Cleanup was attempted once; no operation was retried.");
-            }
-
-            Console.WriteLine(result.Message);
+            RuntimeStatus status = runtime.GetStatus();
+            Console.WriteLine(result?.Message ?? status.LastFailureReason ?? "Thermal runtime stopped.");
+            Console.WriteLine(
+                $"Scheduler: {status.Scheduler.CompletedCycles} cycles; " +
+                $"last start-to-start {status.Scheduler.ActualStartToStart.TotalMilliseconds:F1} ms; " +
+                $"overruns {status.Scheduler.OverrunCount}; " +
+                $"max {status.Scheduler.MaximumOverrun.TotalMilliseconds:F1} ms.");
             Console.WriteLine(
                 "Software cleanup cannot guarantee recovery after abrupt power loss, kernel bugcheck, " +
                 "forced process termination, or total OS failure.");
-            return runtimeFailure is null && result.Succeeded ? 0 : 1;
+            return result?.Succeeded == true && status.State == RuntimeState.Stopped ? 0 : 1;
         }
         catch (Exception exception)
         {
@@ -432,6 +435,28 @@ internal static partial class Program
         }
     }
 
+    private static void PrintRuntimeEvents(IEnumerable<RuntimeEvent> events)
+    {
+        foreach (RuntimeEvent item in events)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"{item.Kind} #{item.Sequence} {item.Timestamp:O}");
+            Console.WriteLine($"  {item.Message}");
+            if (item is ProtocolExchangeEvent protocol)
+            {
+                PrintExchange(
+                    protocol.Exchange,
+                    checked((int)protocol.Sequence),
+                    Console.Out,
+                    protocol.Exchange.HasResponse ? "PASS" : "FAILED",
+                    item.Message);
+            }
+        }
+    }
+
+    private static void PrintRuntimeEvent(RuntimeEvent item) =>
+        PrintRuntimeEvents([item]);
+
     private static int RunThermalSelfTestCommand(string[] args)
     {
         if (args.Length != 1 ||
@@ -439,6 +464,12 @@ internal static partial class Program
         {
             Console.Error.WriteLine("Thermal hardware acceptance requires: thermal selftest --verbose");
             return 2;
+        }
+
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
         }
 
         try
@@ -517,6 +548,10 @@ internal static partial class Program
             Console.WriteLine($"  Reported fan 2      {firmware.Fan2.FirmwareReportedRpm} RPM");
             Console.WriteLine($"  Performance        {firmware.PerformanceMode}");
             Console.WriteLine($"  Fan mode           {firmware.FanMode}");
+            if (verbose)
+            {
+                PrintExchanges(firmware.Exchanges, Console.Out, "PASS");
+            }
         }
 
         Console.WriteLine();

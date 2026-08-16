@@ -228,7 +228,11 @@ public sealed class RazerExchangeTrace
 
     public ReadOnlyMemory<byte> RequestPacket => _requestReport.AsMemory(1);
 
-    public ReadOnlyMemory<byte> ResponsePacket => _responseReport.AsMemory(1);
+    public ReadOnlyMemory<byte> ResponsePacket => _responseReport.Length == 0
+        ? ReadOnlyMemory<byte>.Empty
+        : _responseReport.AsMemory(1);
+
+    public bool HasResponse => _responseReport.Length != 0;
 }
 
 public sealed record RazerFanReading(

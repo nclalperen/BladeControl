@@ -1,5 +1,6 @@
 using BladeControl.Hardware.Windows;
 using BladeControl.Razer;
+using BladeControl.Runtime;
 
 namespace BladeControl.Cli;
 
@@ -40,6 +41,16 @@ internal static partial class Program
         if (command.Equals("thermal", StringComparison.OrdinalIgnoreCase))
         {
             return RunThermalCommand(args.Skip(1).ToArray());
+        }
+
+        if (command.Equals("runtime", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunRuntimeCommand(args.Skip(1).ToArray());
+        }
+
+        if (command.Equals("service", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunServiceCommand(args.Skip(1).ToArray());
         }
 
         if (!command.Equals("probe", StringComparison.OrdinalIgnoreCase) &&
@@ -142,6 +153,9 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli thermal simulate <curve-file> <telemetry-trace-file>");
         Console.WriteLine("  BladeControl.Cli thermal run --curve default [--verbose]");
         Console.WriteLine("  BladeControl.Cli thermal selftest --verbose");
+        Console.WriteLine("  BladeControl.Cli runtime status");
+        Console.WriteLine("  BladeControl.Cli runtime doctor");
+        Console.WriteLine("  BladeControl.Cli service console");
     }
 
     private static int RunProbe(bool verbose)
@@ -195,6 +209,12 @@ internal static partial class Program
 
     private static int RunWriteBackMode(bool verbose)
     {
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
+        }
+
         try
         {
             using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
@@ -267,6 +287,12 @@ internal static partial class Program
 
     private static int RunWriteBackLevels(bool verbose)
     {
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
+        }
+
         try
         {
             using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
@@ -532,6 +558,12 @@ internal static partial class Program
 
     private static int RunFanApply(FanControlProfile profile, bool verbose)
     {
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
+        }
+
         try
         {
             using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
@@ -548,6 +580,12 @@ internal static partial class Program
 
     private static int RunFanSelfTest(bool verbose)
     {
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
+        }
+
         try
         {
             using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
@@ -826,6 +864,12 @@ internal static partial class Program
         PerformanceProfile profile,
         bool verbose)
     {
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
+        }
+
         try
         {
             using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
@@ -842,6 +886,12 @@ internal static partial class Program
 
     private static int RunPerformanceSelfTest(bool verbose)
     {
+        using DirectHardwareOwnership? ownership = TryAcquireDirectHardwareOwnership();
+        if (ownership is null)
+        {
+            return 1;
+        }
+
         try
         {
             using WindowsRazerClientSession session = WindowsRazerClientSession.Open();
@@ -1601,12 +1651,15 @@ internal static partial class Program
             FormatHex(exchange.RequestPacket.Span.Slice(8, dataSize)));
         writer.WriteLine($"  HID report ID             0x{exchange.RequestReport.Span[0]:X2}");
         writer.WriteLine($"  Request CRC               0x{exchange.RequestPacket.Span[88]:X2}");
-        writer.WriteLine($"  Response CRC              0x{exchange.ResponsePacket.Span[88]:X2}");
+        writer.WriteLine(exchange.HasResponse
+            ? $"  Response CRC              0x{exchange.ResponsePacket.Span[88]:X2}"
+            : "  Response CRC              <no response>");
         writer.WriteLine($"  Validation result         {validationResult}");
         writer.WriteLine(
             $"  Request packet (90 bytes)  {FormatHex(exchange.RequestPacket.Span)}");
-        writer.WriteLine(
-            $"  Response packet (90 bytes) {FormatHex(exchange.ResponsePacket.Span)}");
+        writer.WriteLine(exchange.HasResponse
+            ? $"  Response packet (90 bytes) {FormatHex(exchange.ResponsePacket.Span)}"
+            : "  Response packet            <no response>");
     }
 
     private static void PrintTransportFailureReports(
