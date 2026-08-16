@@ -3,7 +3,7 @@ using BladeControl.Razer;
 
 namespace BladeControl.Cli;
 
-internal static class Program
+internal static partial class Program
 {
     private const string Unavailable = "<unavailable>";
 
@@ -30,6 +30,16 @@ internal static class Program
         if (command.Equals("fan", StringComparison.OrdinalIgnoreCase))
         {
             return RunFanCommand(args.Skip(1).ToArray());
+        }
+
+        if (command.Equals("telemetry", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunTelemetryCommand(args.Skip(1).ToArray());
+        }
+
+        if (command.Equals("thermal", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunThermalCommand(args.Skip(1).ToArray());
         }
 
         if (!command.Equals("probe", StringComparison.OrdinalIgnoreCase) &&
@@ -123,6 +133,15 @@ internal static class Program
         Console.WriteLine("  BladeControl.Cli fan apply auto [--verbose]");
         Console.WriteLine("  BladeControl.Cli fan apply fixed --fan1 RPM --fan2 RPM [--verbose]");
         Console.WriteLine("  BladeControl.Cli fan selftest --verbose");
+        Console.WriteLine("  BladeControl.Cli telemetry doctor [--verbose]");
+        Console.WriteLine("  BladeControl.Cli telemetry snapshot [--verbose]");
+        Console.WriteLine("  BladeControl.Cli telemetry monitor [--interval MS] [--verbose]");
+        Console.WriteLine("  BladeControl.Cli thermal status [--verbose]");
+        Console.WriteLine("  BladeControl.Cli thermal curve show default");
+        Console.WriteLine("  BladeControl.Cli thermal curve validate <file>");
+        Console.WriteLine("  BladeControl.Cli thermal simulate <curve-file> <telemetry-trace-file>");
+        Console.WriteLine("  BladeControl.Cli thermal run --curve default [--verbose]");
+        Console.WriteLine("  BladeControl.Cli thermal selftest --verbose");
     }
 
     private static int RunProbe(bool verbose)
@@ -1091,8 +1110,8 @@ internal static class Program
     {
         Console.WriteLine();
         Console.WriteLine(heading);
-        Console.WriteLine($"  Fan 1       {state.Fan1.RevolutionsPerMinute} RPM");
-        Console.WriteLine($"  Fan 2       {state.Fan2.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Reported fan 1 {state.Fan1.FirmwareReportedRpm} RPM");
+        Console.WriteLine($"  Reported fan 2 {state.Fan2.FirmwareReportedRpm} RPM");
         Console.WriteLine($"  Performance {FormatZoneValues(
             state.Zone1Mode.PerformanceMode,
             state.Zone2Mode.PerformanceMode)}");
@@ -1256,8 +1275,8 @@ internal static class Program
     {
         Console.WriteLine();
         Console.WriteLine(heading);
-        Console.WriteLine($"  Fan 1       {state.Fan1.RevolutionsPerMinute} RPM");
-        Console.WriteLine($"  Fan 2       {state.Fan2.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Reported fan 1 {state.Fan1.FirmwareReportedRpm} RPM");
+        Console.WriteLine($"  Reported fan 2 {state.Fan2.FirmwareReportedRpm} RPM");
         Console.WriteLine($"  Performance {FormatZoneValues(
             state.Zone1Mode.PerformanceMode,
             state.Zone2Mode.PerformanceMode)}");
@@ -1290,8 +1309,8 @@ internal static class Program
         Console.WriteLine($"VID:PID       {status.Device.VendorId:X4}:{status.Device.ProductId:X4}");
         Console.WriteLine();
         Console.WriteLine("Firmware state");
-        Console.WriteLine($"  Fan 1       {status.Fan1.RevolutionsPerMinute} RPM");
-        Console.WriteLine($"  Fan 2       {status.Fan2.RevolutionsPerMinute} RPM");
+        Console.WriteLine($"  Reported fan 1 {status.Fan1.FirmwareReportedRpm} RPM");
+        Console.WriteLine($"  Reported fan 2 {status.Fan2.FirmwareReportedRpm} RPM");
         Console.WriteLine($"  Performance {status.PerformanceMode}");
         Console.WriteLine($"  CPU level   {status.CpuPerformanceLevel}");
         Console.WriteLine($"  GPU level   {status.GpuPerformanceLevel}");

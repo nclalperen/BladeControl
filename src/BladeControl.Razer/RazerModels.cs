@@ -233,7 +233,7 @@ public sealed class RazerExchangeTrace
 
 public sealed record RazerFanReading(
     RazerZone Zone,
-    int RevolutionsPerMinute,
+    int FirmwareReportedRpm,
     RazerExchangeTrace Exchange);
 
 public sealed record RazerModeReading(

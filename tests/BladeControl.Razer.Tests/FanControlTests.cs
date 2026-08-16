@@ -6,6 +6,64 @@ namespace BladeControl.Razer.Tests;
 public sealed class FanControlTests
 {
     [TestMethod]
+    public void ThermalTargetWritesBothFansExactlyDespiteFanV1Tolerance()
+    {
+        using var transport = CreateManualTransport(3000, 3000);
+        var client = new RazerClient(transport);
+
+        FanControlApplyResult result = client.ApplyThermalFanTarget(new FanRpm(3100));
+
+        Assert.IsTrue(result.Succeeded);
+        AssertWriteSequence(
+            transport,
+            (0x01, 0x01, 0x1F, 0x00),
+            (0x01, 0x02, 0x1F, 0x00));
+    }
+
+    [TestMethod]
+    public void ThermalTargetFailureDoesNotRetryAndAttemptsAutoOnce()
+    {
+        using var transport = CreateManualTransport(3000, 3000);
+        transport.FailWriteNumbers.Add(1);
+        var client = new RazerClient(transport);
+
+        FanControlApplyResult result = client.ApplyThermalFanTarget(new FanRpm(3400));
+
+        Assert.AreEqual(FanControlApplyOutcome.AutoRestored, result.Outcome);
+        Assert.AreEqual(1, transport.WriteRequests.Count(IsFanRpmSet));
+        Assert.AreEqual(2, result.AutoRecovery!.Operations.Count);
+    }
+
+    [TestMethod]
+    public void ThermalTargetExactReadbackMismatchHandsBackToAuto()
+    {
+        using var transport = CreateManualTransport(3000, 3000);
+        transport.Fan1ReadSequence.Enqueue(3000);
+        transport.Fan1ReadSequence.Enqueue(3300);
+        transport.Fan2ReadSequence.Enqueue(3000);
+        transport.Fan2ReadSequence.Enqueue(3400);
+        var client = new RazerClient(transport);
+
+        FanControlApplyResult result = client.ApplyThermalFanTarget(new FanRpm(3400));
+
+        Assert.AreEqual(FanControlApplyOutcome.AutoRestored, result.Outcome);
+        StringAssert.Contains(result.Verification.Message, "Exact thermal target validation failed");
+        Assert.AreEqual(2, transport.WriteRequests.Count(IsFanRpmSet));
+        Assert.AreEqual(2, result.AutoRecovery!.Operations.Count);
+    }
+
+    [TestMethod]
+    public void ThermalTargetBelow3000IsRejectedBeforeHardwareRead()
+    {
+        using var transport = CreateManualTransport(3000, 3000);
+        var client = new RazerClient(transport);
+
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() =>
+            client.ApplyThermalFanTarget(new FanRpm(2900)));
+        Assert.AreEqual(0, transport.Requests.Count);
+    }
+
+    [TestMethod]
     public void AutoToFixedOrdersModeThenFanWrites()
     {
         using var transport = CreateAutoTransport(RazerPerformanceMode.Custom);

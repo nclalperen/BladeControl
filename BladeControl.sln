@@ -10,6 +10,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Razer", "src\B
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Razer.Tests", "tests\BladeControl.Razer.Tests\BladeControl.Razer.Tests.csproj", "{0A01E61B-B0E0-4453-BE7C-70CE5618F116}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Telemetry", "src\BladeControl.Telemetry\BladeControl.Telemetry.csproj", "{C48F22F6-5D37-4E46-BDBE-B91F1C9D08D0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Thermal", "src\BladeControl.Thermal\BladeControl.Thermal.csproj", "{BFC1169F-AFA0-4B2C-9DB2-766C90F84F31}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Thermal.Tests", "tests\BladeControl.Thermal.Tests\BladeControl.Thermal.Tests.csproj", "{A36F033A-B95A-486B-83E2-9A0F3126DD42}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +38,18 @@ Global
 		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0A01E61B-B0E0-4453-BE7C-70CE5618F116}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C48F22F6-5D37-4E46-BDBE-B91F1C9D08D0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C48F22F6-5D37-4E46-BDBE-B91F1C9D08D0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C48F22F6-5D37-4E46-BDBE-B91F1C9D08D0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C48F22F6-5D37-4E46-BDBE-B91F1C9D08D0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BFC1169F-AFA0-4B2C-9DB2-766C90F84F31}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BFC1169F-AFA0-4B2C-9DB2-766C90F84F31}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BFC1169F-AFA0-4B2C-9DB2-766C90F84F31}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BFC1169F-AFA0-4B2C-9DB2-766C90F84F31}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A36F033A-B95A-486B-83E2-9A0F3126DD42}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

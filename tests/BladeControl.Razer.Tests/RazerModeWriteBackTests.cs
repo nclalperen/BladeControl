@@ -270,11 +270,11 @@ public sealed class RazerModeWriteBackTests
         RazerModeWriteBackResult result = client.RunCustomAutoModeWriteBackTest();
 
         Assert.AreNotEqual(
-            result.PreWriteState.Fan1.RevolutionsPerMinute,
-            result.PostWriteState.Fan1.RevolutionsPerMinute);
+            result.PreWriteState.Fan1.FirmwareReportedRpm,
+            result.PostWriteState.Fan1.FirmwareReportedRpm);
         Assert.AreNotEqual(
-            result.PreWriteState.Fan2.RevolutionsPerMinute,
-            result.PostWriteState.Fan2.RevolutionsPerMinute);
+            result.PreWriteState.Fan2.FirmwareReportedRpm,
+            result.PostWriteState.Fan2.FirmwareReportedRpm);
         Assert.IsTrue(result.Passed);
         Assert.IsFalse(result.StateDriftDetected);
     }

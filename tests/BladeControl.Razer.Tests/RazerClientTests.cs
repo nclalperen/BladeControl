@@ -20,8 +20,8 @@ public sealed class RazerClientTests
 
         RazerStatusSnapshot status = client.GetStatus();
 
-        Assert.AreEqual(2300, status.Fan1.RevolutionsPerMinute);
-        Assert.AreEqual(2400, status.Fan2.RevolutionsPerMinute);
+        Assert.AreEqual(2300, status.Fan1.FirmwareReportedRpm);
+        Assert.AreEqual(2400, status.Fan2.FirmwareReportedRpm);
         Assert.AreEqual("Balanced", status.PerformanceMode.ToString());
         Assert.AreEqual("Boost", status.CpuPerformanceLevel.ToString());
         Assert.AreEqual("High", status.GpuPerformanceLevel.ToString());

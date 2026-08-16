@@ -281,7 +281,7 @@ public sealed partial class RazerClient
         FanRpm fan1Target = profile.Fan1Rpm!.Value;
         FanRpm fan2Target = profile.Fan2Rpm!.Value;
         if (enteringManual || !IsWithinTolerance(
-                currentState.Fan1.RevolutionsPerMinute,
+                currentState.Fan1.FirmwareReportedRpm,
                 fan1Target.Value))
         {
             operations.Add(new FanControlOperation(
@@ -290,7 +290,7 @@ public sealed partial class RazerClient
         }
 
         if (enteringManual || !IsWithinTolerance(
-                currentState.Fan2.RevolutionsPerMinute,
+                currentState.Fan2.FirmwareReportedRpm,
                 fan2Target.Value))
         {
             operations.Add(new FanControlOperation(
@@ -406,9 +406,9 @@ public sealed partial class RazerClient
             $"FAN RPM VERIFICATION TIMEOUT after " +
             $"{FanControlSafety.MaximumObservationMilliseconds} ms: " +
             $"Fan 1 expected {fan1Target.Value} +/- {FanControlSafety.RpmTolerance}, " +
-            $"received {fan1.RevolutionsPerMinute}; Fan 2 expected " +
+            $"received {fan1.FirmwareReportedRpm}; Fan 2 expected " +
             $"{fan2Target.Value} +/- {FanControlSafety.RpmTolerance}, " +
-            $"received {fan2.RevolutionsPerMinute}. No SET was repeated.");
+            $"received {fan2.FirmwareReportedRpm}. No SET was repeated.");
     }
 
     private FanAutoRecoveryResult AttemptEmergencyAuto()
@@ -722,8 +722,8 @@ public sealed partial class RazerClient
         RazerFanReading fan2,
         FanRpm fan1Target,
         FanRpm fan2Target) =>
-        IsWithinTolerance(fan1.RevolutionsPerMinute, fan1Target.Value) &&
-        IsWithinTolerance(fan2.RevolutionsPerMinute, fan2Target.Value);
+        IsWithinTolerance(fan1.FirmwareReportedRpm, fan1Target.Value) &&
+        IsWithinTolerance(fan2.FirmwareReportedRpm, fan2Target.Value);
 
     private static bool IsWithinTolerance(int actual, int expected) =>
         Math.Abs(actual - expected) <= FanControlSafety.RpmTolerance;
