@@ -4,10 +4,10 @@
              xmlns:controls="clr-namespace:BladeControl.UI.Controls"
              Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="30,0,30,30">
-            <Border Margin="0,0,0,14"
+        <StackPanel Margin="{StaticResource PageContentMargin}">
+            <Border Margin="{StaticResource CardGapMargin}"
                     Padding="14,10"
-                    CornerRadius="10"
+                    CornerRadius="{StaticResource PanelCornerRadius}"
                     BorderThickness="1"
                     Background="{StaticResource WarningBackgroundBrush}"
                     BorderBrush="{StaticResource WarningBrush}"
@@ -15,7 +15,7 @@
                 <TextBlock Text="{Binding StaleLabel}" Foreground="{StaticResource WarningBrush}" FontWeight="SemiBold" />
             </Border>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -23,10 +23,10 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="{Binding SourceLabel}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding SampleCountLabel}" Margin="0,5,0,0" Style="{StaticResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SampleCountLabel}" Margin="{StaticResource LabelValueMargin}" Style="{StaticResource CaptionTextStyle}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Padding="4" CornerRadius="10" Background="{StaticResource SurfaceRaisedBrush}" Margin="0,0,9,0">
+                        <Border Padding="4" CornerRadius="{StaticResource PanelCornerRadius}" Background="{StaticResource SurfaceRaisedBrush}" Margin="0,0,9,0">
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton Content="60 s" IsChecked="{Binding Is60Seconds}" Style="{StaticResource SegmentToggleStyle}" GroupName="GraphRange" />
                                 <RadioButton Content="120 s" IsChecked="{Binding Is120Seconds}" Style="{StaticResource SegmentToggleStyle}" GroupName="GraphRange" />

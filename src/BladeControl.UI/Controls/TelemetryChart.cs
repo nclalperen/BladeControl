@@ -32,22 +32,16 @@ public sealed class TelemetryChart : FrameworkElement
         FontWeights.SemiBold,
         FontStretches.Normal);
 
-    private static readonly Brush BackgroundBrush = FrozenBrush(0x0E, 0x13, 0x10);
-    private static readonly Brush PlotBackgroundBrush = FrozenBrush(0x0B, 0x10, 0x0D);
-    private static readonly Brush PrimaryTextBrush = FrozenBrush(0xED, 0xF2, 0xEE);
-    private static readonly Brush SecondaryTextBrush = FrozenBrush(0xA0, 0xAB, 0xA3);
-    private static readonly Brush MutedTextBrush = FrozenBrush(0x70, 0x7C, 0x74);
-    private static readonly Brush EndpointHaloBrush = FrozenBrush(0x0B, 0x10, 0x0D);
-    private static readonly Pen FramePen = FrozenPen(Color.FromRgb(0x27, 0x31, 0x29), 1);
-    private static readonly Pen PlotBorderPen = FrozenPen(Color.FromRgb(0x2B, 0x36, 0x2E), 1);
-    private static readonly Pen GridPen = FrozenPen(
-        Color.FromArgb(0x7A, 0x31, 0x3D, 0x34),
-        1,
-        new DashStyle([2, 4], 0));
-
     private readonly Dictionary<string, SeriesVisual> _seriesVisuals =
         new(StringComparer.OrdinalIgnoreCase);
     private ChartViewModel? _subscribedChart;
+    private ChartPalette? _palette;
+
+    /// <summary>
+    /// Theme colours for this chart. Resolved from the application resources once per
+    /// control and cached, so per-frame rendering cost is unchanged.
+    /// </summary>
+    private ChartPalette Palette => _palette ??= ChartPalette.Resolve(this);
 
     public TelemetryChart()
     {
@@ -98,9 +92,15 @@ public sealed class TelemetryChart : FrameworkElement
             return;
         }
 
+        ChartPalette palette = Palette;
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         Rect frame = new(0.5, 0.5, width - 1, height - 1);
-        drawingContext.DrawRoundedRectangle(BackgroundBrush, FramePen, frame, 9, 9);
+        drawingContext.DrawRoundedRectangle(
+            palette.Background,
+            palette.Frame,
+            frame,
+            palette.FrameCornerRadius,
+            palette.FrameCornerRadius);
 
         ChartViewModel? chart = Chart;
         if (chart is null)
@@ -247,7 +247,7 @@ public sealed class TelemetryChart : FrameworkElement
         FormattedText title = CreateText(
             chart.Title,
             13.5,
-            PrimaryTextBrush,
+            Palette.PrimaryText,
             SemiboldTypeface,
             pixelsPerDip);
         title.Trimming = TextTrimming.CharacterEllipsis;
@@ -268,7 +268,7 @@ public sealed class TelemetryChart : FrameworkElement
             FormattedText hidden = CreateText(
                 "All series hidden",
                 10.5,
-                MutedTextBrush,
+                Palette.MutedText,
                 RegularTypeface,
                 pixelsPerDip);
             drawingContext.DrawText(hidden, new Point(OuterPadding, 35));
@@ -295,7 +295,7 @@ public sealed class TelemetryChart : FrameworkElement
             FormattedText legend = CreateText(
                 $"{series.Label}  {series.LatestText}",
                 10.5,
-                SecondaryTextBrush,
+                Palette.SecondaryText,
                 RegularTypeface,
                 pixelsPerDip);
             legend.Trimming = TextTrimming.CharacterEllipsis;
@@ -315,7 +315,7 @@ public sealed class TelemetryChart : FrameworkElement
         string unit,
         double pixelsPerDip)
     {
-        drawingContext.DrawRectangle(PlotBackgroundBrush, null, plot);
+        drawingContext.DrawRectangle(Palette.PlotBackground, null, plot);
 
         int horizontalIntervals = Math.Clamp(
             (int)Math.Round((axis.Maximum - axis.Minimum) / axis.Step),
@@ -325,13 +325,13 @@ public sealed class TelemetryChart : FrameworkElement
         {
             double fraction = index / (double)horizontalIntervals;
             double y = plot.Bottom - (fraction * plot.Height);
-            drawingContext.DrawLine(GridPen, new Point(plot.Left, y), new Point(plot.Right, y));
+            drawingContext.DrawLine(Palette.Grid, new Point(plot.Left, y), new Point(plot.Right, y));
 
             double value = axis.Minimum + (fraction * (axis.Maximum - axis.Minimum));
             FormattedText label = CreateText(
                 FormatAxisValue(value, unit),
                 9.5,
-                MutedTextBrush,
+                Palette.MutedText,
                 RegularTypeface,
                 pixelsPerDip);
             label.TextAlignment = TextAlignment.Right;
@@ -342,10 +342,10 @@ public sealed class TelemetryChart : FrameworkElement
         {
             double fraction = index / (double)VerticalGridDivisions;
             double x = plot.Left + (fraction * plot.Width);
-            drawingContext.DrawLine(GridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
+            drawingContext.DrawLine(Palette.Grid, new Point(x, plot.Top), new Point(x, plot.Bottom));
         }
 
-        drawingContext.DrawRectangle(null, PlotBorderPen, plot);
+        drawingContext.DrawRectangle(null, Palette.PlotBorder, plot);
 
         if (!bounds.HasTimestamps)
         {
@@ -366,7 +366,7 @@ public sealed class TelemetryChart : FrameworkElement
             FormattedText label = CreateText(
                 text,
                 9.5,
-                MutedTextBrush,
+                Palette.MutedText,
                 RegularTypeface,
                 pixelsPerDip);
             label.TextAlignment = index switch
@@ -460,7 +460,7 @@ public sealed class TelemetryChart : FrameworkElement
 
         if (currentPoint is { } endpoint)
         {
-            drawingContext.DrawEllipse(EndpointHaloBrush, null, endpoint, 4, 4);
+            drawingContext.DrawEllipse(Palette.EndpointHalo, null, endpoint, 4, 4);
             drawingContext.DrawEllipse(visual.Brush, null, endpoint, 2.5, 2.5);
         }
     }
@@ -659,7 +659,7 @@ public sealed class TelemetryChart : FrameworkElement
             FormattedText label = CreateText(
                 FormatAxisValue(value, unit),
                 9.5,
-                MutedTextBrush,
+                Palette.MutedText,
                 RegularTypeface,
                 pixelsPerDip);
             width = Math.Max(width, label.WidthIncludingTrailingWhitespace);
@@ -691,7 +691,7 @@ public sealed class TelemetryChart : FrameworkElement
         FormattedText text = CreateText(
             message,
             11,
-            MutedTextBrush,
+            Palette.MutedText,
             RegularTypeface,
             pixelsPerDip);
         Point origin = new(
@@ -721,7 +721,7 @@ public sealed class TelemetryChart : FrameworkElement
             return visual;
         }
 
-        Color color = ParseColor(colorHex);
+        Color color = ParseColor(colorHex, Palette.SeriesFallback);
         SolidColorBrush brush = new(color);
         brush.Freeze();
         Pen pen = new(brush, 1.75)
@@ -736,7 +736,7 @@ public sealed class TelemetryChart : FrameworkElement
         return visual;
     }
 
-    private static Color ParseColor(string colorHex)
+    private static Color ParseColor(string colorHex, Color fallback)
     {
         ReadOnlySpan<char> value = colorHex.AsSpan();
         if (value.Length == 7 && value[0] == '#' &&
@@ -766,31 +766,118 @@ public sealed class TelemetryChart : FrameworkElement
                 (byte)argb);
         }
 
-        return Color.FromRgb(0x46, 0xD2, 0x7B);
+        return fallback;
     }
 
-    private static SolidColorBrush FrozenBrush(byte red, byte green, byte blue)
+    /// <summary>
+    /// Chart colours taken from the merged application theme rather than from constants
+    /// held here, so a <c>DarkTheme.xaml</c> edit reaches the graphs as well. Resolution
+    /// walks the element tree up to the application resources and happens once per chart;
+    /// every brush and pen is frozen, so drawing stays as cheap as it was.
+    /// </summary>
+    private sealed class ChartPalette
     {
-        SolidColorBrush brush = new(Color.FromRgb(red, green, blue));
-        brush.Freeze();
-        return brush;
-    }
-
-    private static Pen FrozenPen(Color color, double thickness, DashStyle? dashStyle = null)
-    {
-        SolidColorBrush brush = new(color);
-        brush.Freeze();
-        if (dashStyle?.CanFreeze == true)
+        private ChartPalette(
+            Brush background,
+            Brush plotBackground,
+            Brush primaryText,
+            Brush secondaryText,
+            Brush mutedText,
+            Pen frame,
+            Pen plotBorder,
+            Pen grid,
+            Color seriesFallback,
+            double frameCornerRadius)
         {
-            dashStyle.Freeze();
+            Background = background;
+            PlotBackground = plotBackground;
+            PrimaryText = primaryText;
+            SecondaryText = secondaryText;
+            MutedText = mutedText;
+            Frame = frame;
+            PlotBorder = plotBorder;
+            Grid = grid;
+            SeriesFallback = seriesFallback;
+            FrameCornerRadius = frameCornerRadius;
         }
 
-        Pen pen = new(brush, thickness)
+        public Brush Background { get; }
+
+        public Brush PlotBackground { get; }
+
+        public Brush PrimaryText { get; }
+
+        public Brush SecondaryText { get; }
+
+        public Brush MutedText { get; }
+
+        /// <summary>Fills the gap punched behind an endpoint marker.</summary>
+        public Brush EndpointHalo => PlotBackground;
+
+        public Pen Frame { get; }
+
+        public Pen PlotBorder { get; }
+
+        public Pen Grid { get; }
+
+        /// <summary>Used when a series carries an unparsable colour string.</summary>
+        public Color SeriesFallback { get; }
+
+        public double FrameCornerRadius { get; }
+
+        public static ChartPalette Resolve(FrameworkElement element)
         {
-            DashStyle = dashStyle ?? DashStyles.Solid
-        };
-        pen.Freeze();
-        return pen;
+            Brush plotBackground = FindBrush(element, "ChartPlotBackgroundBrush", Brushes.Black);
+            return new ChartPalette(
+                FindBrush(element, "WindowBackgroundBrush", Brushes.Black),
+                plotBackground,
+                FindBrush(element, "TextPrimaryBrush", Brushes.White),
+                FindBrush(element, "TextSecondaryBrush", Brushes.LightGray),
+                FindBrush(element, "TextMutedBrush", Brushes.Gray),
+                FrozenPen(FindBrush(element, "BorderBrush", Brushes.Gray), 1),
+                FrozenPen(FindBrush(element, "ChartPlotBorderBrush", Brushes.Gray), 1),
+                FrozenPen(
+                    FindBrush(element, "ChartGridBrush", Brushes.Gray),
+                    1,
+                    new DashStyle([2, 4], 0)),
+                (FindBrush(element, "AccentBrush", Brushes.Gray) as SolidColorBrush)?.Color ??
+                    Colors.Gray,
+                FindDouble(element, "PanelCornerRadius", 10));
+        }
+
+        private static Brush FindBrush(FrameworkElement element, string key, Brush fallback)
+        {
+            if (element.TryFindResource(key) is not Brush brush)
+            {
+                return fallback;
+            }
+
+            if (brush.CanFreeze && !brush.IsFrozen)
+            {
+                brush = brush.Clone();
+                brush.Freeze();
+            }
+
+            return brush;
+        }
+
+        private static double FindDouble(FrameworkElement element, string key, double fallback) =>
+            element.TryFindResource(key) is CornerRadius radius ? radius.TopLeft : fallback;
+
+        private static Pen FrozenPen(Brush brush, double thickness, DashStyle? dashStyle = null)
+        {
+            if (dashStyle?.CanFreeze == true)
+            {
+                dashStyle.Freeze();
+            }
+
+            Pen pen = new(brush, thickness)
+            {
+                DashStyle = dashStyle ?? DashStyles.Solid
+            };
+            pen.Freeze();
+            return pen;
+        }
     }
 
     private sealed record SeriesVisual(Brush Brush, Pen Pen);

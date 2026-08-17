@@ -34,7 +34,7 @@
                     <StackPanel Orientation="Horizontal">
                         <Border Width="34"
                                 Height="34"
-                                CornerRadius="10"
+                                CornerRadius="{StaticResource PanelCornerRadius}"
                                 Background="{StaticResource AccentBrush}">
                             <TextBlock Text="B"
                                        HorizontalAlignment="Center"
@@ -123,7 +123,7 @@
                     <TextBlock Text="{Binding CurrentTitle}"
                                Style="{StaticResource PageTitleTextStyle}" />
                     <TextBlock Text="{Binding CurrentSubtitle}"
-                               Margin="0,3,0,0"
+                               Margin="{StaticResource ValueCaptionMargin}"
                                Style="{StaticResource SubtitleTextStyle}" />
                 </StackPanel>
             </Grid>
@@ -131,7 +131,7 @@
             <Border Grid.Row="1"
                     Margin="30,0,30,14"
                     Padding="14,11"
-                    CornerRadius="10"
+                    CornerRadius="{StaticResource PanelCornerRadius}"
                     Background="{Binding ConnectionNoticeTone, Converter={StaticResource StatusToneBrushConverter}, ConverterParameter=Background}"
                     BorderBrush="{Binding ConnectionNoticeTone, Converter={StaticResource StatusToneBrushConverter}}"
                     BorderThickness="1"

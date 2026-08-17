@@ -22,7 +22,7 @@
                         <Border x:Name="OptionBorder"
                                 MinHeight="76"
                                 Padding="13,11"
-                                CornerRadius="10"
+                                CornerRadius="{StaticResource PanelCornerRadius}"
                                 BorderThickness="1"
                                 BorderBrush="{StaticResource BorderBrush}"
                                 Background="{StaticResource SurfaceRaisedBrush}">
@@ -49,11 +49,11 @@
             <StackPanel>
                 <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding Description}"
-                           Margin="0,5,0,0"
+                           Margin="{StaticResource LabelValueMargin}"
                            Style="{StaticResource CaptionTextStyle}"
                            TextWrapping="Wrap" />
                 <TextBlock Text="Not hardware validated"
-                           Margin="0,5,0,0"
+                           Margin="{StaticResource LabelValueMargin}"
                            Foreground="{StaticResource WarningBrush}"
                            FontSize="10.5">
                     <TextBlock.Style>
@@ -72,8 +72,8 @@
     </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="30,0,30,30">
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+        <StackPanel Margin="{StaticResource PageContentMargin}">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -82,7 +82,7 @@
                     <StackPanel>
                         <TextBlock Text="CURRENT POLICY" Style="{StaticResource EyebrowTextStyle}" />
                         <TextBlock Text="{Binding CurrentSummary}" Margin="0,9,0,0" FontSize="23" FontWeight="SemiBold" />
-                        <TextBlock Margin="0,5,0,0" FontSize="11.5">
+                        <TextBlock Margin="{StaticResource LabelValueMargin}" FontSize="11.5">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
                                     <Setter Property="Text" Value="Reported live by Runtime Core" />
@@ -103,7 +103,7 @@
                 </Grid>
             </Border>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <StackPanel>
                     <TextBlock Text="MODE" Style="{StaticResource EyebrowTextStyle}" />
                     <TextBlock Text="Choose one of the Runtime Core V1 validated profiles."
@@ -124,7 +124,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Margin="0,0,0,14">
+            <Border Margin="{StaticResource CardGapMargin}">
                 <Border.Style>
                     <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
                         <Style.Triggers>
@@ -180,7 +180,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="PENDING" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding PendingSummary}" Margin="0,5,0,0" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding PendingSummary}" Margin="{StaticResource LabelValueMargin}" FontSize="16" FontWeight="SemiBold" />
                         <TextBlock Text="{Binding ApplyBlockedReason}"
                                    Margin="0,5,18,0"
                                    Foreground="{StaticResource WarningBrush}"

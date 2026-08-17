@@ -3,10 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="30,0,30,30">
-            <Border Margin="0,0,0,14"
+        <StackPanel Margin="{StaticResource PageContentMargin}">
+            <Border Margin="{StaticResource CardGapMargin}"
                     Padding="14,10"
-                    CornerRadius="10"
+                    CornerRadius="{StaticResource PanelCornerRadius}"
                     BorderThickness="1"
                     Background="{StaticResource NeutralBackgroundBrush}"
                     BorderBrush="{StaticResource BorderStrongBrush}"
@@ -14,7 +14,7 @@
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
             </Border>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -24,27 +24,27 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="SESSION" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding ThermalSession}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding ThermalSessionTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                        <TextBlock Text="{Binding ThermalSession}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" Foreground="{Binding ThermalSessionTone, Converter={StaticResource StatusToneBrushConverter}}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1">
                         <TextBlock Text="ACTIVE CURVE" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding ActiveCurve}" Margin="0,5,0,0" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding ActiveCurve}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="FAN TARGET" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding EffectiveFanTarget}" Margin="0,5,0,0" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding EffectiveFanTarget}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" />
                     </StackPanel>
                     <StackPanel Grid.Column="3">
                         <TextBlock Text="TELEMETRY" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding TelemetryHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" ToolTip="{Binding TelemetryHealthDetail}" />
+                        <TextBlock Text="{Binding TelemetryHealth}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" ToolTip="{Binding TelemetryHealthDetail}" />
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <StackPanel>
                     <TextBlock Text="COOLING MODE" Style="{StaticResource EyebrowTextStyle}" Margin="0,0,0,10" />
-                    <Border Padding="4" CornerRadius="10" Background="{StaticResource SurfaceRaisedBrush}" HorizontalAlignment="Left">
+                    <Border Padding="4" CornerRadius="{StaticResource PanelCornerRadius}" Background="{StaticResource SurfaceRaisedBrush}" HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton Content="Firmware Auto" IsChecked="{Binding IsFirmwareAutoSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CoolingMode" />
                             <RadioButton Content="Fixed" IsChecked="{Binding IsFixedSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CoolingMode" />
@@ -55,7 +55,7 @@
             </Border>
 
             <Border Style="{StaticResource CardStyle}"
-                    Margin="0,0,0,14"
+                    Margin="{StaticResource CardGapMargin}"
                     Visibility="{Binding IsFirmwareAutoSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -68,7 +68,7 @@
                                    Margin="0,7,24,0"
                                    Style="{StaticResource CaptionTextStyle}"
                                    TextWrapping="Wrap" />
-                        <TextBlock Margin="0,12,0,0" Style="{StaticResource CaptionTextStyle}">
+                        <TextBlock Margin="{StaticResource SectionGapMargin}" Style="{StaticResource CaptionTextStyle}">
                             <Run Text="Firmware mode: " /><Run Text="{Binding FirmwareFanMode, Mode=OneWay}" /><Run Text="  ·  Reported state: Fan 1 " /><Run Text="{Binding FirmwareFan1Value, Mode=OneWay}" /><Run Text=" / Fan 2 " /><Run Text="{Binding FirmwareFan2Value, Mode=OneWay}" />
                         </TextBlock>
                         <TextBlock Text="{Binding ProfileBlockedReason}"
@@ -83,7 +83,7 @@
             </Border>
 
             <Border Style="{StaticResource CardStyle}"
-                    Margin="0,0,0,14"
+                    Margin="{StaticResource CardGapMargin}"
                     Visibility="{Binding IsFixedSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <StackPanel>
                     <Grid>
@@ -144,7 +144,7 @@
             </Border>
 
             <StackPanel Visibility="{Binding IsDynamicSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -179,7 +179,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Curve editor" Style="{StaticResource SectionTitleTextStyle}" />
-                                <TextBlock Text="{Binding CurveEditor.SourceLabel}" Margin="0,5,0,0" Style="{StaticResource CaptionTextStyle}" />
+                                <TextBlock Text="{Binding CurveEditor.SourceLabel}" Margin="{StaticResource LabelValueMargin}" Style="{StaticResource CaptionTextStyle}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <Button Content="Reload" Command="{Binding ReloadCurveCommand}" Style="{StaticResource GhostButtonStyle}" Margin="0,0,6,0" />
@@ -187,14 +187,14 @@
                             </StackPanel>
                         </Grid>
 
-                        <Border Padding="11,9" CornerRadius="8" Background="{StaticResource WarningBackgroundBrush}" Margin="0,0,0,13">
+                        <Border Padding="11,9" CornerRadius="{StaticResource ControlCornerRadius}" Background="{StaticResource WarningBackgroundBrush}" Margin="0,0,0,13">
                             <TextBlock Text="{Binding CurveEditor.ApplyBlockedReason}"
                                        Foreground="{StaticResource WarningBrush}"
                                        FontSize="11.5"
                                        TextWrapping="Wrap" />
                         </Border>
 
-                        <Border Padding="4" CornerRadius="10" Background="{StaticResource SurfaceRaisedBrush}" HorizontalAlignment="Left" Margin="0,0,0,12">
+                        <Border Padding="4" CornerRadius="{StaticResource PanelCornerRadius}" Background="{StaticResource SurfaceRaisedBrush}" HorizontalAlignment="Left" Margin="0,0,0,12">
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton Content="CPU curve" IsChecked="{Binding CurveEditor.IsCpuSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CurveTarget" />
                                 <RadioButton Content="GPU curve" IsChecked="{Binding CurveEditor.IsGpuSelected}" Style="{StaticResource SegmentToggleStyle}" GroupName="CurveTarget" />
@@ -212,7 +212,7 @@
                             </DataGrid.Columns>
                         </DataGrid>
 
-                        <Grid Margin="0,12,0,0">
+                        <Grid Margin="{StaticResource SectionGapMargin}">
                             <StackPanel Orientation="Horizontal">
                                 <Button Content="Add point" Command="{Binding CurveEditor.AddPointCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" />
                                 <Button Content="Remove selected" Command="{Binding CurveEditor.RemovePointCommand}" Style="{StaticResource GhostButtonStyle}" />

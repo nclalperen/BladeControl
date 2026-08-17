@@ -26,6 +26,43 @@
     <SolidColorBrush x:Key="NeutralBackgroundBrush" Color="#1B211D" />
     <SolidColorBrush x:Key="MutedBackgroundBrush" Color="#171B18" />
 
+    <!--
+    Chart surfaces. TelemetryChart resolves these by key instead of carrying its own
+    palette constants, so a theme edit reaches the graphs too. Only genuinely
+    chart-specific roles live here; the chart reuses the shared text, window and border
+    brushes above for everything that already has a token.
+    -->
+    <SolidColorBrush x:Key="ChartPlotBackgroundBrush" Color="#0B100D" />
+    <SolidColorBrush x:Key="ChartPlotBorderBrush" Color="#2B362E" />
+    <SolidColorBrush x:Key="ChartGridBrush" Color="#7A313D34" />
+
+    <!--
+    Corner radii. Five roles cover the whole application: interactive controls, inset
+    panels and notices, cards, the compact window shell, and pills.
+    -->
+    <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="PanelCornerRadius">10</CornerRadius>
+    <CornerRadius x:Key="CardCornerRadius">13</CornerRadius>
+    <CornerRadius x:Key="WindowCornerRadius">15</CornerRadius>
+    <CornerRadius x:Key="PillCornerRadius">99</CornerRadius>
+
+    <!--
+    Spacing. These are the structural rhythms that repeat across pages, not an
+    encoding of every literal in the markup: one-off nudges stay inline where a named
+    resource would only make the XAML harder to read.
+    -->
+    <Thickness x:Key="PageContentMargin">30,0,30,30</Thickness>
+    <Thickness x:Key="CardGapMargin">0,0,0,14</Thickness>
+    <Thickness x:Key="SectionGapMargin">0,12,0,0</Thickness>
+    <Thickness x:Key="LabelValueMargin">0,5,0,0</Thickness>
+    <Thickness x:Key="MetricValueMargin">0,4,0,0</Thickness>
+    <Thickness x:Key="ValueCaptionMargin">0,3,0,0</Thickness>
+
+    <!-- Compact density equivalents of the shared rhythms above. -->
+    <Thickness x:Key="CompactCardGapMargin">0,0,0,9</Thickness>
+    <Thickness x:Key="CompactSectionGapMargin">0,9,0,0</Thickness>
+    <Thickness x:Key="CompactEyebrowMargin">0,0,0,8</Thickness>
+
     <Style TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
@@ -70,17 +107,17 @@
         <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="13" />
+        <Setter Property="CornerRadius" Value="{StaticResource CardCornerRadius}" />
         <Setter Property="Padding" Value="18" />
     </Style>
 
     <Style x:Key="CompactCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
-        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="CornerRadius" Value="{StaticResource PanelCornerRadius}" />
         <Setter Property="Padding" Value="12" />
     </Style>
 
     <Style x:Key="StatusPillStyle" TargetType="Border">
-        <Setter Property="CornerRadius" Value="99" />
+        <Setter Property="CornerRadius" Value="{StaticResource PillCornerRadius}" />
         <Setter Property="Padding" Value="9,4" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
@@ -102,7 +139,7 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="8"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
                             Padding="{TemplateBinding Padding}"
                             SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center"
@@ -164,7 +201,7 @@
                 <ControlTemplate TargetType="ListBoxItem">
                     <Border x:Name="NavBorder"
                             Background="Transparent"
-                            CornerRadius="9"
+                            CornerRadius="{StaticResource PanelCornerRadius}"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter />
                     </Border>
@@ -255,7 +292,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
                     <Border x:Name="SegmentBorder"
-                            CornerRadius="8"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
                             Background="{TemplateBinding Background}"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" />
@@ -272,5 +309,63 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!--
+    Compact density. These are variants of the styles above, not a second theme: each
+    one is BasedOn its full-size counterpart and changes only what density requires, so
+    a change to the shared identity (colour, template, states) reaches both surfaces.
+    SegmentToggleStyle is deliberately absent — the compact panel uses it unchanged.
+    -->
+    <!--
+    A named TextBlock style replaces the implicit one rather than extending it, so each
+    compact style restates TextFormattingMode="Display". Without it these TextBlocks fall
+    back to Ideal metrics and the glyphs visibly re-rasterise.
+    -->
+    <Style x:Key="CompactTitleTextStyle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitleTextStyle}">
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    </Style>
+
+    <Style x:Key="CompactMetricTextStyle" TargetType="TextBlock" BasedOn="{StaticResource MetricTextStyle}">
+        <Setter Property="FontSize" Value="21" />
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    </Style>
+
+    <Style x:Key="CompactCaptionTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    </Style>
+
+    <!-- Compact footer status line: caption size, tone-coloured by the caller. -->
+    <Style x:Key="CompactStatusTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    </Style>
+
+    <Style x:Key="CompactPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <Style x:Key="CompactGhostButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="MinHeight" Value="28" />
+    </Style>
+
+    <!--
+    Header glyph buttons. MinHeight is deliberately inherited from ActionButtonStyle
+    rather than pinned to Height: that is what the compact shell renders today, and
+    changing it here would silently resize the header.
+    -->
+    <Style x:Key="CompactIconButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style x:Key="StatusDotStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="7" />
+        <Setter Property="Height" Value="7" />
+        <Setter Property="Margin" Value="0,0,7,0" />
     </Style>
 </ResourceDictionary>

@@ -4,10 +4,10 @@
              Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="30,0,30,30">
-            <Border Margin="0,0,0,14"
+        <StackPanel Margin="{StaticResource PageContentMargin}">
+            <Border Margin="{StaticResource CardGapMargin}"
                     Padding="14,11"
-                    CornerRadius="10"
+                    CornerRadius="{StaticResource PanelCornerRadius}"
                     BorderThickness="1"
                     Background="{StaticResource DangerBackgroundBrush}"
                     BorderBrush="{StaticResource DangerBrush}"
@@ -18,9 +18,9 @@
                            TextWrapping="Wrap" />
             </Border>
 
-            <Border Margin="0,0,0,14"
+            <Border Margin="{StaticResource CardGapMargin}"
                     Padding="14,10"
-                    CornerRadius="10"
+                    CornerRadius="{StaticResource PanelCornerRadius}"
                     BorderThickness="1"
                     Background="{Binding StatusIsError, Converter={StaticResource StatusToneBrushConverter}, ConverterParameter=Background}"
                     BorderBrush="{Binding StatusIsError, Converter={StaticResource StatusToneBrushConverter}}"
@@ -28,7 +28,7 @@
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
             </Border>
 
-            <Grid Margin="0,0,0,14">
+            <Grid Margin="{StaticResource CardGapMargin}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="14" />
@@ -59,11 +59,11 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="POWER" Style="{StaticResource EyebrowTextStyle}" />
-                                <TextBlock Text="{Binding CpuPower}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding CpuPowerDetail}" />
+                                <TextBlock Text="{Binding CpuPower}" Margin="{StaticResource MetricValueMargin}" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding CpuPowerDetail}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1">
                                 <TextBlock Text="UTILIZATION" Style="{StaticResource EyebrowTextStyle}" />
-                                <TextBlock Text="{Binding CpuLoad}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding CpuLoadDetail}" />
+                                <TextBlock Text="{Binding CpuLoad}" Margin="{StaticResource MetricValueMargin}" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding CpuLoadDetail}" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>
@@ -83,21 +83,21 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="POWER" Style="{StaticResource EyebrowTextStyle}" />
-                                <TextBlock Text="{Binding GpuPower}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding GpuPowerDetail}" />
+                                <TextBlock Text="{Binding GpuPower}" Margin="{StaticResource MetricValueMargin}" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding GpuPowerDetail}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1">
                                 <TextBlock Text="UTILIZATION" Style="{StaticResource EyebrowTextStyle}" />
-                                <TextBlock Text="{Binding GpuUtilization}" Margin="0,4,0,0" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding GpuUtilizationDetail}" />
+                                <TextBlock Text="{Binding GpuUtilization}" Margin="{StaticResource MetricValueMargin}" FontSize="16" FontWeight="SemiBold" ToolTip="{Binding GpuUtilizationDetail}" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>
                 </Border>
             </Grid>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <StackPanel>
                     <TextBlock Text="QUICK ACTIONS" Style="{StaticResource EyebrowTextStyle}" />
-                    <WrapPanel Margin="0,12,0,0">
+                    <WrapPanel Margin="{StaticResource SectionGapMargin}">
                         <Button Content="Balanced" Command="{Binding ApplyBalancedCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8" />
                         <Button Content="Silent" Command="{Binding ApplySilentCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8" />
                         <Button Content="{Binding CustomButtonLabel}" Command="{Binding ApplyCustomCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8" />
@@ -105,12 +105,12 @@
                         <Button Content="Stop Dynamic Cooling" Command="{Binding StopCoolingCommand}" Style="{StaticResource DangerButtonStyle}" Margin="0,0,0,8" />
                     </WrapPanel>
                     <TextBlock Text="{Binding ProfileBlockedReason}"
-                               Margin="0,5,0,0"
+                               Margin="{StaticResource LabelValueMargin}"
                                Style="{StaticResource CaptionTextStyle}"
                                TextWrapping="Wrap"
                                Visibility="{Binding HasProfileBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <TextBlock Text="{Binding StartBlockedReason}"
-                               Margin="0,3,0,0"
+                               Margin="{StaticResource ValueCaptionMargin}"
                                Foreground="{StaticResource WarningBrush}"
                                FontSize="11.5"
                                TextWrapping="Wrap"
@@ -118,37 +118,37 @@
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <StackPanel>
                     <TextBlock Text="RUNTIME HEALTH" Style="{StaticResource EyebrowTextStyle}" Margin="0,0,0,13" />
                     <UniformGrid Columns="4">
                         <StackPanel Margin="0,0,12,0">
                             <TextBlock Text="CONNECTION" Style="{StaticResource EyebrowTextStyle}" />
                             <TextBlock Text="{Binding ConnectionText}"
-                                       Margin="0,5,0,0"
+                                       Margin="{StaticResource LabelValueMargin}"
                                        FontWeight="SemiBold"
                                        Foreground="{Binding ConnectionTone, Converter={StaticResource StatusToneBrushConverter}}" />
                         </StackPanel>
                         <StackPanel Margin="0,0,12,0">
                             <TextBlock Text="RUNTIME STATE" Style="{StaticResource EyebrowTextStyle}" />
-                            <TextBlock Text="{Binding RuntimeState}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding RuntimeStateTone, Converter={StaticResource StatusToneBrushConverter}}" />
-                            <TextBlock Text="{Binding RuntimeStateDescription}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding RuntimeState}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" Foreground="{Binding RuntimeStateTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding RuntimeStateDescription}" Margin="{StaticResource ValueCaptionMargin}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel Margin="0,0,12,0">
                             <TextBlock Text="{Binding TelemetryLabel}" Style="{StaticResource EyebrowTextStyle}" />
-                            <TextBlock Text="{Binding TelemetryHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
-                            <TextBlock Text="{Binding TelemetryHealthDetail}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding TelemetryHealth}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding TelemetryHealthDetail}" Margin="{StaticResource ValueCaptionMargin}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel>
                             <TextBlock Text="{Binding SchedulerLabel}" Style="{StaticResource EyebrowTextStyle}" />
-                            <TextBlock Text="{Binding SchedulerHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding SchedulerHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
-                            <TextBlock Text="{Binding SessionId}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SessionId}" />
+                            <TextBlock Text="{Binding SchedulerHealth}" Margin="{StaticResource LabelValueMargin}" FontWeight="SemiBold" Foreground="{Binding SchedulerHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding SessionId}" Margin="{StaticResource ValueCaptionMargin}" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SessionId}" />
                         </StackPanel>
                     </UniformGrid>
                 </StackPanel>
             </Border>
 
-            <Grid Margin="0,0,0,14">
+            <Grid Margin="{StaticResource CardGapMargin}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="14" />
@@ -166,11 +166,11 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="{Binding FirmwareFanModeLabel}" Style="{StaticResource EyebrowTextStyle}" />
-                                <TextBlock Text="{Binding FirmwareFanMode}" Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding FirmwareFanMode}" Margin="{StaticResource MetricValueMargin}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1">
                                 <TextBlock Text="REPORTED FAN STATE" Style="{StaticResource EyebrowTextStyle}" />
-                                <TextBlock Margin="0,4,0,0">
+                                <TextBlock Margin="{StaticResource MetricValueMargin}">
                                     <Run Text="1 · " /><Run Text="{Binding FirmwareFan1Value, Mode=OneWay}" /><Run Text="   2 · " /><Run Text="{Binding FirmwareFan2Value, Mode=OneWay}" />
                                 </TextBlock>
                             </StackPanel>

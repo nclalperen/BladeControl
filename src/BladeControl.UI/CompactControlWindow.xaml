@@ -19,7 +19,7 @@
     <Border Background="{StaticResource WindowBackgroundBrush}"
             BorderBrush="{StaticResource BorderStrongBrush}"
             BorderThickness="1"
-            CornerRadius="15">
+            CornerRadius="{StaticResource WindowCornerRadius}">
         <Border.Effect>
             <DropShadowEffect BlurRadius="24" ShadowDepth="5" Opacity="0.48" Color="#000000" />
         </Border.Effect>
@@ -37,18 +37,18 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="BladeControl" FontSize="17" FontWeight="SemiBold" />
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Ellipse Width="7" Height="7" Margin="0,0,7,0"
+                    <TextBlock Text="BladeControl" Style="{StaticResource CompactTitleTextStyle}" />
+                    <StackPanel Orientation="Horizontal" Margin="{StaticResource MetricValueMargin}">
+                        <Ellipse Style="{StaticResource StatusDotStyle}"
                                  Fill="{Binding ConnectionTone, Converter={StaticResource StatusToneBrushConverter}}" />
                         <TextBlock Text="{Binding ConnectionText}" Style="{StaticResource CaptionTextStyle}" />
                     </StackPanel>
                 </StackPanel>
-                <Button Grid.Column="1" Content="↗" Width="32" Height="30" Padding="0"
-                        ToolTip="Open Full App" Style="{StaticResource GhostButtonStyle}"
+                <Button Grid.Column="1" Content="↗"
+                        ToolTip="Open Full App" Style="{StaticResource CompactIconButtonStyle}"
                         Click="OnFullAppClick" />
-                <Button Grid.Column="2" Content="×" Width="32" Height="30" Padding="0"
-                        ToolTip="Hide BladeControl" Style="{StaticResource GhostButtonStyle}"
+                <Button Grid.Column="2" Content="×"
+                        ToolTip="Hide BladeControl" Style="{StaticResource CompactIconButtonStyle}"
                         Click="OnCloseClick" />
             </Grid>
 
@@ -62,20 +62,20 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel>
                             <TextBlock Text="CPU" Style="{StaticResource EyebrowTextStyle}" />
-                            <TextBlock Text="{Binding CpuTemperature}" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding CpuTemperature}" Style="{StaticResource CompactMetricTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" HorizontalAlignment="Right">
                             <TextBlock Text="GPU" Style="{StaticResource EyebrowTextStyle}" HorizontalAlignment="Right" />
-                            <TextBlock Text="{Binding GpuTemperature}" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding GpuTemperature}" Style="{StaticResource CompactMetricTextStyle}" />
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="{Binding TelemetryCaption}" Margin="4,-6,4,10"
-                               Foreground="{Binding TelemetryTone, Converter={StaticResource StatusToneBrushConverter}}"
-                               FontSize="11" />
+                               Style="{StaticResource CompactCaptionTextStyle}"
+                               Foreground="{Binding TelemetryTone, Converter={StaticResource StatusToneBrushConverter}}" />
 
-                    <Border Style="{StaticResource CompactCardStyle}" Margin="0,0,0,9">
+                    <Border Style="{StaticResource CompactCardStyle}" Margin="{StaticResource CompactCardGapMargin}">
                         <StackPanel>
-                            <TextBlock Text="PERFORMANCE" Style="{StaticResource EyebrowTextStyle}" Margin="0,0,0,8" />
+                            <TextBlock Text="PERFORMANCE" Style="{StaticResource EyebrowTextStyle}" Margin="{StaticResource CompactEyebrowMargin}" />
                             <UniformGrid Columns="3">
                                 <RadioButton Content="Balanced" GroupName="PerformanceMode"
                                              Style="{StaticResource SegmentToggleStyle}"
@@ -108,7 +108,7 @@
                                 </StackPanel>
                                 <TextBlock Grid.Column="1" Text="GPU  Low" Margin="12,0" VerticalAlignment="Center" />
                                 <Button Grid.Column="2" Content="Apply" Command="{Binding ApplyCustomCommand}"
-                                        Style="{StaticResource PrimaryButtonStyle}" Padding="12,6" MinHeight="30" />
+                                        Style="{StaticResource CompactPrimaryButtonStyle}" />
                             </Grid>
                             <TextBlock Text="{Binding Performance.ApplyBlockedReason}" Margin="0,7,0,0"
                                        Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
@@ -117,7 +117,7 @@
 
                     <Border Style="{StaticResource CompactCardStyle}">
                         <StackPanel>
-                            <TextBlock Text="COOLING" Style="{StaticResource EyebrowTextStyle}" Margin="0,0,0,8" />
+                            <TextBlock Text="COOLING" Style="{StaticResource EyebrowTextStyle}" Margin="{StaticResource CompactEyebrowMargin}" />
                             <UniformGrid Columns="3">
                                 <RadioButton Content="Auto" GroupName="CoolingMode"
                                              Style="{StaticResource SegmentToggleStyle}"
@@ -133,7 +133,7 @@
                                              Command="{Binding SelectDynamicCommand}" />
                             </UniformGrid>
 
-                            <StackPanel Margin="0,9,0,0"
+                            <StackPanel Margin="{StaticResource CompactSectionGapMargin}"
                                         Visibility="{Binding IsFixedSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -151,10 +151,10 @@
                                         Value="{Binding Fans.Fan2Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button Content="Apply Fixed" HorizontalAlignment="Right"
                                         Command="{Binding ApplyFixedCommand}"
-                                        Style="{StaticResource PrimaryButtonStyle}" Padding="12,6" MinHeight="30" />
+                                        Style="{StaticResource CompactPrimaryButtonStyle}" />
                             </StackPanel>
 
-                            <StackPanel Margin="0,9,0,0"
+                            <StackPanel Margin="{StaticResource CompactSectionGapMargin}"
                                         Visibility="{Binding IsDynamicSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -176,7 +176,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Margin="0,9,0,0" Padding="10,7" CornerRadius="8"
+                    <Border Margin="{StaticResource CompactSectionGapMargin}" Padding="10,7" CornerRadius="{StaticResource ControlCornerRadius}"
                             Background="{Binding OperationTone, Converter={StaticResource StatusToneBrushConverter}, ConverterParameter=Background}"
                             Visibility="{Binding HasOperationMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <TextBlock Text="{Binding OperationMessage}" TextWrapping="Wrap"
@@ -207,15 +207,15 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Ellipse Width="7" Height="7" Margin="0,0,7,0"
+                        <Ellipse Style="{StaticResource StatusDotStyle}"
                                  Fill="{Binding FooterTone, Converter={StaticResource StatusToneBrushConverter}}" />
-                        <TextBlock Text="{Binding FooterText}" FontSize="11.5"
+                        <TextBlock Text="{Binding FooterText}" Style="{StaticResource CompactStatusTextStyle}"
                                    Foreground="{Binding FooterTone, Converter={StaticResource StatusToneBrushConverter}}" />
                     </StackPanel>
                     <Button Grid.Column="1" Content="Diagnostics" Click="OnDiagnosticsClick"
-                            Style="{StaticResource GhostButtonStyle}" Padding="8,5" MinHeight="28" />
+                            Style="{StaticResource CompactGhostButtonStyle}" />
                     <Button Grid.Column="2" Content="Full App" Click="OnFullAppClick"
-                            Style="{StaticResource GhostButtonStyle}" Padding="8,5" MinHeight="28" />
+                            Style="{StaticResource CompactGhostButtonStyle}" />
                 </Grid>
             </Border>
         </Grid>

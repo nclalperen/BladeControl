@@ -3,8 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="30,0,30,30">
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+        <StackPanel Margin="{StaticResource PageContentMargin}">
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -13,7 +13,7 @@
                     <StackPanel>
                         <TextBlock Text="Read-only Runtime Core report" Style="{StaticResource SectionTitleTextStyle}" />
                         <TextBlock Text="No write console or direct hardware path is exposed here."
-                                   Margin="0,5,0,0"
+                                   Margin="{StaticResource LabelValueMargin}"
                                    Style="{StaticResource CaptionTextStyle}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -29,9 +29,9 @@
                 </Grid>
             </Border>
 
-            <Border Margin="0,0,0,14"
+            <Border Margin="{StaticResource CardGapMargin}"
                     Padding="13,10"
-                    CornerRadius="9"
+                    CornerRadius="{StaticResource PanelCornerRadius}"
                     Background="{StaticResource NeutralBackgroundBrush}"
                     BorderBrush="{StaticResource BorderStrongBrush}"
                     BorderThickness="1"
@@ -71,7 +71,7 @@
                                                                Foreground="{Binding Tone, Converter={StaticResource StatusToneBrushConverter}}"
                                                                TextWrapping="Wrap" />
                                                     <TextBlock Text="{Binding Detail}"
-                                                               Margin="0,3,0,0"
+                                                               Margin="{StaticResource ValueCaptionMargin}"
                                                                Style="{StaticResource CaptionTextStyle}"
                                                                TextWrapping="Wrap"
                                                                Visibility="{Binding HasDetail, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -95,7 +95,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel>
                             <TextBlock Text="Runtime events" Style="{StaticResource SectionTitleTextStyle}" />
-                            <TextBlock Text="{Binding EventSummary}" Margin="0,4,0,0" Style="{StaticResource CaptionTextStyle}" />
+                            <TextBlock Text="{Binding EventSummary}" Margin="{StaticResource MetricValueMargin}" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <ComboBox ItemsSource="{Binding EventKinds}"
@@ -108,7 +108,7 @@
 
                     <Border Padding="12,9"
                             Margin="0,0,0,10"
-                            CornerRadius="8"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
                             Background="{StaticResource WarningBackgroundBrush}"
                             BorderBrush="{StaticResource WarningBrush}"
                             BorderThickness="1"
@@ -139,7 +139,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Border Padding="12,9"
-                                        CornerRadius="9"
+                                        CornerRadius="{StaticResource PanelCornerRadius}"
                                         Background="{StaticResource SurfaceRaisedBrush}"
                                         BorderBrush="{StaticResource BorderBrush}"
                                         BorderThickness="1">
