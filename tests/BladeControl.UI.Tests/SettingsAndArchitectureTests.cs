@@ -29,6 +29,8 @@ public sealed class SettingsAndArchitectureTests
         Assert.AreEqual("Dashboard", sanitized.SelectedPage);
         Assert.IsFalse(sanitized.MinimizeToTray);
         Assert.AreEqual(120, sanitized.GraphWindowSeconds);
+        Assert.AreEqual(UiLaunchMode.Compact, sanitized.LaunchMode);
+        Assert.AreEqual(CompactCloseBehavior.Hide, sanitized.CompactCloseBehavior);
     }
 
     [TestMethod]
@@ -49,7 +51,9 @@ public sealed class SettingsAndArchitectureTests
                 WindowMaximized = true,
                 SelectedPage = "Diagnostics",
                 MinimizeToTray = false,
-                GraphWindowSeconds = 60
+                GraphWindowSeconds = 60,
+                LaunchMode = UiLaunchMode.Full,
+                CompactCloseBehavior = CompactCloseBehavior.Exit
             };
 
             store.Save(expected);

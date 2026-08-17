@@ -33,7 +33,12 @@ diagnostic snapshots, doctor, performance, fan state, cursor-based events, built
 curves, performance/fan applies, and thermal-session start/stop. Diagnostics is read-only
 and there is no raw, force, unsafe, or debug-console surface.
 
-The application shell uses a persistent sidebar for Dashboard, Performance, Fans &
+The GUI presents two surfaces over one shell. The compact daily-use control panel is the
+default; the sidebar application described below is the Advanced / Full App surface. Both
+share a single `ShellViewModel`, a single `RuntimeConnection`, and therefore a single
+polling loop — see [Compact control panel](#compact-control-panel).
+
+The Full App shell uses a persistent sidebar for Dashboard, Performance, Fans &
 Thermal, Monitoring, and Diagnostics. Its near-black/charcoal theme uses restrained green
 accents, rounded cards, and distinct good, warning, danger, selected, pending, and disabled
 states. The window defaults to 1100 x 720 and resizes down to 900 x 600.
@@ -103,6 +108,14 @@ The Dashboard is the at-a-glance operating view. It presents only data supplied 
 Quick actions apply Balanced, Silent, or the Custom selection from the Performance page,
 and start or stop Dynamic Cooling. Every action uses the shared safety gates. Runtime
 fault or emergency-handoff information is promoted to a visible alert.
+
+While Runtime State is Stopped, the watchdog, telemetry, and scheduler tiles describe the
+finished session rather than a current fault: they are relabelled "Last watchdog
+observation", "Last session telemetry", and "Last session scheduler" and shown muted, so a
+Balanced+Manual watchdog reading, stale thermal telemetry, or a degraded scheduler count
+left over from a successful stop is not mistaken for a live problem. This matches the
+wording the CLI already uses. Provider-only GUI monitoring telemetry is a separate,
+genuinely live reading and stays presented as such.
 
 ### Performance
 
@@ -187,34 +200,65 @@ expanded. **Refresh diagnostics** explicitly runs fresh provider qualification a
 full firmware diagnostic snapshot; ordinary monitoring never runs that heavyweight read.
 Copy Diagnostics creates a text snapshot. There is no hardware-write console.
 
+## Compact control panel
+
+The compact panel is the default launch surface: a 400-px wide, at most 596-px high,
+borderless rounded window placed at the bottom-right of the work area of the monitor under
+the cursor. Placement is computed in physical pixels from the per-monitor effective DPI, so
+it is DPI- and multi-monitor-aware. It is hidden from the taskbar, Escape hides it, and the
+header is drag-movable.
+
+It shows the BladeControl identity, Runtime Online/Offline, CPU and GPU temperature, and a
+telemetry caption that distinguishes live monitoring from stale or last-session data.
+
+Performance offers Balanced, Silent, and Custom. Balanced and Silent apply immediately
+through one typed request; Custom exposes CPU Low/Medium with GPU Low and requires an
+explicit Apply. No unsupported performance level is reachable from the compact panel. Every
+apply is single-flight, permitted only while Runtime State is Stopped, never retried
+automatically, followed by an authoritative refresh, and — on failure — reverted to the
+state Runtime Core actually reports.
+
+Cooling offers Firmware Auto, Fixed, and Dynamic. Fixed exposes Fan 1 and Fan 2 over
+2000–5000 RPM in 100-RPM increments; dragging the sliders performs no hardware write and
+the explicit Apply sends exactly one typed request. Dynamic exposes readiness-gated
+Start/Stop with the current runtime target and state; the GUI runs no thermal algorithm of
+its own.
+
+The Full App is created lazily on first request, so there is never a second `MainWindow`,
+`RuntimeConnection`, or polling loop. While the advanced surface is hidden, the Monitoring
+charts stop repainting but telemetry history keeps recording, so switching surfaces loses
+no samples. Hiding or exiting the GUI never stops Runtime thermal control.
+
 ## Notification area behavior
 
-The notification-area menu contains:
+The notification-area menu is deliberately small — the daily controls live in the compact
+panel, not the tray:
 
 - Open BladeControl;
-- a read-only Runtime state indicator;
-- Start Dynamic Cooling;
-- Stop Dynamic Cooling;
 - Firmware Auto;
-- Exit UI.
+- Start/Stop Dynamic Cooling (one entry reflecting the current session);
+- Exit.
 
-The three state-changing tray entries use the same gates and commands as the pages. With
-**Close to notification area** enabled (the default), closing the window hides it and the
-runtime continues independently. When disabled, closing the window exits the UI. **Exit
-UI** always terminates only the GUI process: it does not stop an active thermal session,
-return the fans to Auto, or stop Runtime Core.
+The state-changing tray entries use the same gates and commands as the pages. With
+**Close to notification area** enabled (the default), closing the Full App window hides it
+and returns to the compact panel while the runtime continues independently. When disabled,
+closing the window exits the UI. Closing the compact panel follows `CompactCloseBehavior`.
+**Exit** always terminates only the GUI process: it does not stop an active thermal
+session, return the fans to Auto, or stop Runtime Core.
 
 ## UI settings
 
-UI-only preferences are stored as version-1 JSON at:
+UI-only preferences are stored as version-2 JSON at:
 
 ```text
 %LocalAppData%\BladeControl\ui-settings.json
 ```
 
 The file contains window width/height and maximized state, selected page, close-to-tray
-preference, and the 60/120-second monitoring range. Defaults are 1100 x 720, Dashboard,
-close to tray enabled, and a 120-second graph window; the window minimum is 900 x 600.
+preference, the 60/120-second monitoring range, `LaunchMode` (Compact or Full), and
+`CompactCloseBehavior` (Hide or Exit). Defaults are 1100 x 720, Dashboard, close to tray
+enabled, a 120-second graph window, `LaunchMode = Compact`, and
+`CompactCloseBehavior = Hide`; the window minimum is 900 x 600.
 Values are sanitized when loaded, and a missing, corrupt, or unwritable preference file
 falls back safely without preventing startup. No performance profile, fan target, thermal
 curve, hardware ownership state, or runtime configuration is duplicated in UI storage.

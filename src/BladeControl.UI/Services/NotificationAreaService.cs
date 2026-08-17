@@ -10,9 +10,7 @@ public sealed class NotificationAreaService : IDisposable
 {
     private readonly RuntimeConnection _connection;
     private readonly System.Windows.Forms.NotifyIcon _icon;
-    private readonly System.Windows.Forms.ToolStripMenuItem _stateItem;
-    private readonly System.Windows.Forms.ToolStripMenuItem _startItem;
-    private readonly System.Windows.Forms.ToolStripMenuItem _stopItem;
+    private readonly System.Windows.Forms.ToolStripMenuItem _dynamicItem;
     private readonly System.Windows.Forms.ToolStripMenuItem _autoItem;
     private bool _disposed;
 
@@ -22,23 +20,27 @@ public sealed class NotificationAreaService : IDisposable
         var menu = new System.Windows.Forms.ContextMenuStrip();
         var openItem = new System.Windows.Forms.ToolStripMenuItem("Open BladeControl");
         openItem.Click += (_, _) => OpenRequested?.Invoke();
-        _stateItem = new System.Windows.Forms.ToolStripMenuItem { Enabled = false };
-        _startItem = new System.Windows.Forms.ToolStripMenuItem("Start Dynamic Cooling");
-        _startItem.Click += (_, _) => StartCoolingRequested?.Invoke();
-        _stopItem = new System.Windows.Forms.ToolStripMenuItem("Stop Dynamic Cooling");
-        _stopItem.Click += (_, _) => StopCoolingRequested?.Invoke();
         _autoItem = new System.Windows.Forms.ToolStripMenuItem("Firmware Auto");
         _autoItem.Click += (_, _) => FirmwareAutoRequested?.Invoke();
-        var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit UI");
+        _dynamicItem = new System.Windows.Forms.ToolStripMenuItem("Start Dynamic Cooling");
+        _dynamicItem.Click += (_, _) =>
+        {
+            if (_connection.CanStopThermalControl)
+            {
+                StopCoolingRequested?.Invoke();
+            }
+            else
+            {
+                StartCoolingRequested?.Invoke();
+            }
+        };
+        var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitRequested?.Invoke();
         menu.Items.AddRange(
         [
             openItem,
-            _stateItem,
-            new System.Windows.Forms.ToolStripSeparator(),
-            _startItem,
-            _stopItem,
             _autoItem,
+            _dynamicItem,
             new System.Windows.Forms.ToolStripSeparator(),
             exitItem
         ]);
@@ -100,11 +102,11 @@ public sealed class NotificationAreaService : IDisposable
         }
 
         string runtimeState = _connection.RuntimeStateName ?? "No state";
-        _stateItem.Text = _connection.IsOnline
-            ? $"Runtime: {runtimeState}"
-            : "Runtime: Offline";
-        _startItem.Enabled = _connection.CanStartThermalControl;
-        _stopItem.Enabled = _connection.CanStopThermalControl;
+        _dynamicItem.Text = _connection.CanStopThermalControl
+            ? "Stop Dynamic Cooling"
+            : "Start Dynamic Cooling";
+        _dynamicItem.Enabled = _connection.CanStopThermalControl ||
+            _connection.CanStartThermalControl;
         _autoItem.Enabled = _connection.CanApplyStaticProfile;
         string text = _connection.IsOnline
             ? $"BladeControl · {runtimeState}"

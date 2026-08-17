@@ -90,6 +90,7 @@ public sealed class MonitoringViewModel : PageViewModel
 
     private readonly TelemetryHistory _history;
     private int _windowSeconds = 120;
+    private bool _presentationActive;
 
     public MonitoringViewModel(
         RuntimeConnection connection,
@@ -219,6 +220,21 @@ public sealed class MonitoringViewModel : PageViewModel
 
     public override void Activate() => Refresh();
 
+    public void SetPresentationActive(bool active)
+    {
+        if (_presentationActive == active)
+        {
+            return;
+        }
+
+        _presentationActive = active;
+        if (active)
+        {
+            Refresh();
+            InvalidateCharts();
+        }
+    }
+
     /// <summary>Records a sample. Public so tests can drive history without a live runtime.</summary>
     public void Append(ThermalTelemetrySampleDto sample)
     {
@@ -227,8 +243,11 @@ public sealed class MonitoringViewModel : PageViewModel
             return;
         }
 
-        InvalidateCharts();
-        RaiseAll(nameof(SampleCount), nameof(SampleCountLabel));
+        if (_presentationActive)
+        {
+            InvalidateCharts();
+            RaiseAll(nameof(SampleCount), nameof(SampleCountLabel));
+        }
     }
 
     private void OnTelemetryObserved(ThermalTelemetrySampleDto sample) => Append(sample);

@@ -20,11 +20,17 @@ public sealed class DiagnosticGroup : ObservableObject
 {
     public DiagnosticGroup(string title)
     {
-        Title = title;
+        _title = title;
         Items = [];
     }
 
-    public string Title { get; }
+    private string _title;
+
+    public string Title
+    {
+        get => _title;
+        internal set => Set(ref _title, value);
+    }
 
     public ObservableCollection<DiagnosticItem> Items { get; }
 
@@ -410,6 +416,10 @@ public sealed class DiagnosticsViewModel : PageViewModel
     private void RebuildGroups()
     {
         RuntimeStatusDto? status = Connection.Status;
+        bool stopped = string.Equals(status?.State, "Stopped", StringComparison.Ordinal);
+        Razer.Title = stopped ? "Razer · Last watchdog observation" : "Razer";
+        Telemetry.Title = stopped ? "Last session telemetry" : "Telemetry";
+        Scheduler.Title = stopped ? "Last session scheduler" : "Scheduler";
         RuntimeDoctorReportDto? doctor = Connection.Doctor;
         RuntimeTelemetryCapabilitiesDto? capabilities = doctor?.Capabilities;
         RuntimePawnIoProvenanceDto? pawnIo = doctor?.PawnIoProvenance;
@@ -480,12 +490,12 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Microsoft HID; no proprietary Razer driver is required.",
                 doctor is null ? StatusTone.Muted : Display.BooleanTone(doctor.RazerHidAvailable)),
             new DiagnosticItem(
-                "Watchdog zone 1",
+                stopped ? "Last watchdog zone 1" : "Watchdog zone 1",
                 watchdog is null
                     ? Display.Unavailable
                     : $"{watchdog.Zone1PerformanceMode} / {watchdog.Zone1FanMode}"),
             new DiagnosticItem(
-                "Watchdog zone 2",
+                stopped ? "Last watchdog zone 2" : "Watchdog zone 2",
                 watchdog is null
                     ? Display.Unavailable
                     : $"{watchdog.Zone2PerformanceMode} / {watchdog.Zone2FanMode}"),
@@ -493,12 +503,16 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Zones agree",
                 watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.ZonesAgree),
                 null,
-                watchdog is null ? StatusTone.Muted : Display.BooleanTone(watchdog.ZonesAgree)),
+                watchdog is null || stopped
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(watchdog.ZonesAgree)),
             new DiagnosticItem(
                 "Known Auto",
                 watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.IsKnownAuto),
                 "Auto confirmed by a firmware read rather than inferred.",
-                watchdog is null ? StatusTone.Muted : Display.BooleanTone(watchdog.IsKnownAuto)),
+                watchdog is null || stopped
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(watchdog.IsKnownAuto)),
             new DiagnosticItem(
                 "Balanced manual",
                 watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.IsBalancedManual)),
@@ -647,7 +661,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 metrics?.OverrunCount.ToString("N0", CultureInfo.CurrentCulture) ??
                     Display.Unavailable,
                 null,
-                metrics is null
+                metrics is null || stopped
                     ? StatusTone.Muted
                     : metrics.OverrunCount == 0 ? StatusTone.Good : StatusTone.Warning),
             new DiagnosticItem(
@@ -661,7 +675,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Scheduler health",
                 Display.Text(status?.SchedulerHealth),
                 null,
-                Display.SchedulerTone(status?.SchedulerHealth)),
+                stopped ? StatusTone.Muted : Display.SchedulerTone(status?.SchedulerHealth)),
             new DiagnosticItem(
                 "Last acquisition",
                 status is null

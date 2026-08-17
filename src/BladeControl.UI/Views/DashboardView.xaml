@@ -135,12 +135,12 @@
                             <TextBlock Text="{Binding RuntimeStateDescription}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel Margin="0,0,12,0">
-                            <TextBlock Text="TELEMETRY" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBlock Text="{Binding TelemetryLabel}" Style="{StaticResource EyebrowTextStyle}" />
                             <TextBlock Text="{Binding TelemetryHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding TelemetryHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
                             <TextBlock Text="{Binding TelemetryHealthDetail}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel>
-                            <TextBlock Text="SCHEDULER" Style="{StaticResource EyebrowTextStyle}" />
+                            <TextBlock Text="{Binding SchedulerLabel}" Style="{StaticResource EyebrowTextStyle}" />
                             <TextBlock Text="{Binding SchedulerHealth}" Margin="0,5,0,0" FontWeight="SemiBold" Foreground="{Binding SchedulerHealthTone, Converter={StaticResource StatusToneBrushConverter}}" />
                             <TextBlock Text="{Binding SessionId}" Margin="0,3,0,0" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SessionId}" />
                         </StackPanel>
@@ -165,7 +165,7 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="FIRMWARE MODE" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="{Binding FirmwareFanModeLabel}" Style="{StaticResource EyebrowTextStyle}" />
                                 <TextBlock Text="{Binding FirmwareFanMode}" Margin="0,4,0,0" />
                             </StackPanel>
                             <StackPanel Grid.Column="1">

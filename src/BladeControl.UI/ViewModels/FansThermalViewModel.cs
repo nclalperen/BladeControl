@@ -23,6 +23,7 @@ public sealed class FansThermalViewModel : PageViewModel
     private int _fan2Target = 3000;
     private bool _linkFans = true;
     private bool _curveLoaded;
+    private bool _modeInitialized;
 
     public FansThermalViewModel(
         RuntimeConnection connection,
@@ -218,6 +219,16 @@ public sealed class FansThermalViewModel : PageViewModel
 
     public override void Refresh()
     {
+        if (!_modeInitialized && Connection.Fan is { } fan)
+        {
+            _modeInitialized = true;
+            Mode = Connection.RuntimeStateName is "Running" or "Starting"
+                ? CoolingMode.DynamicCurve
+                : string.Equals(fan.Mode.Zone1FanMode, "Auto", StringComparison.Ordinal)
+                    ? CoolingMode.FirmwareAuto
+                    : CoolingMode.Fixed;
+        }
+
         RaiseAll(
             nameof(EffectiveFanTarget), nameof(ActiveCurve),
             nameof(ThermalSession), nameof(ThermalSessionTone),

@@ -1,7 +1,20 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace BladeControl.UI.Services;
+
+public enum UiLaunchMode
+{
+    Compact,
+    Full
+}
+
+public enum CompactCloseBehavior
+{
+    Hide,
+    Exit
+}
 
 /// <summary>
 /// UI-only preferences. Hardware, performance and thermal configuration belong to Runtime
@@ -9,7 +22,7 @@ namespace BladeControl.UI.Services;
 /// </summary>
 public sealed record UiSettings
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; init; } = CurrentVersion;
 
@@ -25,6 +38,10 @@ public sealed record UiSettings
 
     public int GraphWindowSeconds { get; init; } = 120;
 
+    public UiLaunchMode LaunchMode { get; init; } = UiLaunchMode.Compact;
+
+    public CompactCloseBehavior CompactCloseBehavior { get; init; } = CompactCloseBehavior.Hide;
+
     /// <summary>Clamps every field to a usable range so a corrupt file cannot break startup.</summary>
     public UiSettings Sanitized() => new()
     {
@@ -34,13 +51,21 @@ public sealed record UiSettings
         WindowMaximized = WindowMaximized,
         SelectedPage = string.IsNullOrWhiteSpace(SelectedPage) ? "Dashboard" : SelectedPage,
         MinimizeToTray = MinimizeToTray,
-        GraphWindowSeconds = GraphWindowSeconds is 60 or 120 ? GraphWindowSeconds : 120
+        GraphWindowSeconds = GraphWindowSeconds is 60 or 120 ? GraphWindowSeconds : 120,
+        LaunchMode = Enum.IsDefined(LaunchMode) ? LaunchMode : UiLaunchMode.Compact,
+        CompactCloseBehavior = Enum.IsDefined(CompactCloseBehavior)
+            ? CompactCloseBehavior
+            : CompactCloseBehavior.Hide
     };
 }
 
 public sealed class UiSettingsStore
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     private readonly string _path;
 

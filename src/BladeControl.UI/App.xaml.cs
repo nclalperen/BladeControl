@@ -10,7 +10,9 @@ public partial class App : Application
     private UiSettingsStore? _settingsStore;
     private UiSettings? _loadedSettings;
     private ShellViewModel? _shell;
-    private MainWindow? _window;
+    private CompactControlViewModel? _compactViewModel;
+    private CompactControlWindow? _compactWindow;
+    private MainWindow? _fullWindow;
     private NotificationAreaService? _notificationArea;
     private bool _exiting;
 
@@ -29,11 +31,14 @@ public partial class App : Application
             _loadedSettings,
             selection.IsDesignPreview,
             text => Clipboard.SetText(text));
-        _window = new MainWindow(_shell, _loadedSettings);
-        _window.ExitRequested += RequestExit;
+        _compactViewModel = new CompactControlViewModel(_shell);
+        _compactWindow = new CompactControlWindow(_compactViewModel);
+        _compactWindow.FullAppRequested += ShowFullWindow;
+        _compactWindow.DiagnosticsRequested += ShowDiagnostics;
+        _compactWindow.CloseRequested += CloseCompactWindow;
 
         _notificationArea = new NotificationAreaService(connection);
-        _notificationArea.OpenRequested += ShowWindow;
+        _notificationArea.OpenRequested += ShowCompactWindow;
         _notificationArea.StartCoolingRequested += () =>
             _shell.FansThermal.StartDynamicCommand.Execute(null);
         _notificationArea.StopCoolingRequested += () =>
@@ -42,8 +47,16 @@ public partial class App : Application
             _shell.FansThermal.ApplyFirmwareAutoCommand.Execute(null);
         _notificationArea.ExitRequested += RequestExit;
 
-        MainWindow = _window;
-        _window.Show();
+        if (UiStartupPolicy.SelectInitialSurface(_loadedSettings) == InitialUiSurface.Full)
+        {
+            ShowFullWindow();
+        }
+        else
+        {
+            MainWindow = _compactWindow;
+            _compactWindow.ShowAndActivate();
+        }
+
         _shell.Start();
     }
 
@@ -56,18 +69,64 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _notificationArea?.Dispose();
+        _compactViewModel?.Dispose();
         _shell?.Dispose();
         base.OnExit(e);
     }
 
-    private void ShowWindow()
+    private void ShowCompactWindow()
     {
-        if (_window is null)
+        if (_compactWindow is null)
         {
             return;
         }
 
-        _window.ShowAndActivate();
+        _fullWindow?.Hide();
+        _shell?.SetAdvancedVisibility(false);
+        MainWindow = _compactWindow;
+        _compactWindow.ShowAndActivate();
+    }
+
+    private void ShowFullWindow()
+    {
+        if (_shell is null || _loadedSettings is null)
+        {
+            return;
+        }
+
+        if (_fullWindow is null)
+        {
+            _fullWindow = new MainWindow(_shell, _loadedSettings);
+            _fullWindow.ExitRequested += RequestExit;
+            _fullWindow.CompactRequested += ShowCompactWindow;
+        }
+
+        _compactWindow?.Hide();
+        _shell.SetAdvancedVisibility(true);
+        MainWindow = _fullWindow;
+        _fullWindow.ShowAndActivate();
+    }
+
+    private void ShowDiagnostics()
+    {
+        if (_shell is not null)
+        {
+            _shell.SelectedPage = _shell.Diagnostics;
+        }
+
+        ShowFullWindow();
+    }
+
+    private void CloseCompactWindow()
+    {
+        if (_shell?.CompactCloseBehavior == CompactCloseBehavior.Exit)
+        {
+            RequestExit();
+        }
+        else
+        {
+            _compactWindow?.Hide();
+        }
     }
 
     private async void RequestExit()
@@ -78,9 +137,13 @@ public partial class App : Application
         }
 
         _exiting = true;
-        if (_settingsStore is not null && _shell is not null && _window is not null)
+        if (_settingsStore is not null && _shell is not null)
         {
-            _settingsStore.Save(_window.CaptureSettings());
+            UiSettings settings = _fullWindow?.CaptureSettings() ?? _shell.CaptureSettings(
+                _loadedSettings?.WindowWidth ?? 1100,
+                _loadedSettings?.WindowHeight ?? 720,
+                _loadedSettings?.WindowMaximized ?? false);
+            _settingsStore.Save(settings);
         }
 
         _notificationArea?.Dispose();
@@ -90,7 +153,9 @@ public partial class App : Application
             await _shell.DisposeAsync();
         }
 
-        _window?.CloseExplicitly();
+        _compactViewModel?.Dispose();
+        _compactWindow?.CloseExplicitly();
+        _fullWindow?.CloseExplicitly();
         Shutdown();
     }
 }

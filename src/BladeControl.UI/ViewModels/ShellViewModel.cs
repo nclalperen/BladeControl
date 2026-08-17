@@ -12,6 +12,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
     private readonly CancellationTokenSource _lifetime = new();
     private PageViewModel _selectedPage;
     private bool _minimizeToTray;
+    private UiLaunchMode _launchMode;
+    private CompactCloseBehavior _compactCloseBehavior;
+    private bool _advancedVisible;
     private bool _disposed;
 
     public ShellViewModel(
@@ -24,6 +27,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
         ArgumentNullException.ThrowIfNull(settings);
         IsDesignPreview = isDesignPreview;
         _minimizeToTray = settings.MinimizeToTray;
+        _launchMode = settings.LaunchMode;
+        _compactCloseBehavior = settings.CompactCloseBehavior;
 
         Performance = new PerformanceViewModel(connection, _lifetime.Token);
         Dashboard = new DashboardViewModel(connection, Performance, _lifetime.Token);
@@ -51,6 +56,12 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             () => Connection.State == RuntimeConnectionState.Offline);
         Connection.Updated += OnConnectionUpdated;
         Connection.PropertyChanged += OnConnectionPropertyChanged;
+
+        // The shell can be built after the connection already holds an authoritative
+        // snapshot. Seed the pages from it — purely from cached state, no extra IPC — so
+        // the first frame matches Runtime Core instead of staying uninitialised (and, for
+        // Performance, unappliable) until the next poll tick.
+        OnConnectionUpdated();
     }
 
     public RuntimeConnection Connection { get; }
@@ -85,6 +96,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             if (Set(ref _selectedPage, value))
             {
                 _selectedPage.IsSelected = true;
+                Monitoring.SetPresentationActive(
+                    _advancedVisible && ReferenceEquals(_selectedPage, Monitoring));
                 RaiseAll(nameof(CurrentTitle), nameof(CurrentSubtitle));
             }
         }
@@ -98,6 +111,18 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
     {
         get => _minimizeToTray;
         set => Set(ref _minimizeToTray, value);
+    }
+
+    public UiLaunchMode LaunchMode
+    {
+        get => _launchMode;
+        set => Set(ref _launchMode, value);
+    }
+
+    public CompactCloseBehavior CompactCloseBehavior
+    {
+        get => _compactCloseBehavior;
+        set => Set(ref _compactCloseBehavior, value);
     }
 
     public string ConnectionLabel => Connection.State switch
@@ -172,6 +197,16 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
 
     public void Start() => Connection.Start();
 
+    public void SetAdvancedVisibility(bool visible)
+    {
+        _advancedVisible = visible;
+        Monitoring.SetPresentationActive(visible && ReferenceEquals(SelectedPage, Monitoring));
+        if (visible && ReferenceEquals(SelectedPage, Diagnostics))
+        {
+            Diagnostics.Refresh();
+        }
+    }
+
     public UiSettings CaptureSettings(
         double windowWidth,
         double windowHeight,
@@ -183,7 +218,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             WindowMaximized = windowMaximized,
             SelectedPage = SelectedPage.Key,
             MinimizeToTray = MinimizeToTray,
-            GraphWindowSeconds = Monitoring.WindowSeconds
+            GraphWindowSeconds = Monitoring.WindowSeconds,
+            LaunchMode = LaunchMode,
+            CompactCloseBehavior = CompactCloseBehavior
         };
 
     public void Dispose()
@@ -234,7 +271,10 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
         Dashboard.Refresh();
         Performance.Refresh();
         FansThermal.Refresh();
-        Monitoring.Refresh();
+        if (_advancedVisible && ReferenceEquals(SelectedPage, Monitoring))
+        {
+            Monitoring.Refresh();
+        }
         if (ReferenceEquals(SelectedPage, Diagnostics))
         {
             Diagnostics.Refresh();

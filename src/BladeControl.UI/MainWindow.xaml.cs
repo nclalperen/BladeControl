@@ -28,6 +28,8 @@ public partial class MainWindow : Window
 
     public event Action? ExitRequested;
 
+    public event Action? CompactRequested;
+
     public UiSettings CaptureSettings()
     {
         Rect bounds = WindowState == WindowState.Normal
@@ -70,6 +72,7 @@ public partial class MainWindow : Window
             if (_shell.MinimizeToTray)
             {
                 Hide();
+                Dispatcher.BeginInvoke(() => CompactRequested?.Invoke());
             }
             else
             {
@@ -79,6 +82,8 @@ public partial class MainWindow : Window
 
         base.OnClosing(e);
     }
+
+    private void OnCompactPanelClick(object sender, RoutedEventArgs e) => CompactRequested?.Invoke();
 
     private static void TryEnableDarkTitleBar(nint handle)
     {

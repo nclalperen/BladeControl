@@ -12,6 +12,7 @@
     <AssemblyName>BladeControl.UI</AssemblyName>
     <ApplicationIcon />
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
   <!--

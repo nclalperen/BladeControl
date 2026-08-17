@@ -350,6 +350,14 @@ public sealed class PerformanceViewModel : PageViewModel
                 ? RuntimeCommandOutcome.Ok(message)
                 : RuntimeCommandOutcome.Fail(message);
         }).ConfigureAwait(true);
+
+        // A rejected apply must leave the panel showing what the firmware actually reports.
+        // RunCommandAsync has already refreshed the authoritative profile state; mirror it
+        // instead of retrying.
+        if (StatusIsError && Connection.Performance is { } authoritative)
+        {
+            SynchronizePendingFromCurrent(authoritative);
+        }
     }
 
     private async Task RefreshFromRuntimeAsync()

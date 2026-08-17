@@ -19,6 +19,8 @@ public sealed class WpfViewSmokeTests
             BladeControl.UI.App? application = null;
             ShellViewModel? shell = null;
             BladeControl.UI.MainWindow? window = null;
+            CompactControlViewModel? compactViewModel = null;
+            BladeControl.UI.CompactControlWindow? compactWindow = null;
             try
             {
                 application = new BladeControl.UI.App();
@@ -42,6 +44,19 @@ public sealed class WpfViewSmokeTests
                     ShowActivated = false
                 };
                 window.Show();
+                compactViewModel = new CompactControlViewModel(shell);
+                compactWindow = new BladeControl.UI.CompactControlWindow(compactViewModel)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = -10_000,
+                    Top = -10_000,
+                    ShowActivated = false
+                };
+                compactWindow.Show();
+                Assert.AreSame(shell.Connection, compactViewModel.Connection);
+                compactWindow.Hide();
+                Assert.AreEqual(0, fake.StopThermalRequestCount);
+                compactWindow.Show();
 
                 foreach (PageViewModel page in shell.Pages)
                 {
@@ -59,6 +74,8 @@ public sealed class WpfViewSmokeTests
             finally
             {
                 window?.CloseExplicitly();
+                compactWindow?.CloseExplicitly();
+                compactViewModel?.Dispose();
                 shell?.Dispose();
                 application?.Shutdown();
             }

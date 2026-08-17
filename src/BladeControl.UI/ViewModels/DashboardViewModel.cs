@@ -102,7 +102,11 @@ public sealed class DashboardViewModel : PageViewModel
 
     public string SchedulerHealth => Display.Text(Status?.SchedulerHealth);
 
-    public StatusTone SchedulerHealthTone => Display.SchedulerTone(Status?.SchedulerHealth);
+    public string SchedulerLabel => IsStopped ? "LAST SESSION SCHEDULER" : "SCHEDULER";
+
+    public StatusTone SchedulerHealthTone => IsStopped
+        ? StatusTone.Muted
+        : Display.SchedulerTone(Status?.SchedulerHealth);
 
     public string TelemetryHealth => Status?.TelemetryHealth is { } health
         ? health.IsHealthy ? "Healthy" : health.Kind
@@ -110,7 +114,11 @@ public sealed class DashboardViewModel : PageViewModel
 
     public string? TelemetryHealthDetail => Status?.TelemetryHealth?.Reason;
 
-    public StatusTone TelemetryHealthTone => Display.HealthTone(Status?.TelemetryHealth);
+    public string TelemetryLabel => IsStopped ? "LAST SESSION TELEMETRY" : "TELEMETRY";
+
+    public StatusTone TelemetryHealthTone => IsStopped
+        ? StatusTone.Muted
+        : Display.HealthTone(Status?.TelemetryHealth);
 
     public string ThermalSession => Display.ThermalSession(Connection.RuntimeStateName);
 
@@ -128,6 +136,11 @@ public sealed class DashboardViewModel : PageViewModel
             if (Telemetry is null)
             {
                 return "No telemetry yet";
+            }
+
+            if (IsStopped && Connection.IsTelemetryStale)
+            {
+                return "Last session telemetry · Stopped";
             }
 
             if (!Connection.IsOnline)
@@ -155,6 +168,7 @@ public sealed class DashboardViewModel : PageViewModel
 
     public StatusTone TelemetryFreshnessTone => Telemetry is null
         ? StatusTone.Muted
+        : IsStopped ? StatusTone.Muted
         : Connection.IsTelemetryStale ? StatusTone.Warning : StatusTone.Good;
 
     // Cooling ---------------------------------------------------------------
@@ -183,6 +197,10 @@ public sealed class DashboardViewModel : PageViewModel
                 : watchdog.IsAuto ? "Auto (unconfirmed)" : watchdog.Zone1FanMode;
         }
     }
+
+    public string FirmwareFanModeLabel => IsStopped
+        ? "LAST WATCHDOG OBSERVATION"
+        : "FIRMWARE MODE";
 
     public string FirmwareFan1Value => Display.FirmwareFanValue(Connection.Fan?.Fan1Rpm ?? 0);
 
@@ -261,6 +279,9 @@ public sealed class DashboardViewModel : PageViewModel
 
     private ThermalTelemetrySampleDto? Telemetry => Connection.Telemetry;
 
+    private bool IsStopped =>
+        string.Equals(Connection.RuntimeStateName, "Stopped", StringComparison.Ordinal);
+
     public override void Refresh()
     {
         RaiseAll(
@@ -272,12 +293,14 @@ public sealed class DashboardViewModel : PageViewModel
             nameof(GpuUtilization), nameof(GpuUtilizationDetail),
             nameof(ConnectionText), nameof(ConnectionTone),
             nameof(RuntimeState), nameof(RuntimeStateTone), nameof(RuntimeStateDescription),
-            nameof(SchedulerHealth), nameof(SchedulerHealthTone),
-            nameof(TelemetryHealth), nameof(TelemetryHealthDetail), nameof(TelemetryHealthTone),
+            nameof(SchedulerHealth), nameof(SchedulerLabel), nameof(SchedulerHealthTone),
+            nameof(TelemetryHealth), nameof(TelemetryLabel),
+            nameof(TelemetryHealthDetail), nameof(TelemetryHealthTone),
             nameof(ThermalSession), nameof(ThermalSessionTone), nameof(SessionId),
             nameof(TelemetryFreshness), nameof(TelemetryFreshnessTone),
             nameof(FanTarget), nameof(FanTargetDetail),
-            nameof(FirmwareFanMode), nameof(FirmwareFan1Value), nameof(FirmwareFan2Value),
+            nameof(FirmwareFanMode), nameof(FirmwareFanModeLabel),
+            nameof(FirmwareFan1Value), nameof(FirmwareFan2Value),
             nameof(PerformanceMode), nameof(CpuPerformanceLevel), nameof(GpuPerformanceLevel),
             nameof(CustomButtonLabel),
             nameof(ProfileBlockedReason), nameof(HasProfileBlockedReason),

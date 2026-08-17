@@ -99,7 +99,7 @@ public abstract class PageViewModel : ObservableObject
             .ExecuteAsync(command, Lifetime).ConfigureAwait(true);
         StatusMessage = outcome.Message;
         StatusIsError = !outcome.Succeeded;
-        if (outcome.Succeeded && Connection.IsOnline)
+        if (Connection.IsOnline)
         {
             await Connection.RefreshProfilesNowAsync(Lifetime).ConfigureAwait(true);
         }
