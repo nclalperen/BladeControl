@@ -41,6 +41,10 @@ internal sealed class ScriptedRuntimeUiClient : IRuntimeUiClient
 
     public List<long> RequestedEventCursors { get; } = [];
 
+    public int FastTelemetryRequestCount { get; private set; }
+
+    public int DiagnosticSnapshotRequestCount { get; private set; }
+
     public void EnqueueEventBatch(RuntimeEventBatchDto batch) => _eventBatches.Enqueue(batch);
 
     public Task<RuntimeStatusDto> GetStatusAsync(CancellationToken cancellationToken)
@@ -53,7 +57,16 @@ internal sealed class ScriptedRuntimeUiClient : IRuntimeUiClient
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        DiagnosticSnapshotRequestCount++;
         return Task.FromResult(new TelemetrySnapshotDto(Telemetry, [], null, []));
+    }
+
+    public Task<ThermalTelemetrySampleDto> GetTelemetrySampleAsync(
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        FastTelemetryRequestCount++;
+        return Task.FromResult(Telemetry);
     }
 
     public Task<PerformanceStateDto> GetPerformanceStateAsync(

@@ -56,9 +56,12 @@ public sealed class PerformanceViewModel : PageViewModel
     private string _selectedCpuLevel = "Medium";
     private string _selectedGpuLevel = "Low";
     private string _currentMode = Display.Unavailable;
+    private string _currentZone2Mode = Display.Unavailable;
     private string _currentCpuLevel = Display.Unavailable;
     private string _currentGpuLevel = Display.Unavailable;
     private bool _hasCurrentState;
+    private bool _pendingInitialized;
+    private bool _modeSelectionConfirmed;
 
     public PerformanceViewModel(RuntimeConnection connection, CancellationToken lifetime)
         : base(
@@ -168,23 +171,52 @@ public sealed class PerformanceViewModel : PageViewModel
         : _selectedMode;
 
     public string CurrentSummary => _hasCurrentState
-        ? string.Equals(_currentMode, "Custom", StringComparison.Ordinal)
+        ? !string.Equals(_currentMode, _currentZone2Mode, StringComparison.Ordinal)
+            ? $"Zone 1 {_currentMode} · Zone 2 {_currentZone2Mode}"
+            : string.Equals(_currentMode, "Custom", StringComparison.Ordinal)
             ? $"Custom · CPU {_currentCpuLevel} · GPU {_currentGpuLevel}"
             : _currentMode
         : Display.Unavailable;
 
     public bool HasPendingChanges => _hasCurrentState &&
-        !string.Equals(PendingSummary, CurrentSummary, StringComparison.Ordinal);
+        (!string.Equals(_currentMode, _currentZone2Mode, StringComparison.Ordinal) ||
+         !string.Equals(_selectedMode, _currentMode, StringComparison.Ordinal) ||
+         string.Equals(_currentMode, "Custom", StringComparison.Ordinal) &&
+         (!string.Equals(_selectedCpuLevel, _currentCpuLevel, StringComparison.Ordinal) ||
+          !string.Equals(_selectedGpuLevel, _currentGpuLevel, StringComparison.Ordinal)));
 
-    public bool CanApply => Connection.CanApplyStaticProfile;
+    public bool CanApply => Connection.CanApplyStaticProfile && IsPendingSelectionValid;
 
-    public string? ApplyBlockedReason => Connection.StaticProfileBlockedReason;
+    public string? ApplyBlockedReason => Connection.StaticProfileBlockedReason ??
+        (!_pendingInitialized
+            ? "Waiting for Runtime Core to report the current performance policy."
+            : !_modeSelectionConfirmed
+                ? "Runtime Core reported different or unsupported zone modes. Choose a " +
+                    "validated mode before applying."
+                : !HasAvailableMode(_selectedMode) ||
+                  IsCustomSelected &&
+                  (!HasAvailableCpuLevel(_selectedCpuLevel) ||
+                   !HasAvailableGpuLevel(_selectedGpuLevel))
+                    ? "The reported Custom levels are not hardware validated. Choose " +
+                        "validated CPU and GPU levels before applying."
+                    : null);
 
     public bool HasApplyBlockedReason => !string.IsNullOrEmpty(ApplyBlockedReason);
 
     /// <summary>The levels a Custom apply would send. Used by the dashboard quick action.</summary>
     public (string CpuLevel, string GpuLevel) CustomLevels =>
         (_selectedCpuLevel, _selectedGpuLevel);
+
+    public bool CanApplyCustomSelection =>
+        _pendingInitialized &&
+        HasAvailableCpuLevel(_selectedCpuLevel) &&
+        HasAvailableGpuLevel(_selectedGpuLevel);
+
+    private bool IsPendingSelectionValid =>
+        _pendingInitialized &&
+        _modeSelectionConfirmed &&
+        HasAvailableMode(_selectedMode) &&
+        (!IsCustomSelected || CanApplyCustomSelection);
 
     public bool TrySelectMode(string value)
     {
@@ -195,13 +227,13 @@ public sealed class PerformanceViewModel : PageViewModel
             return false;
         }
 
-        if (Set(ref _selectedMode, value, nameof(SelectedMode)))
+        bool changed = Set(ref _selectedMode, value, nameof(SelectedMode));
+        bool confirmed = !_modeSelectionConfirmed;
+        _modeSelectionConfirmed = true;
+        if (changed || confirmed)
         {
             SyncSelectionFlags();
-            RaiseAll(
-                nameof(IsCustomSelected),
-                nameof(PendingSummary),
-                nameof(HasPendingChanges));
+            NotifyPendingSelectionChanged();
         }
 
         return true;
@@ -219,7 +251,7 @@ public sealed class PerformanceViewModel : PageViewModel
         if (Set(ref _selectedCpuLevel, value, nameof(SelectedCpuLevel)))
         {
             SyncSelectionFlags();
-            RaiseAll(nameof(PendingSummary), nameof(HasPendingChanges));
+            NotifyPendingSelectionChanged();
         }
 
         return true;
@@ -237,7 +269,7 @@ public sealed class PerformanceViewModel : PageViewModel
         if (Set(ref _selectedGpuLevel, value, nameof(SelectedGpuLevel)))
         {
             SyncSelectionFlags();
-            RaiseAll(nameof(PendingSummary), nameof(HasPendingChanges));
+            NotifyPendingSelectionChanged();
         }
 
         return true;
@@ -245,21 +277,34 @@ public sealed class PerformanceViewModel : PageViewModel
 
     public override void Refresh()
     {
+        if (!Connection.IsOnline)
+        {
+            _pendingInitialized = false;
+            _modeSelectionConfirmed = false;
+        }
+
         PerformanceStateDto? state = Connection.Performance;
         if (state is not null)
         {
             _hasCurrentState = true;
             CurrentMode = state.Mode.Zone1PerformanceMode;
+            _currentZone2Mode = state.Mode.Zone2PerformanceMode;
             CurrentCpuLevel = state.CpuLevel;
             CurrentGpuLevel = state.GpuLevel;
+            if (Connection.IsOnline && !_pendingInitialized)
+            {
+                SynchronizePendingFromCurrent(state);
+            }
         }
 
         RaiseAll(
             nameof(CurrentSummary),
+            nameof(PendingSummary),
             nameof(HasPendingChanges),
             nameof(CanApply),
             nameof(ApplyBlockedReason),
-            nameof(HasApplyBlockedReason));
+            nameof(HasApplyBlockedReason),
+            nameof(CanApplyCustomSelection));
         ApplyCommand.RaiseCanExecuteChanged();
         RestoreCommand.RaiseCanExecuteChanged();
         RefreshCommand.RaiseCanExecuteChanged();
@@ -275,14 +320,21 @@ public sealed class PerformanceViewModel : PageViewModel
             return;
         }
 
-        TrySelectMode(CurrentMode);
-        TrySelectCpuLevel(CurrentCpuLevel);
-        TrySelectGpuLevel(CurrentGpuLevel);
+        if (Connection.Performance is { } state)
+        {
+            SynchronizePendingFromCurrent(state);
+        }
+
         ClearStatus();
     }
 
     private async Task ApplyAsync()
     {
+        if (!CanApply)
+        {
+            return;
+        }
+
         string mode = _selectedMode;
         string? cpu = IsCustomSelected ? _selectedCpuLevel : null;
         string? gpu = IsCustomSelected ? _selectedGpuLevel : null;
@@ -303,8 +355,53 @@ public sealed class PerformanceViewModel : PageViewModel
     private async Task RefreshFromRuntimeAsync()
     {
         ClearStatus();
-        await Connection.RefreshProfilesNowAsync(Lifetime).ConfigureAwait(true);
+        bool succeeded = await Connection.RefreshProfilesNowAsync(Lifetime).ConfigureAwait(true);
+        if (succeeded && Connection.Performance is { } state)
+        {
+            SynchronizePendingFromCurrent(state);
+        }
+
         Refresh();
+    }
+
+    private void SynchronizePendingFromCurrent(PerformanceStateDto state)
+    {
+        bool zonesAgree = string.Equals(
+            state.Mode.Zone1PerformanceMode,
+            state.Mode.Zone2PerformanceMode,
+            StringComparison.Ordinal);
+        _selectedMode = zonesAgree
+            ? state.Mode.Zone1PerformanceMode
+            : $"{state.Mode.Zone1PerformanceMode} / {state.Mode.Zone2PerformanceMode}";
+        _selectedCpuLevel = state.CpuLevel;
+        _selectedGpuLevel = state.GpuLevel;
+        _pendingInitialized = Connection.IsOnline;
+        _modeSelectionConfirmed = zonesAgree && HasAvailableMode(_selectedMode);
+        SyncSelectionFlags();
+        RaiseAll(nameof(SelectedMode), nameof(SelectedCpuLevel), nameof(SelectedGpuLevel));
+        NotifyPendingSelectionChanged();
+    }
+
+    private bool HasAvailableMode(string value) => Modes.Any(item =>
+        item.IsAvailable && string.Equals(item.Value, value, StringComparison.Ordinal));
+
+    private bool HasAvailableCpuLevel(string value) => CpuLevels.Any(item =>
+        item.IsAvailable && string.Equals(item.Value, value, StringComparison.Ordinal));
+
+    private bool HasAvailableGpuLevel(string value) => GpuLevels.Any(item =>
+        item.IsAvailable && string.Equals(item.Value, value, StringComparison.Ordinal));
+
+    private void NotifyPendingSelectionChanged()
+    {
+        RaiseAll(
+            nameof(IsCustomSelected),
+            nameof(PendingSummary),
+            nameof(HasPendingChanges),
+            nameof(CanApply),
+            nameof(ApplyBlockedReason),
+            nameof(HasApplyBlockedReason),
+            nameof(CanApplyCustomSelection));
+        ApplyCommand.RaiseCanExecuteChanged();
     }
 
     private void SyncSelectionFlags()

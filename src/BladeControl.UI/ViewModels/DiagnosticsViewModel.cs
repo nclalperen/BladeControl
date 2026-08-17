@@ -204,6 +204,9 @@ public sealed class DiagnosticsViewModel : PageViewModel
         Events = new ReadOnlyObservableCollection<RuntimeEventViewModel>(_events);
         FilteredEvents = [];
         EventKinds = new ReadOnlyObservableCollection<string>(_kinds);
+        RefreshDiagnosticsCommand = new AsyncRelayCommand(
+            RefreshDiagnosticsAsync,
+            () => Connection.IsOnline);
         CopyDiagnosticsCommand = new RelayCommand(CopyDiagnostics, () => _copyToClipboard is not null);
         ClearEventsCommand = new RelayCommand(ClearEvents);
         Connection.EventsReceived += OnEventsReceived;
@@ -229,6 +232,8 @@ public sealed class DiagnosticsViewModel : PageViewModel
     public ReadOnlyObservableCollection<string> EventKinds { get; }
 
     public RelayCommand CopyDiagnosticsCommand { get; }
+
+    public AsyncRelayCommand RefreshDiagnosticsCommand { get; }
 
     public RelayCommand ClearEventsCommand { get; }
 
@@ -260,6 +265,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
     {
         RebuildGroups();
         Raise(nameof(EventSummary));
+        RefreshDiagnosticsCommand.RaiseCanExecuteChanged();
     }
 
     public override void Activate() => Refresh();
@@ -359,6 +365,19 @@ public sealed class DiagnosticsViewModel : PageViewModel
             StatusMessage = $"Clipboard unavailable: {exception.Message}";
             StatusIsError = true;
         }
+    }
+
+    private async Task RefreshDiagnosticsAsync()
+    {
+        ClearStatus();
+        bool succeeded = await Connection.RefreshDiagnosticsNowAsync(Lifetime)
+            .ConfigureAwait(true);
+        StatusMessage = succeeded
+            ? "Diagnostics refreshed from Runtime Core."
+            : Connection.LastReadError ?? Connection.TransportError ??
+                "Runtime Core diagnostics could not be refreshed.";
+        StatusIsError = !succeeded;
+        Refresh();
     }
 
     private void OnEventsReceived(IReadOnlyList<RuntimeEventDto> items, bool gap) =>

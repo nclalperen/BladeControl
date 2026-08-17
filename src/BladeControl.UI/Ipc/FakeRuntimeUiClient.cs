@@ -23,6 +23,7 @@ public sealed class FakeRuntimeUiClient : IRuntimeUiClient
             health: new TelemetryHealthDto("Healthy", "Telemetry is live.", true),
             watchdog: RuntimeUiSampleData.Watchdog());
         Doctor = RuntimeUiSampleData.Doctor();
+        TelemetrySample = RuntimeUiSampleData.Telemetry();
         PerformanceState = new PerformanceStateDto(
             new RuntimeModeDto("Balanced", "Auto", "Balanced", "Auto"),
             "Medium",
@@ -48,6 +49,8 @@ public sealed class FakeRuntimeUiClient : IRuntimeUiClient
 
     public RuntimeDoctorReportDto Doctor { get; set; }
 
+    public ThermalTelemetrySampleDto TelemetrySample { get; set; }
+
     public PerformanceStateDto PerformanceState { get; set; }
 
     public FanStateDto FanState { get; set; }
@@ -68,11 +71,20 @@ public sealed class FakeRuntimeUiClient : IRuntimeUiClient
 
     public int StatusRequestCount { get; private set; }
 
-    public int TelemetryRequestCount { get; private set; }
+    public int FastTelemetryRequestCount { get; private set; }
+
+    public int DiagnosticSnapshotRequestCount { get; private set; }
+
+    public int TelemetryRequestCount =>
+        FastTelemetryRequestCount + DiagnosticSnapshotRequestCount;
 
     public int EventRequestCount { get; private set; }
 
     public int DoctorRequestCount { get; private set; }
+
+    public int PerformanceStateRequestCount { get; private set; }
+
+    public int FanStateRequestCount { get; private set; }
 
     public long LastRequestedEventCursor { get; private set; } = -1;
 
@@ -107,12 +119,25 @@ public sealed class FakeRuntimeUiClient : IRuntimeUiClient
         EnsureReadable();
         lock (_sync)
         {
-            TelemetryRequestCount++;
+            DiagnosticSnapshotRequestCount++;
             return Task.FromResult(new TelemetrySnapshotDto(
-                SimulateDrift ? Drift() : RuntimeUiSampleData.Telemetry(),
+                SimulateDrift ? Drift() : TelemetrySample,
                 [],
                 null,
                 []));
+        }
+    }
+
+    public Task<ThermalTelemetrySampleDto> GetTelemetrySampleAsync(
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureOnline();
+        EnsureReadable();
+        lock (_sync)
+        {
+            FastTelemetryRequestCount++;
+            return Task.FromResult(SimulateDrift ? Drift() : TelemetrySample);
         }
     }
 
@@ -121,6 +146,7 @@ public sealed class FakeRuntimeUiClient : IRuntimeUiClient
         cancellationToken.ThrowIfCancellationRequested();
         EnsureOnline();
         EnsureReadable();
+        PerformanceStateRequestCount++;
         return Task.FromResult(PerformanceState);
     }
 
@@ -129,6 +155,7 @@ public sealed class FakeRuntimeUiClient : IRuntimeUiClient
         cancellationToken.ThrowIfCancellationRequested();
         EnsureOnline();
         EnsureReadable();
+        FanStateRequestCount++;
         return Task.FromResult(FanState);
     }
 

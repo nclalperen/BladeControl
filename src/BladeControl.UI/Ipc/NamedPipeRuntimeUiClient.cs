@@ -61,6 +61,13 @@ public sealed class NamedPipeRuntimeUiClient : IRuntimeUiClient, IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<ThermalTelemetrySampleDto> GetTelemetrySampleAsync(
+        CancellationToken cancellationToken) =>
+        SendAsync<ThermalTelemetrySampleDto>(
+            RuntimeIpcOperation.GetTelemetrySample,
+            payload: null,
+            cancellationToken);
+
     public Task<TelemetrySnapshotDto> GetTelemetrySnapshotAsync(
         CancellationToken cancellationToken) =>
         SendAsync<TelemetrySnapshotDto>(

@@ -442,6 +442,30 @@ public sealed class BladeRuntime : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Returns the lightweight provider sample used by monitoring clients. While thermal
+    /// control is running, the controller's latest authoritative sample is reused so the
+    /// UI cannot introduce a second provider acquisition into the control cadence.
+    /// </summary>
+    public ThermalTelemetrySample GetTelemetrySample()
+    {
+        ThrowIfDisposed();
+        _operationGate.Wait();
+        try
+        {
+            if (State == RuntimeState.Running && _telemetryAdapter.Latest is { } latest)
+            {
+                return latest;
+            }
+
+            return _controlTelemetry.GetControlSample();
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
     public PerformanceState GetPerformanceState()
     {
         EnsureReadOperationAllowed();

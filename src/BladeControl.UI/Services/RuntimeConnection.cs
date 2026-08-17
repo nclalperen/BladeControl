@@ -20,8 +20,11 @@ public enum TelemetryOrigin
     /// <summary>The authoritative sample the thermal controller is acting on.</summary>
     ThermalSession,
 
-    /// <summary>An on-demand diagnostic acquisition taken while no session is running.</summary>
-    DiagnosticSnapshot
+    /// <summary>An explicit full diagnostic acquisition.</summary>
+    DiagnosticSnapshot,
+
+    /// <summary>A provider-only sample acquired through Runtime Core.</summary>
+    ProviderSample
 }
 
 public sealed record RuntimeCommandOutcome(bool Succeeded, string Message)
@@ -44,10 +47,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     /// <summary>Telemetry older than this is presented as stale rather than live.</summary>
     public static readonly TimeSpan StaleTelemetryThreshold = TimeSpan.FromSeconds(3);
 
-    private const int TelemetryTickDivisor = 1;
     private const int EventTickDivisor = 2;
-    private const int ProfileTickDivisor = 10;
-    private const int DoctorTickDivisor = 10;
 
     private readonly IRuntimeUiClient _client;
     private readonly IUiDispatcher _dispatcher;
@@ -73,6 +73,8 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     private string? _lastReadError;
     private int _commandInFlight;
     private volatile bool _doctorRefreshRequired = true;
+    private volatile bool _profilesRefreshRequired = true;
+    private volatile bool _statusConnected;
     private bool _disposed;
 
     public RuntimeConnection(
@@ -386,7 +388,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Re-reads the performance and fan state after a state change.</summary>
-    public async Task RefreshProfilesNowAsync(CancellationToken cancellationToken)
+    public async Task<bool> RefreshProfilesNowAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -400,6 +402,8 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
                 Fan = fan;
                 LastReadError = null;
             });
+            _profilesRefreshRequired = false;
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -408,10 +412,54 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         catch (RuntimeUiException exception) when (exception.IsDisconnect)
         {
             GoOffline(exception.Message);
+            return false;
+        }
+        catch (RuntimeUiException exception)
+        {
+            _profilesRefreshRequired = false;
+            Publish(() => LastReadError = exception.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Performs the heavyweight diagnostic reads only when the user explicitly requests
+    /// them. Ordinary Dashboard and Monitoring polling never calls this method.
+    /// </summary>
+    public async Task<bool> RefreshDiagnosticsNowAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            RuntimeDoctorReportDto doctor = await _client.GetDoctorAsync(cancellationToken)
+                .ConfigureAwait(false);
+            _doctorRefreshRequired = false;
+            Publish(() =>
+            {
+                Doctor = doctor;
+                LastReadError = null;
+                Raise(nameof(IsThermalOwnershipReady));
+                Raise(nameof(ThermalReadinessReason));
+                RaiseGating();
+            });
+
+            TelemetrySnapshotDto snapshot = await _client
+                .GetTelemetrySnapshotAsync(cancellationToken).ConfigureAwait(false);
+            ApplyTelemetry(snapshot.Telemetry, TelemetryOrigin.DiagnosticSnapshot);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (RuntimeUiException exception) when (exception.IsDisconnect)
+        {
+            GoOffline(exception.Message);
+            return false;
         }
         catch (RuntimeUiException exception)
         {
             Publish(() => LastReadError = exception.Message);
+            return false;
         }
     }
 
@@ -455,7 +503,6 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
 
     private async Task RefreshTelemetryAsync(
         RuntimeStatusDto status,
-        long tick,
         CancellationToken cancellationToken)
     {
         if (string.Equals(status.State, "Running", StringComparison.Ordinal) &&
@@ -465,16 +512,11 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        if (tick % TelemetryTickDivisor != 0)
-        {
-            return;
-        }
-
         try
         {
-            TelemetrySnapshotDto snapshot = await _client
-                .GetTelemetrySnapshotAsync(cancellationToken).ConfigureAwait(false);
-            ApplyTelemetry(snapshot.Telemetry, TelemetryOrigin.DiagnosticSnapshot);
+            ThermalTelemetrySampleDto sample = await _client
+                .GetTelemetrySampleAsync(cancellationToken).ConfigureAwait(false);
+            ApplyTelemetry(sample, TelemetryOrigin.ProviderSample);
         }
         catch (RuntimeUiException exception) when (!exception.IsDisconnect)
         {
@@ -546,19 +588,19 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private async Task RefreshProfilesAsync(long tick, CancellationToken cancellationToken)
+    private async Task RefreshProfilesAsync(CancellationToken cancellationToken)
     {
-        if (tick % ProfileTickDivisor != 1)
+        if (!_profilesRefreshRequired)
         {
             return;
         }
 
-        await RefreshProfilesNowAsync(cancellationToken).ConfigureAwait(false);
+        _ = await RefreshProfilesNowAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RefreshDoctorAsync(long tick, CancellationToken cancellationToken)
+    private async Task RefreshDoctorAsync(CancellationToken cancellationToken)
     {
-        if (!_doctorRefreshRequired && tick % DoctorTickDivisor != 2 && _doctor is not null)
+        if (!_doctorRefreshRequired)
         {
             return;
         }
@@ -578,13 +620,16 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         }
         catch (RuntimeUiException exception) when (!exception.IsDisconnect)
         {
+            _doctorRefreshRequired = false;
             Publish(() => LastReadError = exception.Message);
         }
     }
 
     private void GoOffline(string reason)
     {
+        _statusConnected = false;
         _doctorRefreshRequired = true;
+        _profilesRefreshRequired = true;
         Publish(() =>
         {
             State = RuntimeConnectionState.Offline;
@@ -633,13 +678,19 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         {
             RuntimeStatusDto status = await _client.GetStatusAsync(cancellationToken)
                 .ConfigureAwait(false);
+            bool reconnected = !_statusConnected;
+            _statusConnected = true;
+            if (reconnected)
+            {
+                _doctorRefreshRequired = true;
+                _profilesRefreshRequired = true;
+            }
+
             Publish(() =>
             {
-                bool reconnected = State != RuntimeConnectionState.Online;
                 if (reconnected)
                 {
                     Doctor = null;
-                    _doctorRefreshRequired = true;
                 }
 
                 Status = status;
@@ -648,10 +699,10 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
                 State = RuntimeConnectionState.Online;
             });
 
-            await RefreshTelemetryAsync(status, tick, cancellationToken).ConfigureAwait(false);
+            await RefreshTelemetryAsync(status, cancellationToken).ConfigureAwait(false);
             await RefreshEventsAsync(tick, cancellationToken).ConfigureAwait(false);
-            await RefreshProfilesAsync(tick, cancellationToken).ConfigureAwait(false);
-            await RefreshDoctorAsync(tick, cancellationToken).ConfigureAwait(false);
+            await RefreshProfilesAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshDoctorAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

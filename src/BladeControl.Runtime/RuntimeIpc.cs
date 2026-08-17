@@ -18,7 +18,8 @@ public enum RuntimeIpcOperation
     StopThermalControl,
     GetRuntimeEvents,
     GetThermalCurve,
-    ListBuiltInCurves
+    ListBuiltInCurves,
+    GetTelemetrySample
 }
 
 public sealed record RuntimeIpcRequest(
@@ -127,6 +128,8 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
                 RuntimeIpcOperation.GetRuntimeDoctor => _doctorReport(),
                 RuntimeIpcOperation.GetTelemetrySnapshot =>
                     RuntimeIpcDtoMapper.ToDto(_runtime.GetDiagnosticSnapshot()),
+                RuntimeIpcOperation.GetTelemetrySample =>
+                    RuntimeIpcDtoMapper.ToDto(_runtime.GetTelemetrySample()),
                 RuntimeIpcOperation.GetPerformanceState =>
                     RuntimeIpcDtoMapper.ToDto(_runtime.GetPerformanceState()),
                 RuntimeIpcOperation.ApplyPerformanceProfile => ApplyPerformance(request),

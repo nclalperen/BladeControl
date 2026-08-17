@@ -129,4 +129,175 @@ public sealed class ViewModelPolicyTests
         Assert.AreEqual(RuntimeUiPolicy.MaximumFanRpm, viewModel.Fan2Target);
         Assert.AreEqual(0, client.FanRequests.Count);
     }
+
+    [TestMethod]
+    public async Task InitialCustomRuntimeStateBecomesPendingWithoutApplying()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            PerformanceState = Performance("Custom", "Medium", "Low")
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
+
+        viewModel.Refresh();
+
+        Assert.AreEqual("Custom", viewModel.CurrentMode);
+        Assert.AreEqual("Custom", viewModel.SelectedMode);
+        Assert.AreEqual("Medium", viewModel.SelectedCpuLevel);
+        Assert.AreEqual("Low", viewModel.SelectedGpuLevel);
+        Assert.AreEqual("Custom · CPU Medium · GPU Low", viewModel.PendingSummary);
+        Assert.IsFalse(viewModel.HasPendingChanges);
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+    }
+
+    [TestMethod]
+    public async Task RestoreSelectionMirrorsCurrentStateWithoutApplying()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            PerformanceState = Performance("Custom", "Medium", "Low")
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
+        viewModel.Refresh();
+        Assert.IsTrue(viewModel.TrySelectMode("Silent"));
+        Assert.IsTrue(viewModel.HasPendingChanges);
+
+        viewModel.RestoreFromCurrent();
+
+        Assert.AreEqual("Custom", viewModel.SelectedMode);
+        Assert.AreEqual("Medium", viewModel.SelectedCpuLevel);
+        Assert.AreEqual("Low", viewModel.SelectedGpuLevel);
+        Assert.IsFalse(viewModel.HasPendingChanges);
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+    }
+
+    [TestMethod]
+    public async Task ExplicitPerformanceRefreshResynchronizesWithoutApplying()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            PerformanceState = Performance("Balanced", "Medium", "Low")
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
+        viewModel.Refresh();
+        Assert.IsTrue(viewModel.TrySelectMode("Silent"));
+        client.PerformanceState = Performance("Custom", "Low", "Low");
+
+        viewModel.RefreshCommand.Execute(null);
+        await UiTestWait.UntilAsync(() => !viewModel.RefreshCommand.IsRunning);
+
+        Assert.AreEqual("Custom", viewModel.CurrentMode);
+        Assert.AreEqual("Custom", viewModel.SelectedMode);
+        Assert.AreEqual("Low", viewModel.SelectedCpuLevel);
+        Assert.AreEqual("Low", viewModel.SelectedGpuLevel);
+        Assert.AreEqual(2, client.PerformanceStateRequestCount);
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+    }
+
+    [TestMethod]
+    public async Task UnsupportedCurrentCustomLevelsRequireValidatedUserChoices()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            PerformanceState = Performance("Custom", "High", "Medium")
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
+        viewModel.Refresh();
+        var dashboard = new DashboardViewModel(
+            connection,
+            viewModel,
+            CancellationToken.None);
+        dashboard.Refresh();
+
+        Assert.AreEqual("Custom", viewModel.SelectedMode);
+        Assert.AreEqual("High", viewModel.SelectedCpuLevel);
+        Assert.AreEqual("Medium", viewModel.SelectedGpuLevel);
+        Assert.IsFalse(viewModel.CanApply);
+        Assert.IsFalse(viewModel.ApplyCommand.CanExecute(null));
+        Assert.IsFalse(dashboard.ApplyCustomCommand.CanExecute(null));
+        StringAssert.Contains(viewModel.ApplyBlockedReason!, "not hardware validated");
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+
+        Assert.IsTrue(viewModel.TrySelectCpuLevel("Medium"));
+        Assert.IsTrue(viewModel.TrySelectGpuLevel("Low"));
+        dashboard.Refresh();
+
+        Assert.IsTrue(viewModel.CanApply);
+        Assert.IsTrue(dashboard.ApplyCustomCommand.CanExecute(null));
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+    }
+
+    [TestMethod]
+    public async Task DisagreeingRuntimeZonesAreShownWithoutBalancedSubstitution()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            PerformanceState = new PerformanceStateDto(
+                new RuntimeModeDto("Balanced", "Auto", "Silent", "Auto"),
+                "Medium",
+                "Low",
+                0,
+                0)
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
+
+        viewModel.Refresh();
+
+        Assert.AreEqual("Balanced / Silent", viewModel.SelectedMode);
+        StringAssert.Contains(viewModel.CurrentSummary, "Zone 1 Balanced");
+        StringAssert.Contains(viewModel.CurrentSummary, "Zone 2 Silent");
+        Assert.IsFalse(viewModel.CanApply);
+        Assert.IsTrue(viewModel.HasPendingChanges);
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+
+        Assert.IsTrue(viewModel.TrySelectMode("Silent"));
+        Assert.IsTrue(viewModel.CanApply);
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+    }
+
+    [TestMethod]
+    public async Task NormalPollingDoesNotClobberPendingPerformanceEdit()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            PerformanceState = Performance("Custom", "Medium", "Low")
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
+        viewModel.Refresh();
+        Assert.IsTrue(viewModel.TrySelectMode("Silent"));
+        client.PerformanceState = Performance("Balanced", "Low", "Low");
+
+        for (int tick = 0; tick < 20; tick++)
+        {
+            await connection.PollOnceAsync(CancellationToken.None);
+            viewModel.Refresh();
+        }
+
+        Assert.AreEqual("Silent", viewModel.SelectedMode);
+        Assert.AreEqual(1, client.PerformanceStateRequestCount);
+        Assert.AreEqual(1, client.FanStateRequestCount);
+        Assert.AreEqual(0, client.PerformanceRequests.Count);
+    }
+
+    private static PerformanceStateDto Performance(
+        string mode,
+        string cpu,
+        string gpu) => new(
+        new RuntimeModeDto(mode, "Auto", mode, "Auto"),
+        cpu,
+        gpu,
+        0,
+        0);
 }

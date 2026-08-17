@@ -101,6 +101,9 @@ public interface IRuntimeUiClient
 
     Task<RuntimeStatusDto> GetStatusAsync(CancellationToken cancellationToken);
 
+    Task<ThermalTelemetrySampleDto> GetTelemetrySampleAsync(
+        CancellationToken cancellationToken);
+
     Task<TelemetrySnapshotDto> GetTelemetrySnapshotAsync(CancellationToken cancellationToken);
 
     Task<PerformanceStateDto> GetPerformanceStateAsync(CancellationToken cancellationToken);

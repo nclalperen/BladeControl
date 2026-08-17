@@ -29,7 +29,7 @@ public sealed class DashboardViewModel : PageViewModel
             () => Connection.CanApplyStaticProfile);
         ApplyCustomCommand = new AsyncRelayCommand(
             () => ApplyModeAsync("Custom"),
-            () => Connection.CanApplyStaticProfile);
+            () => Connection.CanApplyStaticProfile && _performance.CanApplyCustomSelection);
         StartCoolingCommand = new AsyncRelayCommand(
             StartCoolingAsync,
             () => Connection.CanStartThermalControl);
@@ -143,9 +143,13 @@ public sealed class DashboardViewModel : PageViewModel
                     : "Stale";
             }
 
-            return Connection.TelemetryOrigin == TelemetryOrigin.ThermalSession
-                ? "Live — thermal session sample"
-                : "Live — diagnostic acquisition";
+            return Connection.TelemetryOrigin switch
+            {
+                TelemetryOrigin.ThermalSession => "Live — thermal session sample",
+                TelemetryOrigin.ProviderSample => "Live — provider-only sample",
+                TelemetryOrigin.DiagnosticSnapshot => "Live — diagnostic acquisition",
+                _ => "Live"
+            };
         }
     }
 
@@ -206,7 +210,9 @@ public sealed class DashboardViewModel : PageViewModel
 
     public bool HasProfileBlockedReason => !string.IsNullOrEmpty(ProfileBlockedReason);
 
-    public string? StartBlockedReason => Connection.CanStartThermalControl
+    public string? StartBlockedReason => !Connection.IsOnline
+        ? null
+        : Connection.CanStartThermalControl
         ? null
         : Connection.IsThermalOwnershipReady
             ? Connection.StaticProfileBlockedReason ??
@@ -289,6 +295,11 @@ public sealed class DashboardViewModel : PageViewModel
     private async Task ApplyModeAsync(string mode)
     {
         bool custom = string.Equals(mode, "Custom", StringComparison.Ordinal);
+        if (custom && !_performance.CanApplyCustomSelection)
+        {
+            return;
+        }
+
         (string cpu, string gpu) = _performance.CustomLevels;
         await RunCommandAsync(async (client, token) =>
         {

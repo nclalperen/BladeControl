@@ -285,7 +285,7 @@ internal static class RuntimeIpcDtoMapper
         state.ZonesAgree,
         state.IsAuto);
 
-    private static ThermalTelemetrySampleDto ToDto(ThermalTelemetrySample sample) => new(
+    internal static ThermalTelemetrySampleDto ToDto(ThermalTelemetrySample sample) => new(
         sample.Timestamp,
         ToDto(sample.CpuPackageTemperatureCelsius),
         ToDto(sample.GpuTemperatureCelsius),

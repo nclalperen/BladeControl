@@ -28,10 +28,10 @@ interpolation, hysteresis, rate limiting, watchdog, emergency handoff, or perfor
 restoration logic. Runtime Core remains the sole hardware owner and validates every
 state-changing request again.
 
-The client uses the typed V1 operations for status, doctor, telemetry, performance, fan
-state, cursor-based events, built-in curves, performance/fan applies, and thermal-session
-start/stop. Diagnostics is read-only and there is no raw, force, unsafe, or debug-console
-surface.
+The client uses the typed V1 operations for status, provider-only fast telemetry, full
+diagnostic snapshots, doctor, performance, fan state, cursor-based events, built-in
+curves, performance/fan applies, and thermal-session start/stop. Diagnostics is read-only
+and there is no raw, force, unsafe, or debug-console surface.
 
 The application shell uses a persistent sidebar for Dashboard, Performance, Fans &
 Thermal, Monitoring, and Diagnostics. Its near-black/charcoal theme uses restrained green
@@ -44,12 +44,15 @@ The UI is usable when Runtime Core is absent:
 
 - Startup begins in Connecting and attempts a bounded, read-only status request.
 - While online, one cancellable polling loop starts a cycle at approximately 500-ms
-  cadence. Status and telemetry are refreshed each cycle, events approximately every
-  second, and profiles/doctor data approximately every five seconds. Qualification is
-  refreshed immediately after connection or reconnection.
+  cadence. Status and provider-only telemetry are refreshed each cycle and events
+  approximately every second. Performance/fan state and doctor qualification are read
+  once after connection or reconnection, after relevant commands, or by an explicit page
+  refresh; they are not repeated on the monitoring cadence.
 - While a thermal session is Running, graphs use the authoritative telemetry embedded in
-  runtime status. Otherwise telemetry comes from Runtime Core's diagnostic snapshot
-  operation. The UI never acquires sensors itself.
+  runtime status and do not trigger a second provider acquisition. Otherwise telemetry
+  comes from Runtime Core's `GetTelemetrySample` operation, which reads only the shared
+  CPU/GPU control providers. The full diagnostic snapshot, including firmware state, is
+  reserved for an explicit Diagnostics refresh. The UI never acquires sensors itself.
 - A transport failure changes the UI to Offline, disables state-changing actions, and
   retains last-known values only with stale/offline presentation. Telemetry more than
   three seconds old is marked stale.
@@ -103,16 +106,20 @@ fault or emergency-handoff information is promoted to a visible alert.
 
 ### Performance
 
-The page shows current and pending policy, supports refresh and restore-from-current, and
-offers only the hardware-validated choices:
+The page shows current and pending policy, initializes pending state from the first actual
+Runtime report, and supports explicit refresh and restore-from-current. Synchronization is
+read-only and never applies a profile. The page offers only these hardware-validated
+choices:
 
 - modes: Balanced, Silent, and Custom;
 - Custom CPU: Low or Medium;
 - Custom GPU: Low.
 
 Modeled CPU High/Boost/Overclock and GPU Medium/High values may be visible for context but
-are disabled as **Not hardware validated** and cannot become a pending selection. There
-is no bypass. Apply is available only while Runtime Core is `Stopped`.
+are disabled as **Not hardware validated**. If Runtime Core reports one of these values,
+or the two zones disagree, the actual state is shown without substituting Balanced and
+Apply remains blocked until the user deliberately chooses a complete validated policy.
+There is no bypass. Apply is available only while Runtime Core is `Stopped`.
 
 ### Fans & Thermal
 
@@ -151,9 +158,9 @@ Monitoring renders lightweight real-time charts from IPC samples only:
 History is an in-memory fixed-capacity ring sized for approximately two samples per
 second and at most 120 seconds. The user can select a 60- or 120-second window and clear
 the history. Duplicate or out-of-order timestamps are ignored, unavailable metrics become
-gaps, and the page identifies authoritative thermal-session versus diagnostic-snapshot
-sources. Nothing is written to disk, no history grows without bound, and offline/stale
-data pauses with an explicit label.
+gaps, and the page identifies authoritative thermal-session, provider-only, and explicit
+diagnostic-snapshot sources. Nothing is written to disk, no history grows without bound,
+and offline/stale data pauses with an explicit label.
 
 ### Diagnostics
 
@@ -176,7 +183,9 @@ Diagnostics is a read-only health and provenance surface with these groups:
 Runtime events are consumed with a sequence cursor, shown newest first, filterable by
 kind, and bounded to 500 entries in the UI. Cursor gaps and runtime restarts are indicated;
 structured decision, watchdog, exchange, timing, result, and session detail can be
-expanded. Copy Diagnostics creates a text snapshot. There is no hardware-write console.
+expanded. **Refresh diagnostics** explicitly runs fresh provider qualification and the
+full firmware diagnostic snapshot; ordinary monitoring never runs that heavyweight read.
+Copy Diagnostics creates a text snapshot. There is no hardware-write console.
 
 ## Notification area behavior
 

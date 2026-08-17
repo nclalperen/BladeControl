@@ -44,7 +44,7 @@ public sealed class RuntimeConnectionTests
         StringAssert.Contains(shell.Dashboard.CpuTemperature, "61");
         Assert.AreEqual("Balanced", shell.Dashboard.PerformanceMode);
         Assert.AreEqual("Balanced", shell.Performance.CurrentMode);
-        Assert.AreEqual(TelemetryOrigin.DiagnosticSnapshot, connection.TelemetryOrigin);
+        Assert.AreEqual(TelemetryOrigin.ProviderSample, connection.TelemetryOrigin);
     }
 
     [DataTestMethod]
@@ -357,5 +357,112 @@ public sealed class RuntimeConnectionTests
         CollectionAssert.AreEqual(new long[] { 1, 2 }, received[1].Sequences);
         Assert.AreEqual(1, resets);
         Assert.AreEqual(2L, connection.EventCursor);
+    }
+
+    [TestMethod]
+    public async Task StoppedPollingUsesOneFastSampleAndNoRepeatedHeavyReads()
+    {
+        var client = new FakeRuntimeUiClient();
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+
+        for (int tick = 0; tick < 25; tick++)
+        {
+            await connection.PollOnceAsync(CancellationToken.None);
+        }
+
+        Assert.AreEqual(25, client.StatusRequestCount);
+        Assert.AreEqual(25, client.FastTelemetryRequestCount);
+        Assert.AreEqual(0, client.DiagnosticSnapshotRequestCount);
+        Assert.AreEqual(1, client.DoctorRequestCount);
+        Assert.AreEqual(1, client.PerformanceStateRequestCount);
+        Assert.AreEqual(1, client.FanStateRequestCount);
+        Assert.AreEqual(TelemetryOrigin.ProviderSample, connection.TelemetryOrigin);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(500), RuntimeConnection.DefaultPollInterval);
+    }
+
+    [TestMethod]
+    public async Task RunningPollingUsesStatusCacheWithoutASecondAcquisition()
+    {
+        ThermalTelemetrySampleDto authoritative = RuntimeUiSampleData.Telemetry(
+            cpuTemperature: 72.5,
+            gpuTemperature: 64.25);
+        var client = new FakeRuntimeUiClient
+        {
+            Status = RuntimeUiSampleData.Status(
+                state: "Running",
+                sessionId: Guid.NewGuid(),
+                currentProfile: "default",
+                telemetry: authoritative)
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+
+        for (int tick = 0; tick < 10; tick++)
+        {
+            await connection.PollOnceAsync(CancellationToken.None);
+        }
+
+        Assert.AreSame(authoritative, connection.Telemetry);
+        Assert.AreEqual(TelemetryOrigin.ThermalSession, connection.TelemetryOrigin);
+        Assert.AreEqual(0, client.FastTelemetryRequestCount);
+        Assert.AreEqual(0, client.DiagnosticSnapshotRequestCount);
+    }
+
+    [TestMethod]
+    public async Task DiagnosticsRefreshExplicitlyRequestsOneHeavySnapshot()
+    {
+        var client = new FakeRuntimeUiClient();
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var diagnostics = new DiagnosticsViewModel(connection, CancellationToken.None);
+
+        diagnostics.RefreshDiagnosticsCommand.Execute(null);
+        await UiTestWait.UntilAsync(() => !diagnostics.RefreshDiagnosticsCommand.IsRunning);
+
+        Assert.AreEqual(2, client.DoctorRequestCount);
+        Assert.AreEqual(1, client.DiagnosticSnapshotRequestCount);
+        Assert.AreEqual(TelemetryOrigin.DiagnosticSnapshot, connection.TelemetryOrigin);
+        Assert.AreEqual("Diagnostics refreshed from Runtime Core.", diagnostics.StatusMessage);
+        Assert.IsFalse(diagnostics.StatusIsError);
+    }
+
+    [TestMethod]
+    public async Task StartingPollerTwiceKeepsOneCadenceLoop()
+    {
+        var client = new FakeRuntimeUiClient();
+        using var connection = new RuntimeConnection(
+            client,
+            new ImmediateUiDispatcher(),
+            pollInterval: TimeSpan.FromMilliseconds(5));
+
+        connection.Start();
+        Task first = connection.Completion;
+        connection.Start();
+        Task second = connection.Completion;
+        await UiTestWait.UntilAsync(() => client.StatusRequestCount >= 3);
+        await connection.StopAsync();
+
+        Assert.AreSame(first, second);
+        Assert.IsTrue(
+            client.FastTelemetryRequestCount == client.StatusRequestCount ||
+            client.FastTelemetryRequestCount == client.StatusRequestCount - 1);
+        Assert.AreEqual(0, client.DiagnosticSnapshotRequestCount);
+        Assert.IsTrue(first.IsCompleted);
+    }
+
+    [TestMethod]
+    public void DashboardDoesNotRepeatTheOfflineReasonForStart()
+    {
+        var client = new FakeRuntimeUiClient { IsOnline = false };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        var performance = new PerformanceViewModel(connection, CancellationToken.None);
+        var dashboard = new DashboardViewModel(
+            connection,
+            performance,
+            CancellationToken.None);
+
+        dashboard.Refresh();
+
+        Assert.AreEqual("Runtime Core is offline.", dashboard.ProfileBlockedReason);
+        Assert.IsNull(dashboard.StartBlockedReason);
     }
 }

@@ -195,6 +195,7 @@ public sealed class MonitoringViewModel : PageViewModel
     public string SourceLabel => Connection.TelemetryOrigin switch
     {
         TelemetryOrigin.ThermalSession => "Source: authoritative thermal-session samples",
+        TelemetryOrigin.ProviderSample => "Source: provider-only Runtime Core samples",
         TelemetryOrigin.DiagnosticSnapshot => "Source: on-demand diagnostic acquisitions",
         _ => "Source: waiting for the first runtime sample"
     };
