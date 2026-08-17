@@ -6,11 +6,35 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyTitle>BladeControl Runtime Service</AssemblyTitle>
+    <Description>Hosts the BladeControl Runtime as a Windows service and owns all hardware access.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\BladeControl.Hardware.Windows\BladeControl.Hardware.Windows.csproj" />
+    <ProjectReference Include="..\BladeControl.Ipc\BladeControl.Ipc.csproj" />
     <ProjectReference Include="..\BladeControl.Runtime\BladeControl.Runtime.csproj" />
+  </ItemGroup>
+
+  <!--
+    The hosting tests drive the singleton with a per-test name so they never contend with a
+    real host. That overload stays internal: nothing outside the assembly should be choosing
+    the name of the gate that guards hardware ownership.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="BladeControl.Service.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+
+    <!--
+      SemaphoreAcl / SemaphoreSecurity, used by the host singleton. Referenced explicitly
+      rather than picked up transitively through LibreHardwareMonitorLib: a security
+      primitive must not depend on another package keeping an incidental dependency.
+    -->
+    <PackageReference Include="System.Threading.AccessControl" Version="10.0.3" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# A queued run on the same ref is pointless once a newer commit exists.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Release build and tests
+    # windows-latest is required, not preference: the solution targets net8.0-windows,
+    # uses WPF, and the tests exercise real WPF visual trees and Win32 security APIs.
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore BladeControl.sln
+
+      # Formatting runs before the long steps so a whitespace-only failure is reported in
+      # seconds rather than after a full test pass.
+      - name: Verify formatting
+        run: dotnet format BladeControl.sln --verify-no-changes --no-restore
+
+      - name: Build (Release)
+        run: dotnet build BladeControl.sln -c Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test BladeControl.sln -c Release --no-build --logger "trx;LogFileName=results.trx" --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+          if-no-files-found: warn
+
+  package:
+    name: Installer build (verification only)
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.0.2
+
+      # Proves the packaging path still works on every change. Tests already ran in the
+      # build job, so they are skipped here rather than run twice.
+      - name: Publish and package
+        shell: pwsh
+        run: ./build/pack.ps1 -SkipTests
+
+      - name: Upload installer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-ci
+          path: |
+            artifacts/*.msi
+            artifacts/SHA256SUMS.txt
+          retention-days: 7
+          if-no-files-found: error

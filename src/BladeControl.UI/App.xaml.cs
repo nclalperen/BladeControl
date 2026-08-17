@@ -14,6 +14,7 @@ public partial class App : Application
     private CompactControlWindow? _compactWindow;
     private MainWindow? _fullWindow;
     private NotificationAreaService? _notificationArea;
+    private StartupRegistration? _startupRegistration;
     private bool _exiting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -26,11 +27,20 @@ public partial class App : Application
         var connection = new RuntimeConnection(
             selection.Client,
             new WpfUiDispatcher(Dispatcher));
+        // Design preview must never touch the real Run key.
+        _startupRegistration = selection.IsDesignPreview ? null : new StartupRegistration();
         _shell = new ShellViewModel(
             connection,
             _loadedSettings,
             selection.IsDesignPreview,
-            text => Clipboard.SetText(text));
+            text => Clipboard.SetText(text))
+        {
+            StartupRegistrar = _startupRegistration
+        };
+
+        // An upgrade can move the executable; re-point an existing registration at the
+        // installed path so sign-in launch keeps working. Never creates one.
+        _startupRegistration?.RepairIfEnabled();
         _compactViewModel = new CompactControlViewModel(_shell);
         _compactWindow = new CompactControlWindow(_compactViewModel);
         _compactWindow.FullAppRequested += ShowFullWindow;

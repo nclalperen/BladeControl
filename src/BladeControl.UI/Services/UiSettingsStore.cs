@@ -22,7 +22,7 @@ public enum CompactCloseBehavior
 /// </summary>
 public sealed record UiSettings
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     public int Version { get; init; } = CurrentVersion;
 
@@ -42,6 +42,16 @@ public sealed record UiSettings
 
     public CompactCloseBehavior CompactCloseBehavior { get; init; } = CompactCloseBehavior.Hide;
 
+    /// <summary>
+    /// Whether the interactive user wants BladeControl to appear when they sign in. Defaults
+    /// to on: the runtime service starts with Windows regardless, and a thermal utility whose
+    /// panel has to be launched by hand is of little use. The authoritative state is the
+    /// per-user Run key — see <see cref="StartupRegistration"/> — and this field records the
+    /// user's intent so a registry write that Windows refuses does not silently flip the
+    /// displayed setting.
+    /// </summary>
+    public bool StartWithWindows { get; init; } = true;
+
     /// <summary>Clamps every field to a usable range so a corrupt file cannot break startup.</summary>
     public UiSettings Sanitized() => new()
     {
@@ -55,7 +65,8 @@ public sealed record UiSettings
         LaunchMode = Enum.IsDefined(LaunchMode) ? LaunchMode : UiLaunchMode.Compact,
         CompactCloseBehavior = Enum.IsDefined(CompactCloseBehavior)
             ? CompactCloseBehavior
-            : CompactCloseBehavior.Hide
+            : CompactCloseBehavior.Hide,
+        StartWithWindows = StartWithWindows
     };
 }
 

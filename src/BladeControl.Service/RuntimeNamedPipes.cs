@@ -2,13 +2,18 @@ using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Runtime.InteropServices;
+using BladeControl.Ipc;
 using BladeControl.Runtime;
 
 namespace BladeControl.Service;
 
 public sealed class RuntimeNamedPipeServer
 {
-    public const string PipeName = "BladeControl.Runtime.v1";
+    /// <summary>
+    /// Kept as an alias so existing callers and tests still compile; the endpoint identity
+    /// itself now lives in BladeControl.Ipc where both ends of the channel can read it.
+    /// </summary>
+    public const string PipeName = RuntimeIpcEndpoint.PipeName;
 
     private readonly RuntimeIpcDispatcher _dispatcher;
 
@@ -21,14 +26,14 @@ public sealed class RuntimeNamedPipeServer
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            await using var pipe = new NamedPipeServerStream(
-                PipeName,
-                PipeDirection.InOut,
-                maxNumberOfServerInstances: 1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly,
-                inBufferSize: RuntimeIpcDispatcher.MaximumMessageBytes,
-                outBufferSize: RuntimeIpcDispatcher.MaximumMessageBytes);
+            // CurrentUserOnly is deliberately not used: under the SCM the server runs as
+            // LocalSystem while clients are interactive users, so that option would both
+            // lock out the UI and, on the client side, assert an identity match that no
+            // longer holds. RuntimePipeSecurity applies an explicit DACL instead, at
+            // creation time so the pipe is never briefly world-writable.
+            await using var pipe = RuntimePipeSecurity.CreateServerStream(
+                RuntimeIpcEndpoint.PipeName,
+                maximumServerInstances: 1);
             await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
             await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
         }

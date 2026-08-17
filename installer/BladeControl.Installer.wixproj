@@ -1,0 +1,80 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <!--
+    BladeControl MSI.
+
+    Deliberately NOT part of BladeControl.sln: it consumes the published output of
+    BladeControl.UI and BladeControl.Service, so building it from the solution would create
+    a chicken-and-egg dependency and slow every `dotnet build`. build/pack.ps1 publishes
+    first, then builds this project.
+  -->
+  <PropertyGroup>
+    <OutputName>BladeControl-$(BladeControlVersionPrefix)-win-x64</OutputName>
+    <OutputType>Package</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+
+    <!-- Populated by build/pack.ps1; the defaults keep an IDE build discoverable. -->
+    <PublishRoot Condition="'$(PublishRoot)' == ''">$(MSBuildThisFileDirectory)..\artifacts\publish</PublishRoot>
+    <RepositoryRoot>$(MSBuildThisFileDirectory)..\</RepositoryRoot>
+
+    <!--
+      Directory.Build.props sets DebugType=portable for Release, which is right for the
+      .NET assemblies and meaningless to WiX: its -pdbType only understands full or none.
+      A .wixpdb is worth keeping for later MSI patch authoring.
+    -->
+    <DebugType>full</DebugType>
+
+    <!--
+      ICE61 fires purely because AllowSameVersionUpgrades="yes" makes the upgrade table's
+      maximum version equal the current one. That is the intended configuration during
+      release-candidate iteration, so the check has nothing left to tell us.
+    -->
+    <SuppressIces>ICE61</SuppressIces>
+
+    <DefineConstants>
+      ProductVersion=$(BladeControlVersionPrefix);
+      PublishRoot=$(PublishRoot);
+      RepositoryRoot=$(RepositoryRoot)
+    </DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Heat" Version="5.0.2" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <!--
+    Harvest both publish trees. Component GUIDs are generated per build, which is safe here
+    because upgrades are major upgrades: the old product is fully removed before the new one
+    installs, so no component identity has to survive across versions.
+  -->
+  <ItemGroup>
+    <HarvestDirectory Include="$(PublishRoot)\ui">
+      <ComponentGroupName>UiFiles</ComponentGroupName>
+      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <SuppressCom>true</SuppressCom>
+      <SuppressRegistry>true</SuppressRegistry>
+      <PreprocessorVariable>var.UiPublishDir</PreprocessorVariable>
+    </HarvestDirectory>
+    <HarvestDirectory Include="$(PublishRoot)\service">
+      <ComponentGroupName>RuntimeFiles</ComponentGroupName>
+      <DirectoryRefId>RUNTIMEFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <SuppressCom>true</SuppressCom>
+      <SuppressRegistry>true</SuppressRegistry>
+      <PreprocessorVariable>var.ServicePublishDir</PreprocessorVariable>
+      <Transforms>$(MSBuildThisFileDirectory)FilterServiceExecutable.xsl</Transforms>
+    </HarvestDirectory>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <DefineConstants>
+      $(DefineConstants);
+      UiPublishDir=$(PublishRoot)\ui;
+      ServicePublishDir=$(PublishRoot)\service
+    </DefineConstants>
+  </PropertyGroup>
+
+</Project>

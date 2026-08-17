@@ -3,6 +3,7 @@ using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BladeControl.Ipc;
 using BladeControl.Runtime;
 
 namespace BladeControl.UI.Ipc;
@@ -21,12 +22,12 @@ namespace BladeControl.UI.Ipc;
 public sealed class NamedPipeRuntimeUiClient : IRuntimeUiClient, IDisposable
 {
     /// <summary>
-    /// Mirrors <c>BladeControl.Service.RuntimeNamedPipeServer.PipeName</c>. The constant is
-    /// duplicated because BladeControl.Service transitively references
-    /// LibreHardwareMonitorLib and the hardware provider assembly, which must never be
-    /// loaded into the GUI process. Tracked in docs/gui-backend-needs.md (item 1).
+    /// The endpoint identity now comes from BladeControl.Ipc, which both the service and this
+    /// client reference. That assembly carries no dependencies, so the GUI still never loads
+    /// LibreHardwareMonitorLib or the hardware provider assembly — the reason the constant
+    /// used to be duplicated here.
     /// </summary>
-    public const string PipeName = "BladeControl.Runtime.v1";
+    public const string PipeName = RuntimeIpcEndpoint.PipeName;
 
     private static readonly JsonSerializerOptions RequestOptions = new()
     {
@@ -219,13 +220,26 @@ public sealed class NamedPipeRuntimeUiClient : IRuntimeUiClient, IDisposable
         string? responseJson;
         try
         {
+            // CurrentUserOnly is intentionally absent. It asserts that the server runs as the
+            // connecting user, which stopped being true once the runtime became a LocalSystem
+            // service. The equivalent protection is now an explicit check that the pipe was
+            // published by a privileged account, which also defeats a pipe squatted by an
+            // unprivileged process pretending to be the runtime.
             using var pipe = new NamedPipeClientStream(
                 serverName: ".",
                 pipeName: PipeName,
                 direction: PipeDirection.InOut,
-                options: PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                options: PipeOptions.Asynchronous);
             await pipe.ConnectAsync(_connectTimeoutMilliseconds, cancellationToken)
                 .ConfigureAwait(false);
+            if (!RuntimePipeSecurity.VerifyServerIsPrivileged(pipe))
+            {
+                throw new RuntimeUiException(
+                    RuntimeUiFailureKind.Transport,
+                    $"The process listening on '{PipeName}' is not the BladeControl Runtime " +
+                    "service. Refusing to exchange hardware-control messages with it.");
+            }
+
             using var reader = new StreamReader(
                 pipe,
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true),

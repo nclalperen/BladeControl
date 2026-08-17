@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Shared IPC endpoint identity and named-pipe security policy.
+
+    This assembly exists so the pipe name and its ACL are written once and consumed by
+    both ends: BladeControl.Service creates the server with it, BladeControl.UI verifies
+    the server with it. It deliberately has no dependencies at all — in particular none on
+    BladeControl.Hardware.Windows or LibreHardwareMonitorLib — so referencing it from the
+    GUI does not pull hardware providers into the UI process.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyTitle>BladeControl IPC security</AssemblyTitle>
+    <Description>Local named-pipe endpoint identity and access-control policy.</Description>
+  </PropertyGroup>
+
+</Project>

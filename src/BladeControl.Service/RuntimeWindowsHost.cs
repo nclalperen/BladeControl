@@ -7,7 +7,7 @@ namespace BladeControl.Service;
 
 public static class RuntimeWindowsHost
 {
-    public const string ServiceName = "BladeControlRuntime";
+    public const string ServiceName = RuntimeServiceIdentity.ServiceName;
 
     public static async Task<int> RunAsync(
         CancellationToken cancellationToken,

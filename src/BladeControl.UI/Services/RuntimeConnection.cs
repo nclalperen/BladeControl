@@ -47,6 +47,20 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     /// <summary>Telemetry older than this is presented as stale rather than live.</summary>
     public static readonly TimeSpan StaleTelemetryThreshold = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// How long after launch a runtime that has never answered is presented as still starting
+    /// rather than as offline.
+    /// </summary>
+    /// <remarks>
+    /// The UI is registered to start at sign-in, which is exactly when the Runtime service is
+    /// itself still coming up — the service uses delayed automatic start so it does not
+    /// contend with logon. Without this window the very first probe fails and the panel would
+    /// greet every login with a hard error that resolves itself seconds later. This changes
+    /// presentation only: the connection state, and therefore every command gate, is
+    /// unaffected, and the existing 5-second read-only probe keeps its cadence.
+    /// </remarks>
+    public static readonly TimeSpan StartupGracePeriod = TimeSpan.FromSeconds(90);
+
     private const int EventTickDivisor = 2;
 
     private readonly IRuntimeUiClient _client;
@@ -54,6 +68,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     private readonly Func<DateTimeOffset> _now;
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _reconnectInterval;
+    private readonly TimeSpan _startupGracePeriod;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _pollGate = new(1, 1);
     private readonly object _startSync = new();
@@ -75,6 +90,8 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
     private volatile bool _doctorRefreshRequired = true;
     private volatile bool _profilesRefreshRequired = true;
     private volatile bool _statusConnected;
+    private volatile bool _hasEverConnected;
+    private DateTimeOffset? _startedAt;
     private bool _disposed;
 
     public RuntimeConnection(
@@ -82,14 +99,32 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         IUiDispatcher dispatcher,
         TimeSpan? pollInterval = null,
         TimeSpan? reconnectInterval = null,
-        Func<DateTimeOffset>? now = null)
+        Func<DateTimeOffset>? now = null,
+        TimeSpan? startupGracePeriod = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _now = now ?? (() => DateTimeOffset.UtcNow);
         _pollInterval = pollInterval ?? DefaultPollInterval;
         _reconnectInterval = reconnectInterval ?? DefaultReconnectInterval;
+        _startupGracePeriod = startupGracePeriod ?? StartupGracePeriod;
     }
+
+    /// <summary>
+    /// True while the runtime has never answered and we are still inside the startup grace
+    /// window — i.e. the service is plausibly still starting rather than absent.
+    /// </summary>
+    /// <remarks>
+    /// Presentation only. Callers must keep using <see cref="State"/> for gating: this is
+    /// deliberately true while the connection is Offline, and commands must stay disabled.
+    /// Becomes permanently false after the first successful connection, so a runtime that
+    /// later goes away is reported as the genuine fault it is.
+    /// </remarks>
+    public bool IsAwaitingRuntimeStartup =>
+        !_hasEverConnected &&
+        State != RuntimeConnectionState.Online &&
+        _startedAt is { } started &&
+        _now() - started < _startupGracePeriod;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -284,6 +319,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_startSync)
         {
+            _startedAt ??= _now();
             _loop ??= Task.Run(() => RunLoopAsync(_lifetime.Token), CancellationToken.None);
         }
     }
@@ -680,6 +716,7 @@ public sealed class RuntimeConnection : INotifyPropertyChanged, IDisposable
                 .ConfigureAwait(false);
             bool reconnected = !_statusConnected;
             _statusConnected = true;
+            _hasEverConnected = true;
             if (reconnected)
             {
                 _doctorRefreshRequired = true;

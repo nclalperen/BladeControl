@@ -1,0 +1,53 @@
+<Project>
+
+  <!--
+    Single authoritative product version for BladeControl. Assemblies, the UI, the
+    Windows service, the installer and the release workflow all derive their version
+    from these three properties; nothing downstream hard-codes a version string.
+
+    To cut a new version, edit BladeControlVersionPrefix (and the suffix when the
+    build is a prerelease) here and nowhere else.
+  -->
+  <PropertyGroup>
+    <BladeControlVersionPrefix>0.1.0</BladeControlVersionPrefix>
+    <BladeControlVersionSuffix></BladeControlVersionSuffix>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionPrefix>$(BladeControlVersionPrefix)</VersionPrefix>
+    <VersionSuffix>$(BladeControlVersionSuffix)</VersionSuffix>
+
+    <!--
+      AssemblyVersion stays on the major.minor.patch.0 form Windows expects, so the
+      MSI can compare file versions during a major upgrade. InformationalVersion
+      carries the full semantic version including any prerelease suffix.
+    -->
+    <AssemblyVersion>$(BladeControlVersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(BladeControlVersionPrefix).0</FileVersion>
+  </PropertyGroup>
+
+  <!-- Publisher and product metadata surfaced in file properties and Installed Apps. -->
+  <PropertyGroup>
+    <Product>BladeControl</Product>
+    <Company>BladeControl Project</Company>
+    <Authors>BladeControl Project</Authors>
+    <Copyright>Copyright (c) BladeControl Project</Copyright>
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+
+  <!--
+    Deterministic Release output so the same source produces byte-identical
+    assemblies, which is what makes the published SHA256 hashes meaningful.
+    ContinuousIntegrationBuild normalises embedded source paths and is set by CI.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+    <IncludeSymbols>true</IncludeSymbols>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

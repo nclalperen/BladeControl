@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!--
+    BladeControl per-machine MSI.
+
+    Elevation model: one standard UAC prompt for the whole install, because the package is
+    perMachine and installs a service. Nothing after that asks again, and the user interface
+    itself never needs elevation at runtime — it is a plain IPC client.
+  -->
+  <Package Name="BladeControl"
+           Manufacturer="BladeControl Project"
+           Version="$(ProductVersion)"
+           UpgradeCode="559D53D0-73B9-5170-83FA-FA86F23A55EE"
+           Language="1033"
+           Codepage="1252"
+           Scope="perMachine"
+           InstallerVersion="500"
+           Compressed="yes">
+
+    <SummaryInformation Description="BladeControl $(ProductVersion) — Razer Blade fan, performance and thermal control"
+                        Manufacturer="BladeControl Project" />
+
+    <!--
+      Major upgrade: the previous version is removed after the new one is staged, so the
+      service binaries are never half-replaced. Scheduling afterInstallInitialize means the
+      old product's ServiceControl stop/remove runs before the new files land.
+    -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of BladeControl is already installed. Uninstall it before installing version [ProductVersion]." />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- x64-only: the hardware providers and the validated platform are both 64-bit. -->
+    <Launch Condition="VersionNT64"
+            Message="BladeControl requires 64-bit Windows." />
+    <Launch Condition="Installed OR (VersionNT &gt;= 603)"
+            Message="BladeControl requires Windows 10 or later." />
+
+    <!-- Installed Apps / Add or Remove Programs metadata. -->
+    <Property Id="ARPPRODUCTICON" Value="BladeControlIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/nclalperen/BladeControl" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/nclalperen/BladeControl" />
+    <Property Id="ARPNOREPAIR" Value="0" />
+    <Property Id="DISABLEADVTSHORTCUTS" Value="1" />
+
+    <!--
+      PawnIO detection. BladeControl neither bundles nor installs PawnIO: it is a separately
+      distributed, Microsoft-signed kernel driver, and shipping someone else's signed driver
+      is a licensing and trust decision this project has not taken (see
+      THIRD-PARTY-NOTICES.md). The installer therefore reports the dependency state and
+      installs regardless — every non-thermal feature works without it, and the runtime
+      already refuses Manual fan mode when authoritative CPU telemetry is unavailable.
+
+      The search reads the same registry location the runtime's provenance reader uses, so
+      the installer's verdict and the app's Diagnostics page cannot disagree.
+    -->
+    <Property Id="PAWNIOSERVICE" Secure="yes">
+      <RegistrySearch Id="PawnIoServiceSearch"
+                      Root="HKLM"
+                      Key="SYSTEM\CurrentControlSet\Services\PawnIO"
+                      Name="ImagePath"
+                      Type="raw"
+                      Bitness="always64" />
+    </Property>
+
+    <!--
+      Dependency state is reported on the final page rather than blocking the install. Two
+      SetProperty actions need distinct Action names, because both target the same property.
+    -->
+    <SetProperty Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+                 Action="SetPawnIoPresentMessage"
+                 Value="PawnIO was detected. Closed-loop thermal control becomes available once the runtime verifies its signature. Open Diagnostics in BladeControl for the full provenance report."
+                 After="AppSearch"
+                 Sequence="ui"
+                 Condition="PAWNIOSERVICE" />
+    <SetProperty Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+                 Action="SetPawnIoAbsentMessage"
+                 Value="PawnIO was not detected. Fan and performance control work normally; closed-loop thermal control stays unavailable, as it needs an authoritative CPU temperature. BladeControl does not bundle PawnIO - see THIRD-PARTY-NOTICES.md in the install folder."
+                 After="AppSearch"
+                 Sequence="ui"
+                 Condition="NOT PAWNIOSERVICE" />
+
+    <Feature Id="Main" Title="BladeControl" Level="1" AllowAbsent="no" AllowAdvertise="no">
+      <ComponentGroupRef Id="UiFiles" />
+      <ComponentGroupRef Id="RuntimeFiles" />
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <Icon Id="BladeControlIcon" SourceFile="$(UiPublishDir)\BladeControl.UI.exe" />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(RepositoryRoot)installer\License.rtf" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="BladeControl">
+        <!--
+          The runtime service lives in its own subdirectory. Both executables are published
+          self-contained, so a single flat folder would collide on ~240 identical runtime
+          assemblies; separate trees keep each app's dependency closure exactly as published
+          and verified.
+        -->
+        <Directory Id="RUNTIMEFOLDER" Name="Runtime" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutFolder" Name="BladeControl" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents">
+
+      <!--
+        Service registration. The executable takes no arguments: it asks Windows whether it
+        was launched by the SCM and selects the service lifetime itself, so the registered
+        ImagePath stays a plain quoted path.
+
+        LocalSystem is required, not convenience: the runtime opens Razer HID, reads CPU MSRs
+        through PawnIO and drives the embedded controller. No lesser account can do that.
+      -->
+      <Component Id="RuntimeServiceRegistration"
+                 Guid="01F9BD20-1A69-550E-96B6-B8A610583AD3"
+                 Directory="RUNTIMEFOLDER"
+                 Bitness="always64">
+        <File Id="RuntimeServiceExe"
+              Source="$(ServicePublishDir)\BladeControl.Service.exe"
+              KeyPath="yes" />
+
+        <ServiceInstall Id="RuntimeServiceInstall"
+                        Name="BladeControl.Runtime"
+                        DisplayName="BladeControl Runtime"
+                        Description="Owns Razer Blade fan, performance and thermal hardware access for BladeControl, and serves the local typed IPC channel used by the BladeControl user interface."
+                        Type="ownProcess"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem"
+                        Vital="yes"
+                        Interactive="no">
+          <!--
+            Recovery: restart on unexpected process failure, backing off so a persistently
+            failing runtime cannot spin. The counter resets daily. A clean SCM stop is not a
+            failure and does not trigger these.
+          -->
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="none"
+                              RestartServiceDelayInSeconds="20"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+
+        <!--
+          Stop on uninstall and on upgrade so the runtime runs its own safe shutdown path
+          (firmware restoration, bounded event drain, single StopThermalControl) before its
+          binaries go away. Remove is uninstall-only.
+        -->
+        <ServiceControl Id="RuntimeServiceControl"
+                        Name="BladeControl.Runtime"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+
+        <!--
+          Delayed automatic start.
+
+          Written as the service's DelayedAutostart registry value rather than through MSI's
+          ServiceConfig table: the Windows Installer SDK documents that table as not working
+          as expected, and WiX warns about it. This value is exactly what
+          `sc config … start= delayed-auto` sets, so the behaviour is the documented one.
+
+          Why delayed: hardware initialisation enumerates HID devices and brings up
+          telemetry providers, which during the boot storm competes with the graphics and
+          chipset drivers it depends on. It also means the user interface — which launches at
+          sign-in — should expect to find the runtime still starting, which is precisely what
+          its startup grace window is for.
+        -->
+        <RegistryValue Root="HKLM"
+                       Key="SYSTEM\CurrentControlSet\Services\BladeControl.Runtime"
+                       Name="DelayedAutostart"
+                       Type="integer"
+                       Value="1" />
+      </Component>
+
+      <!-- Start Menu shortcut. Compact panel is the normal surface; no separate Full App entry. -->
+      <Component Id="Shortcuts"
+                 Guid="7EB559FB-896C-5960-ABBB-36B294C3858C"
+                 Directory="ShortcutFolder"
+                 Bitness="always64">
+        <Shortcut Id="BladeControlShortcut"
+                  Name="BladeControl"
+                  Description="Fan, performance and thermal control for Razer Blade"
+                  Target="[INSTALLFOLDER]BladeControl.UI.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveShortcutFolder" Directory="ShortcutFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\BladeControl\Installer"
+                       Name="Shortcuts"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!--
+        Sign-in launch for the installing user.
+
+        Per-user (HKCU) is deliberate: it needs no elevation to change later, and Task
+        Manager's Startup tab can disable it through the normal Windows affordance. MSI
+        creates it here so BladeControl appears at the next sign-in without the user first
+        having to open the app, and removes it on uninstall.
+
+        Known and accepted limitation: a per-machine MSI can only reach the installing
+        user's HKCU. A second user who ran BladeControl gets their own registration from the
+        app itself, and it is not removed by uninstall — it becomes an entry pointing at a
+        missing executable, which Windows ignores and the user can delete from Task Manager.
+        Sweeping every profile would need a custom action rummaging through other users'
+        hives, which is worse than the leftover it would clean.
+      -->
+      <Component Id="UserStartup"
+                 Guid="17201FB0-77E8-5CAD-BE6A-D55B4EA81E17"
+                 Directory="INSTALLFOLDER"
+                 Bitness="always64">
+        <RegistryValue Root="HKCU"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="BladeControl"
+                       Type="string"
+                       Value="&quot;[INSTALLFOLDER]BladeControl.UI.exe&quot;"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- Licensing and attribution travel with the product. -->
+      <Component Id="Notices"
+                 Guid="6FD41275-2EB3-5B26-B454-025586AFEF61"
+                 Directory="INSTALLFOLDER"
+                 Bitness="always64">
+        <File Id="ThirdPartyNotices"
+              Source="$(RepositoryRoot)THIRD-PARTY-NOTICES.md"
+              KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!--
+      User data is intentionally not touched on uninstall. ui-settings.json lives in
+      %LocalAppData%\BladeControl (never under Program Files, which stays read-only for the
+      running app), and a reinstall should find the user's preferences where they left them.
+      Nothing there is a secret and nothing there grows without bound.
+
+      PawnIO, LibreHardwareMonitor's dependencies and the NVIDIA driver are system or
+      third-party components that BladeControl merely reads; uninstall leaves every one of
+      them exactly as it found them.
+    -->
+
+  </Package>
+</Wix>

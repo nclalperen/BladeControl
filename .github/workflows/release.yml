@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and upload artifacts without creating a release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------------------
+  # Every quality gate runs first, in its own job. Nothing is published unless this passes:
+  # the release job depends on it, so a red gate means no assets and no release.
+  # ---------------------------------------------------------------------------------------
+  gates:
+    name: Quality gates
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore BladeControl.sln
+
+      - name: Verify formatting
+        run: dotnet format BladeControl.sln --verify-no-changes --no-restore
+
+      - name: Build (Release)
+        run: dotnet build BladeControl.sln -c Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test BladeControl.sln -c Release --no-build --logger "trx;LogFileName=results.trx" --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results
+          path: artifacts/test-results
+
+      # The product version comes from Directory.Build.props. On a tag push it must agree
+      # with the tag, or the release would be labelled something the binaries do not claim.
+      - name: Resolve and verify version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content ./Directory.Build.props
+          $prefix = ($props.Project.PropertyGroup |
+              Where-Object { $_.BladeControlVersionPrefix } |
+              Select-Object -First 1).BladeControlVersionPrefix.Trim()
+          $suffix = ($props.Project.PropertyGroup |
+              Where-Object { $null -ne $_.BladeControlVersionSuffix } |
+              Select-Object -First 1).BladeControlVersionSuffix
+          $version = if ([string]::IsNullOrWhiteSpace($suffix)) { $prefix } else { "$prefix-$($suffix.Trim())" }
+          Write-Host "Product version: $version"
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+              $tag = $env:GITHUB_REF -replace '^refs/tags/v', ''
+              if ($tag -ne $version) {
+                  throw "Tag v$tag does not match Directory.Build.props version $version. Refusing to release."
+              }
+              Write-Host "Tag matches product version."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+  # ---------------------------------------------------------------------------------------
+  # Packaging. Runs only after the gates are green.
+  # ---------------------------------------------------------------------------------------
+  package:
+    name: Publish and package
+    runs-on: windows-latest
+    needs: gates
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.0.2
+
+      # pack.ps1 re-runs the gates itself, so a packaging run can never disagree with the
+      # gate job about whether the tree is releasable.
+      #
+      # No signing step and no secret references: pre-release builds are unsigned by
+      # decision, and docs/code-signing.md records where signing belongs when a credential
+      # exists. A workflow that cannot reach a secret cannot leak one.
+      - name: Publish, build installer, hash
+        shell: pwsh
+        run: ./build/pack.ps1
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            artifacts/*.msi
+            artifacts/*.zip
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------------
+  # Draft release. Deliberately a draft: attaching assets and publishing are separate, so a
+  # human reviews the artifacts before anything becomes public. Skipped on dry runs.
+  # ---------------------------------------------------------------------------------------
+  release:
+    name: Draft GitHub release
+    runs-on: ubuntu-latest
+    needs: [gates, package]
+    if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Download assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: BladeControl ${{ needs.gates.outputs.version }}
+          files: |
+            assets/*.msi
+            assets/*.zip
+            assets/SHA256SUMS.txt
+          body: |
+            BladeControl ${{ needs.gates.outputs.version }}
+
+            **Validated hardware:** Razer Blade 16 (RZ09-0483). Other models are unvalidated.
+            BladeControl is not a Razer product.
+
+            ### Install
+            Download the `.msi` and run it. One elevation prompt installs the app, registers
+            the **BladeControl Runtime** service, and configures sign-in launch. The portable
+            archive does **not** install or start the service and is for developers.
+
+            ### This build is unsigned
+            Windows will warn about an unknown publisher. Verify your download against
+            `SHA256SUMS.txt` before installing.
+
+            ### PawnIO is not bundled
+            Fan and performance control work without it; closed-loop thermal control needs it.
+            See `THIRD-PARTY-NOTICES.md` for why it is not redistributed.
+
+            See `CHANGELOG.md` for the full list of changes.

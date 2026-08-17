@@ -1,43 +1,73 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
 namespace BladeControl.Service;
 
 internal static class Program
 {
     private static int Main(string[] args)
     {
-        bool verboseConsole = args.Length == 2 &&
-            args[0].Equals("console", StringComparison.OrdinalIgnoreCase) &&
-            args[1].Equals("--verbose", StringComparison.OrdinalIgnoreCase);
-        if ((args.Length == 1 && args[0].Equals(
-                "console",
-                StringComparison.OrdinalIgnoreCase)) || verboseConsole)
+        switch (RuntimeHostBuilder.SelectMode(args))
         {
-            using var cancellation = new CancellationTokenSource();
-            ConsoleCancelEventHandler handler = (_, eventArgs) =>
-            {
-                eventArgs.Cancel = true;
-                cancellation.Cancel();
-            };
-            Console.CancelKeyPress += handler;
-            try
-            {
-                return RuntimeWindowsHost.RunAsync(cancellation.Token, verboseConsole)
-                    .GetAwaiter().GetResult();
-            }
-            finally
-            {
-                Console.CancelKeyPress -= handler;
-            }
+            case RuntimeHostMode.WindowsService:
+                return RunAsWindowsService();
+
+            case RuntimeHostMode.Console:
+                return RunInConsole(verbose: false);
+
+            case RuntimeHostMode.VerboseConsole:
+                return RunInConsole(verbose: true);
+
+            default:
+                return PrintUsage();
+        }
+    }
+
+    private static int RunAsWindowsService()
+    {
+        using IHost host = RuntimeHostBuilder.BuildServiceHost();
+        host.Run();
+        return host.Services.GetRequiredService<RuntimeBackgroundService>().ExitCode;
+    }
+
+    private static int RunInConsole(bool verbose)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using RuntimeHostSingleton singleton = RuntimeHostSingleton.Acquire();
+        if (!singleton.IsOwner)
+        {
+            Console.Error.WriteLine(
+                "Another BladeControl Runtime host already owns the hardware. Stop the " +
+                $"'{RuntimeServiceIdentity.DisplayName}' service before running a console host.");
+            return 3;
         }
 
-        if (args.Length == 1 && args[0].Equals("--service", StringComparison.OrdinalIgnoreCase))
+        ConsoleCancelEventHandler handler = (_, eventArgs) =>
         {
-            return WindowsServiceDispatcher.Run(
-                cancellationToken => RuntimeWindowsHost.RunAsync(cancellationToken));
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += handler;
+        try
+        {
+            return RuntimeWindowsHost.RunAsync(cancellation.Token, verbose)
+                .GetAwaiter().GetResult();
         }
+        finally
+        {
+            Console.CancelKeyPress -= handler;
+        }
+    }
 
+    private static int PrintUsage()
+    {
         Console.Error.WriteLine(
             "Usage: BladeControl.Service console [--verbose] | --service");
-        Console.Error.WriteLine("This executable does not install, remove, start, or stop a Windows service.");
+        Console.Error.WriteLine(
+            "Run with no arguments only under the Windows Service Control Manager.");
+        Console.Error.WriteLine(
+            "This executable does not install, remove, start, or stop a Windows service; " +
+            "the BladeControl installer does that.");
         return 2;
     }
 }

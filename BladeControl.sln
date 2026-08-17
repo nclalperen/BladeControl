@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -27,6 +27,14 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.UI", "src\BladeControl.UI\BladeControl.UI.csproj", "{D72FC953-7758-44F1-94B4-903413881A8C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.UI.Tests", "tests\BladeControl.UI.Tests\BladeControl.UI.Tests.csproj", "{A49D3C85-5013-4EA0-93D6-37C60245F5A5}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{F73CEA13-B0B4-40FB-94F2-FC3D0D7D121C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Ipc", "src\BladeControl.Ipc\BladeControl.Ipc.csproj", "{D23AAE1B-B067-4271-B1DB-C5BFB0DAC6E6}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{E1721CE5-9525-432C-8DD0-631A3014B5D7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BladeControl.Service.Tests", "tests\BladeControl.Service.Tests\BladeControl.Service.Tests.csproj", "{2C96E84D-41CC-43D2-AB2D-DB0C3213D714}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -86,8 +94,20 @@ Global
 		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A49D3C85-5013-4EA0-93D6-37C60245F5A5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D23AAE1B-B067-4271-B1DB-C5BFB0DAC6E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D23AAE1B-B067-4271-B1DB-C5BFB0DAC6E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D23AAE1B-B067-4271-B1DB-C5BFB0DAC6E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D23AAE1B-B067-4271-B1DB-C5BFB0DAC6E6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2C96E84D-41CC-43D2-AB2D-DB0C3213D714}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C96E84D-41CC-43D2-AB2D-DB0C3213D714}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C96E84D-41CC-43D2-AB2D-DB0C3213D714}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C96E84D-41CC-43D2-AB2D-DB0C3213D714}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D23AAE1B-B067-4271-B1DB-C5BFB0DAC6E6} = {F73CEA13-B0B4-40FB-94F2-FC3D0D7D121C}
+		{2C96E84D-41CC-43D2-AB2D-DB0C3213D714} = {E1721CE5-9525-432C-8DD0-631A3014B5D7}
 	EndGlobalSection
 EndGlobal

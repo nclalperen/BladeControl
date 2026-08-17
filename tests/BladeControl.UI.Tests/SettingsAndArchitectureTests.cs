@@ -115,8 +115,15 @@ public sealed class SettingsAndArchitectureTests
             .Select(include => include!)
             .ToArray();
 
-        CollectionAssert.AreEqual(
-            new[] { @"..\BladeControl.Runtime\BladeControl.Runtime.csproj" },
+        // BladeControl.Ipc carries the pipe endpoint identity and its access-control policy
+        // and has no dependencies of its own, so referencing it keeps the GUI free of the
+        // hardware providers while letting both ends of the channel share one definition.
+        CollectionAssert.AreEquivalent(
+            new[]
+            {
+                @"..\BladeControl.Ipc\BladeControl.Ipc.csproj",
+                @"..\BladeControl.Runtime\BladeControl.Runtime.csproj"
+            },
             references);
         Assert.IsFalse(references.Any(reference =>
             reference.Contains("Hardware.Windows", StringComparison.OrdinalIgnoreCase)));

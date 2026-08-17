@@ -4,3 +4,6 @@
 TestResults/
 *.suo
 *.user
+
+# Release engineering output: publish trees, MSI, portable and symbol archives, hashes.
+artifacts/

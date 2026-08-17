@@ -100,6 +100,24 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Sign-in launch preference, surfaced in the compact Settings expander because that is
+    /// where a daily-use utility's own behaviour belongs. Delegates to the shell so the
+    /// registry write and the persisted setting stay in step.
+    /// </summary>
+    public bool StartWithWindows
+    {
+        get => _shell.StartWithWindows;
+        set
+        {
+            if (_shell.StartWithWindows != value)
+            {
+                _shell.StartWithWindows = value;
+                Raise();
+            }
+        }
+    }
+
     public CompactCloseBehavior CompactCloseBehavior
     {
         get => _shell.CompactCloseBehavior;
@@ -113,19 +131,18 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
         }
     }
 
-    public string ConnectionText => Connection.State switch
-    {
-        RuntimeConnectionState.Online => "Online",
-        RuntimeConnectionState.Connecting => "Connecting",
-        _ => "Offline"
-    };
+    public string ConnectionText => Connection.State == RuntimeConnectionState.Online
+        ? "Online"
+        : Connection.IsAwaitingRuntimeStartup ? "Starting…"
+        : Connection.State == RuntimeConnectionState.Connecting ? "Connecting"
+        : "Offline";
 
-    public StatusTone ConnectionTone => Connection.State switch
-    {
-        RuntimeConnectionState.Online => StatusTone.Good,
-        RuntimeConnectionState.Connecting => StatusTone.Warning,
-        _ => StatusTone.Danger
-    };
+    public StatusTone ConnectionTone => Connection.State == RuntimeConnectionState.Online
+        ? StatusTone.Good
+        : Connection.IsAwaitingRuntimeStartup ||
+            Connection.State == RuntimeConnectionState.Connecting
+            ? StatusTone.Warning
+            : StatusTone.Danger;
 
     public string CpuTemperature => _shell.Dashboard.CpuTemperature;
 
@@ -197,6 +214,11 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
     {
         get
         {
+            if (Connection.IsAwaitingRuntimeStartup)
+            {
+                return "Connecting to BladeControl Runtime…";
+            }
+
             if (!Connection.IsOnline)
             {
                 return "Runtime offline";
@@ -226,6 +248,7 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
 
     public StatusTone FooterTone => Connection.RuntimeStateName switch
     {
+        _ when Connection.IsAwaitingRuntimeStartup => StatusTone.Muted,
         "Faulted" or "EmergencyHandoff" => StatusTone.Danger,
         "Running" => StatusTone.Good,
         _ when !Connection.IsOnline => StatusTone.Danger,
@@ -260,7 +283,8 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             nameof(DynamicBlockedReason), nameof(HasDynamicBlockedReason),
             nameof(OperationMessage), nameof(OperationIsError), nameof(OperationTone),
             nameof(HasOperationMessage),
-            nameof(FooterText), nameof(FooterTone));
+            nameof(FooterText), nameof(FooterTone),
+            nameof(StartWithWindows));
         SelectBalancedCommand.RaiseCanExecuteChanged();
         SelectSilentCommand.RaiseCanExecuteChanged();
         SelectCustomCommand.RaiseCanExecuteChanged();

@@ -14,6 +14,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
     private bool _minimizeToTray;
     private UiLaunchMode _launchMode;
     private CompactCloseBehavior _compactCloseBehavior;
+    private bool _startWithWindows;
     private bool _advancedVisible;
     private bool _disposed;
 
@@ -29,6 +30,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
         _minimizeToTray = settings.MinimizeToTray;
         _launchMode = settings.LaunchMode;
         _compactCloseBehavior = settings.CompactCloseBehavior;
+        _startWithWindows = settings.StartWithWindows;
 
         Performance = new PerformanceViewModel(connection, _lifetime.Token);
         Dashboard = new DashboardViewModel(connection, Performance, _lifetime.Token);
@@ -125,19 +127,49 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
         set => Set(ref _compactCloseBehavior, value);
     }
 
-    public string ConnectionLabel => Connection.State switch
+    /// <summary>
+    /// User's intent for sign-in launch. Setting it asks <see cref="StartupRegistrar"/> to
+    /// write the per-user Run key; if Windows refuses, the property reverts so the checkbox
+    /// keeps telling the truth about what will actually happen.
+    /// </summary>
+    public bool StartWithWindows
     {
-        RuntimeConnectionState.Online => "Runtime online",
-        RuntimeConnectionState.Connecting => "Connecting",
-        _ => "Runtime offline"
-    };
+        get => _startWithWindows;
+        set
+        {
+            if (_startWithWindows == value)
+            {
+                return;
+            }
 
-    public StatusTone ConnectionTone => Connection.State switch
-    {
-        RuntimeConnectionState.Online => StatusTone.Good,
-        RuntimeConnectionState.Connecting => StatusTone.Warning,
-        _ => StatusTone.Danger
-    };
+            if (StartupRegistrar is { } registrar && !registrar.TrySet(value))
+            {
+                Raise();
+                return;
+            }
+
+            Set(ref _startWithWindows, value);
+        }
+    }
+
+    /// <summary>
+    /// Injected by the application host. Null in design preview and in tests that do not
+    /// exercise startup registration, in which case the preference is in-memory only.
+    /// </summary>
+    public StartupRegistration? StartupRegistrar { get; init; }
+
+    public string ConnectionLabel => Connection.State == RuntimeConnectionState.Online
+        ? "Runtime online"
+        : Connection.IsAwaitingRuntimeStartup ? "Runtime starting"
+        : Connection.State == RuntimeConnectionState.Connecting ? "Connecting"
+        : "Runtime offline";
+
+    public StatusTone ConnectionTone => Connection.State == RuntimeConnectionState.Online
+        ? StatusTone.Good
+        : Connection.IsAwaitingRuntimeStartup ||
+            Connection.State == RuntimeConnectionState.Connecting
+            ? StatusTone.Warning
+            : StatusTone.Danger;
 
     public string RuntimeStateLabel => Connection.RuntimeStateName ?? "No state";
 
@@ -145,7 +177,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
         Connection.State != RuntimeConnectionState.Online ||
         !string.IsNullOrWhiteSpace(Connection.LastReadError);
 
-    public StatusTone ConnectionNoticeTone => IsDesignPreview
+    public StatusTone ConnectionNoticeTone => IsDesignPreview || Connection.IsAwaitingRuntimeStartup
         ? StatusTone.Warning
         : Connection.State == RuntimeConnectionState.Offline
             ? StatusTone.Danger
@@ -158,6 +190,11 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             if (IsDesignPreview)
             {
                 return "Design preview · synthetic data";
+            }
+
+            if (Connection.IsAwaitingRuntimeStartup)
+            {
+                return "Connecting to BladeControl Runtime…";
             }
 
             if (Connection.State == RuntimeConnectionState.Connecting)
@@ -181,6 +218,12 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             if (IsDesignPreview)
             {
                 return "No hardware is connected. State changes affect the in-memory preview only.";
+            }
+
+            if (Connection.IsAwaitingRuntimeStartup)
+            {
+                return "The BladeControl Runtime service starts a little after sign-in. " +
+                    "This panel will connect on its own; no hardware fallback will be used.";
             }
 
             if (Connection.State == RuntimeConnectionState.Connecting)
@@ -220,6 +263,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             MinimizeToTray = MinimizeToTray,
             GraphWindowSeconds = Monitoring.WindowSeconds,
             LaunchMode = LaunchMode,
+            StartWithWindows = StartWithWindows,
             CompactCloseBehavior = CompactCloseBehavior
         };
 
