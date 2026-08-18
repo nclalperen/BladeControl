@@ -608,19 +608,29 @@ public sealed class BladeRuntime : IAsyncDisposable
 
             if (_controller.State == ThermalControllerStateKind.EmergencyStopped)
             {
+                // A deliberate safety handoff that reached firmware Auto is not a fault: the
+                // protection worked. Reporting it as Faulted made a successful handoff look
+                // like a broken runtime. Faulted is reserved for a handoff that could not be
+                // established.
+                bool auto = _controller.FinalState?.IsAuto == true;
                 _emergencyLatched = true;
                 _emergencyStatus = decision.Reason;
                 lock (_sync)
                 {
-                    _state = RuntimeState.Faulted;
+                    _state = auto ? RuntimeState.EmergencyHandoff : RuntimeState.Faulted;
                     _currentProfile = null;
+                }
+
+                if (!auto)
+                {
+                    _lastFailure = decision.Reason;
                 }
 
                 AddEvent((sequence, timestamp) => new EmergencyHandoffEvent(
                     sequence,
                     timestamp,
                     decision.Reason,
-                    _controller.FinalState?.IsAuto == true));
+                    auto));
                 return false;
             }
 
@@ -704,11 +714,17 @@ public sealed class BladeRuntime : IAsyncDisposable
         _emergencyStatus = auto
             ? $"Emergency Balanced + Auto handoff completed: {reason}"
             : $"Emergency Balanced + Auto handoff failed: {reason}";
-        _lastFailure = reason;
         lock (_sync)
         {
-            _state = RuntimeState.Faulted;
+            // EmergencyHandoff means firmware verifiably owns cooling again. Faulted means we
+            // could not get it there, which is the genuinely alarming case.
+            _state = auto ? RuntimeState.EmergencyHandoff : RuntimeState.Faulted;
             _currentProfile = null;
+        }
+
+        if (!auto)
+        {
+            _lastFailure = reason;
         }
 
         AddEvent((sequence, timestamp) => new EmergencyHandoffEvent(

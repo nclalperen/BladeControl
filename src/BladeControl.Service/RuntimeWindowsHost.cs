@@ -2,6 +2,7 @@ using BladeControl.Hardware.Windows;
 using BladeControl.Hardware.Windows.Telemetry;
 using BladeControl.Runtime;
 using BladeControl.Telemetry;
+using Microsoft.Extensions.Logging;
 
 namespace BladeControl.Service;
 
@@ -9,9 +10,19 @@ public static class RuntimeWindowsHost
 {
     public const string ServiceName = RuntimeServiceIdentity.ServiceName;
 
+    /// <summary>
+    /// Runs the runtime host: opens hardware, serves the local IPC channel, and unwinds
+    /// through the validated safe shutdown when cancelled.
+    /// </summary>
+    /// <param name="logger">
+    /// Where failures are reported when there is no console. Under the SCM,
+    /// <c>Console.Error</c> goes nowhere, which is why the cause of a host failure was absent
+    /// from the event log and had to be inferred. Diagnostics now go to both.
+    /// </param>
     public static async Task<int> RunAsync(
         CancellationToken cancellationToken,
-        bool verbose = false)
+        bool verbose = false,
+        ILogger? logger = null)
     {
         WindowsRazerClientSession? razer = null;
         WindowsTelemetrySession? telemetry = null;
@@ -31,8 +42,11 @@ public static class RuntimeWindowsHost
                 () => CreateDoctorReport(telemetry, runtime));
             if (!runtime.InitializeHost())
             {
-                Console.Error.WriteLine(runtime.GetStatus().LastFailureReason);
-                return 1;
+                string reason = runtime.GetStatus().LastFailureReason ??
+                    "Runtime host initialisation was refused without a reason.";
+                Console.Error.WriteLine(reason);
+                logger?.LogError("Runtime host initialisation failed: {Reason}", reason);
+                return RuntimeHostExitCode.HostFailure;
             }
 
             Console.WriteLine("BladeControl Runtime Core V1 host is ready.");
@@ -43,18 +57,25 @@ public static class RuntimeWindowsHost
                 Console.WriteLine(
                     "Verbose console diagnostics enabled; hardware behavior is unchanged.");
             }
-            var pipe = new RuntimeNamedPipeServer(dispatcher);
+            // A client vanishing mid-exchange is absorbed by the accept loop and reported
+            // here, so one closed interface can no longer cost the runtime its hardware.
+            var pipe = new RuntimeNamedPipeServer(
+                dispatcher,
+                fault => logger?.LogWarning(
+                    fault,
+                    "Transient IPC connection fault; continuing to serve the channel."));
             await pipe.RunAsync(cancellationToken).ConfigureAwait(false);
-            return 0;
+            return RuntimeHostExitCode.Success;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return 0;
+            return RuntimeHostExitCode.Success;
         }
         catch (Exception exception)
         {
             Console.Error.WriteLine($"Runtime host failed: {exception.Message}");
-            return 1;
+            logger?.LogError(exception, "Runtime host failed and will stop.");
+            return RuntimeHostExitCode.HostFailure;
         }
         finally
         {

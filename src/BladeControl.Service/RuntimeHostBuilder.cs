@@ -91,10 +91,25 @@ public static class RuntimeHostBuilder
             options.ServiceName = RuntimeServiceIdentity.ServiceName;
         });
 
-        builder.Logging.AddEventLog(settings =>
+        // Only a real service logs to the Windows Event Log. Registering the provider
+        // unconditionally meant a `dotnet test` run wrote host-lifetime errors into the
+        // installed product's event source, so anyone diagnosing their machine saw entries
+        // like "Another BladeControl Runtime host already owns the hardware
+        // (Local\BladeControl.Test.<guid>)" that had nothing to do with their system.
+        if (WindowsServiceHelpers.IsWindowsService())
         {
-            settings.SourceName = RuntimeServiceIdentity.DisplayName;
-        });
+            builder.Logging.AddEventLog(settings =>
+            {
+                settings.SourceName = RuntimeServiceIdentity.DisplayName;
+            });
+        }
+        else
+        {
+            // The generic host registers an EventLog provider by default on Windows, so
+            // suppressing our own is not enough — a test run would still write to the
+            // machine's event log. Nothing but the real service should.
+            RemoveEventLogProviders(builder.Services);
+        }
 
         builder.Services.AddSingleton<RuntimeBackgroundService>(provider =>
             new RuntimeBackgroundService(
@@ -106,6 +121,21 @@ public static class RuntimeHostBuilder
             provider.GetRequiredService<RuntimeBackgroundService>());
 
         return builder.Build();
+    }
+
+    private static void RemoveEventLogProviders(IServiceCollection services)
+    {
+        for (int index = services.Count - 1; index >= 0; index--)
+        {
+            ServiceDescriptor descriptor = services[index];
+            if (descriptor.ServiceType == typeof(ILoggerProvider) &&
+                descriptor.ImplementationType?.Name.Contains(
+                    "EventLog",
+                    StringComparison.Ordinal) == true)
+            {
+                services.RemoveAt(index);
+            }
+        }
     }
 
     private static bool Matches(string argument, string expected) =>

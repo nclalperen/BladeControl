@@ -26,8 +26,21 @@ internal static class Program
     private static int RunAsWindowsService()
     {
         using IHost host = RuntimeHostBuilder.BuildServiceHost();
+
+        // host.Run() disposes the host — and with it the service provider — inside its own
+        // finally block, so it is already gone by the time Run returns. Resolving the exit
+        // code afterwards threw ObjectDisposedException on every single service stop, which
+        // is what terminated the installed process.
+        //
+        // Resolve while the provider is alive and keep the instance. Reading an int off an
+        // object we already hold needs no container, so nothing here depends on provider
+        // lifetime. The outer using is redundant with Run's own disposal but harmless
+        // (disposal is idempotent) and still covers a throw between Build and Run.
+        RuntimeBackgroundService runtime =
+            host.Services.GetRequiredService<RuntimeBackgroundService>();
+
         host.Run();
-        return host.Services.GetRequiredService<RuntimeBackgroundService>().ExitCode;
+        return runtime.ExitCode;
     }
 
     private static int RunInConsole(bool verbose)
@@ -39,7 +52,7 @@ internal static class Program
             Console.Error.WriteLine(
                 "Another BladeControl Runtime host already owns the hardware. Stop the " +
                 $"'{RuntimeServiceIdentity.DisplayName}' service before running a console host.");
-            return 3;
+            return RuntimeHostExitCode.HardwareAlreadyOwned;
         }
 
         ConsoleCancelEventHandler handler = (_, eventArgs) =>
@@ -68,6 +81,6 @@ internal static class Program
         Console.Error.WriteLine(
             "This executable does not install, remove, start, or stop a Windows service; " +
             "the BladeControl installer does that.");
-        return 2;
+        return RuntimeHostExitCode.UsageError;
     }
 }

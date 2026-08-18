@@ -107,12 +107,18 @@ public sealed class ThermalDecisionEngineTests
         StringAssert.Contains(unchanged.Reason, "coalesced");
     }
 
+    /// <summary>
+    /// Superseded policy. A single 90 C sample used to end the thermal session; a light
+    /// desktop boost spike could therefore abandon control. It now demands maximum cooling
+    /// and keeps control. Handoff at 90 C is covered by the graded-ladder tests.
+    /// </summary>
     [TestMethod]
-    public void CpuAt90TriggersImmediateAuto()
+    public void CpuAt90DemandsMaximumCoolingInsteadOfHandingOff()
     {
         ThermalDecision decision = NewEngine().Evaluate(Snapshot(90, 40, Start), Start);
 
-        Assert.IsTrue(decision.EmergencyAuto);
+        Assert.IsFalse(decision.EmergencyAuto);
+        Assert.AreEqual(FanRpm.MaximumValue, decision.EffectiveTarget.Value);
     }
 
     [TestMethod]
@@ -190,7 +196,9 @@ public sealed class ThermalDecisionEngineTests
     public void EmergencyStateCannotReenter()
     {
         ThermalDecisionEngine engine = NewEngine();
-        _ = engine.Evaluate(Snapshot(90, 40, Start), Start);
+
+        // 100 C rather than 90: reaching Tjunction is what hands off from a single sample now.
+        _ = engine.Evaluate(Snapshot(100, 40, Start), Start);
 
         Assert.ThrowsException<InvalidOperationException>(() =>
             engine.Evaluate(Snapshot(50, 40, Start.AddSeconds(1)), Start.AddSeconds(1)));

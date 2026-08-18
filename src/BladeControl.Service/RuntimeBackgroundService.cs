@@ -33,7 +33,7 @@ public sealed class RuntimeBackgroundService : BackgroundService
     {
         _lifetime = lifetime ?? throw new ArgumentNullException(nameof(lifetime));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _run = run ?? (token => RuntimeWindowsHost.RunAsync(token));
+        _run = run ?? (token => RuntimeWindowsHost.RunAsync(token, verbose: false, _logger));
         _singletonFactory = singletonFactory ?? RuntimeHostSingleton.Acquire;
     }
 
@@ -52,7 +52,7 @@ public sealed class RuntimeBackgroundService : BackgroundService
                 "Another BladeControl Runtime host already owns the hardware ({Scope}). " +
                 "This process will not open any device.",
                 singleton.Scope);
-            ExitCode = 3;
+            ExitCode = RuntimeHostExitCode.HardwareAlreadyOwned;
             _lifetime.StopApplication();
             return;
         }
@@ -70,7 +70,7 @@ public sealed class RuntimeBackgroundService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Normal SCM stop.
-            ExitCode = 0;
+            ExitCode = RuntimeHostExitCode.Success;
         }
         finally
         {

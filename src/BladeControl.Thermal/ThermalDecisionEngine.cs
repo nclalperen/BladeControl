@@ -23,6 +23,23 @@ public sealed record ThermalPolicy
     public TimeSpan MinimumWriteInterval { get; init; } = TimeSpan.FromSeconds(1);
 
     public int ConsecutiveInvalidSamplesBeforeEmergency { get; init; } = 2;
+
+    /// <summary>
+    /// Consecutive authoritative samples at or above the sustained-emergency temperature
+    /// before control is handed back to firmware.
+    /// </summary>
+    /// <remarks>
+    /// Three samples at the 500 ms cadence is roughly 1–1.5 s continuously near Tjunction —
+    /// long enough to distinguish real sustained heat from the single-sample boost spikes a
+    /// desktop workload produces, short enough that genuine runaway is still caught quickly.
+    /// </remarks>
+    public int SustainedEmergencySamples { get; init; } = 3;
+
+    /// <summary>
+    /// Consecutive samples at or below the recovery temperature before maximum cooling is
+    /// released back to the normal curve.
+    /// </summary>
+    public int CriticalCoolingRecoverySamples { get; init; } = 3;
 }
 
 public sealed record ThermalDecision(
@@ -58,6 +75,9 @@ public sealed class ThermalDecisionEngine
     private double _triggerTemperature;
     private int _lowerSamples;
     private int _invalidSamples;
+    private int _sustainedEmergencySamples;
+    private int _criticalRecoverySamples;
+    private bool _criticalCoolingActive;
     private bool _initialized;
     private bool _emergencyStopped;
     private long _sequence;
@@ -71,6 +91,12 @@ public sealed class ThermalDecisionEngine
     public FanRpm CurrentTarget => _writtenTarget;
 
     public bool IsEmergencyStopped => _emergencyStopped;
+
+    /// <summary>
+    /// True while the critical cooling override holds the fans at the validated maximum,
+    /// overriding the curve. Exposed for diagnostics and tests.
+    /// </summary>
+    public bool IsCriticalCoolingActive => _criticalCoolingActive;
 
     public void InitializeBaseline(DateTimeOffset timestamp)
     {
@@ -89,7 +115,10 @@ public sealed class ThermalDecisionEngine
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         EnsureOperational();
-        TelemetryHealth health = TelemetryHealthEvaluator.Evaluate(snapshot, now);
+        // Control-loop health deliberately treats a hot-but-valid CPU reading as healthy, so
+        // that heat reaches the severity ladder below instead of skipping straight to handoff.
+        // Missing, invalid, stale and GPU-critical telemetry are unchanged.
+        TelemetryHealth health = TelemetryHealthEvaluator.EvaluateForControlLoop(snapshot, now);
         if (!health.IsHealthy)
         {
             return EvaluateUnhealthy(health, now);
@@ -98,6 +127,13 @@ public sealed class ThermalDecisionEngine
         _invalidSamples = 0;
         double cpuTemperature = snapshot.CpuPackageTemperatureCelsius.Value!.Value;
         double gpuTemperature = snapshot.GpuTemperatureCelsius.Value!.Value;
+
+        ThermalDecision? emergency = EvaluateCpuThermalSeverity(cpuTemperature, now);
+        if (emergency is not null)
+        {
+            return emergency;
+        }
+
         FanRpm cpuTarget = _profile.CpuCurve.Evaluate(cpuTemperature);
         FanRpm gpuTarget = _profile.GpuCurve.Evaluate(gpuTemperature);
         ThermalDemandSource source = cpuTarget.Value == gpuTarget.Value
@@ -106,14 +142,38 @@ public sealed class ThermalDecisionEngine
                 ? ThermalDemandSource.Cpu
                 : ThermalDemandSource.Gpu;
         FanRpm requested = cpuTarget.Value >= gpuTarget.Value ? cpuTarget : gpuTarget;
-        (FanRpm effective, string reason) = Stabilize(
-            requested,
-            source,
-            cpuTemperature,
-            gpuTemperature,
-            now);
-        bool canWrite = effective != _writtenTarget &&
-            now - _lastWrite >= _policy.MinimumWriteInterval;
+        FanRpm effective;
+        string reason;
+        bool canWrite;
+        if (_criticalCoolingActive)
+        {
+            // Safety override. The curve, the 3 C hysteresis, the three-sample downward
+            // qualification and the 300 RPM/s slew limit all exist to keep ordinary fan
+            // behaviour calm; none of them may delay an upward response to a critical CPU.
+            // The one-second write-coalescing interval is bypassed for the same reason: this
+            // is the next safe opportunity, and waiting for it would be waiting while hot.
+            _lastCpuTemperature = cpuTemperature;
+            _lastGpuTemperature = gpuTemperature;
+            _lowerSamples = 0;
+            effective = new FanRpm(FanRpm.MaximumValue);
+            requested = effective;
+            reason = $"Critical cooling override: CPU Package {cpuTemperature:F1} C at or " +
+                $"above {TelemetryHealthEvaluator.CpuCriticalCoolingTemperatureCelsius:F0} C; " +
+                $"holding {FanRpm.MaximumValue} RPM until " +
+                $"{TelemetryHealthEvaluator.CpuCriticalCoolingRecoveryTemperatureCelsius:F0} C.";
+            canWrite = effective != _writtenTarget;
+        }
+        else
+        {
+            (effective, reason) = Stabilize(
+                requested,
+                source,
+                cpuTemperature,
+                gpuTemperature,
+                now);
+            canWrite = effective != _writtenTarget &&
+                now - _lastWrite >= _policy.MinimumWriteInterval;
+        }
         _lastDecision = now;
         return new ThermalDecision(
             ++_sequence,
@@ -243,6 +303,104 @@ public sealed class ThermalDecisionEngine
         int next = Math.Max(requested.Value, _writtenTarget.Value - rampAllowance);
         return (new FanRpm(next),
             $"Lower request qualified; limited to {_policy.DownwardRampRpmPerSecond} RPM/s.");
+    }
+
+    /// <summary>
+    /// Advances the graded CPU thermal-safety ladder for one authoritative sample.
+    /// </summary>
+    /// <returns>
+    /// An emergency handoff decision when the ladder demands one, otherwise null and the
+    /// caller continues with normal (or critical-override) fan control.
+    /// </returns>
+    private ThermalDecision? EvaluateCpuThermalSeverity(double cpuTemperature, DateTimeOffset now)
+    {
+        CpuThermalSeverity severity =
+            TelemetryHealthEvaluator.ClassifyCpuThermalSeverity(cpuTemperature);
+
+        // Tjunction: the CPU is already throttling itself and no fan target can help, so a
+        // single authoritative sample is enough.
+        if (severity == CpuThermalSeverity.ImmediateEmergency)
+        {
+            return EmergencyDecision(
+                $"CPU Package temperature reached {cpuTemperature:F1} C, at or above the " +
+                $"{TelemetryHealthEvaluator.CpuImmediateEmergencyTemperatureCelsius:F0} C " +
+                "immediate limit.",
+                now);
+        }
+
+        if (severity == CpuThermalSeverity.SustainedEmergency)
+        {
+            _sustainedEmergencySamples++;
+            if (_sustainedEmergencySamples >= _policy.SustainedEmergencySamples)
+            {
+                return EmergencyDecision(
+                    $"CPU Package temperature held at or above " +
+                    $"{TelemetryHealthEvaluator.CpuSustainedEmergencyTemperatureCelsius:F0} C " +
+                    $"for {_sustainedEmergencySamples} consecutive samples " +
+                    $"(latest {cpuTemperature:F1} C).",
+                    now);
+            }
+        }
+        else
+        {
+            // Any sample below the sustained threshold means the heat did not persist, so
+            // qualification restarts from zero rather than accumulating across a cool spell.
+            _sustainedEmergencySamples = 0;
+        }
+
+        UpdateCriticalCoolingOverride(cpuTemperature);
+        return null;
+    }
+
+    /// <summary>
+    /// Enters and leaves the maximum-cooling override, with recovery hysteresis wide enough
+    /// that temperatures oscillating around the entry threshold cannot chatter the fans.
+    /// </summary>
+    private void UpdateCriticalCoolingOverride(double cpuTemperature)
+    {
+        if (cpuTemperature >= TelemetryHealthEvaluator.CpuCriticalCoolingTemperatureCelsius)
+        {
+            _criticalCoolingActive = true;
+            _criticalRecoverySamples = 0;
+            return;
+        }
+
+        if (!_criticalCoolingActive)
+        {
+            return;
+        }
+
+        if (cpuTemperature > TelemetryHealthEvaluator.CpuCriticalCoolingRecoveryTemperatureCelsius)
+        {
+            // Between recovery and entry: hold maximum cooling. This is the band that would
+            // otherwise produce 89/90 C chatter.
+            _criticalRecoverySamples = 0;
+            return;
+        }
+
+        if (++_criticalRecoverySamples >= _policy.CriticalCoolingRecoverySamples)
+        {
+            _criticalCoolingActive = false;
+            _criticalRecoverySamples = 0;
+        }
+    }
+
+    private ThermalDecision EmergencyDecision(string reason, DateTimeOffset now)
+    {
+        _emergencyStopped = true;
+        _lastDecision = now;
+        return new ThermalDecision(
+            ++_sequence,
+            now,
+            new TelemetryHealth(TelemetryHealthKind.Critical, reason),
+            null,
+            null,
+            null,
+            _writtenTarget,
+            null,
+            false,
+            true,
+            $"Emergency firmware handoff required: {reason}");
     }
 
     private ThermalDecision EvaluateUnhealthy(TelemetryHealth health, DateTimeOffset now)

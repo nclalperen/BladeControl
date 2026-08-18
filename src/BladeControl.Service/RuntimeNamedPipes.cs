@@ -15,27 +15,79 @@ public sealed class RuntimeNamedPipeServer
     /// </summary>
     public const string PipeName = RuntimeIpcEndpoint.PipeName;
 
-    private readonly RuntimeIpcDispatcher _dispatcher;
+    /// <summary>
+    /// Consecutive accept failures tolerated before the channel is treated as unusable.
+    /// </summary>
+    /// <remarks>
+    /// One transient fault must not cost the runtime its hardware ownership, but an endless
+    /// stream of them must not spin either. Ten in a row means something structural — the pipe
+    /// name squatted, or the security descriptor rejected — and that is genuinely host-fatal.
+    /// </remarks>
+    public const int MaximumConsecutiveAcceptFaults = 10;
 
-    public RuntimeNamedPipeServer(RuntimeIpcDispatcher dispatcher)
+    private static readonly TimeSpan AcceptFaultBackoff = TimeSpan.FromMilliseconds(200);
+
+    private readonly RuntimeIpcDispatcher _dispatcher;
+    private readonly Action<Exception>? _onTransientFault;
+
+    public RuntimeNamedPipeServer(
+        RuntimeIpcDispatcher dispatcher,
+        Action<Exception>? onTransientFault = null)
     {
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        _onTransientFault = onTransientFault;
+    }
+
+    /// <summary>
+    /// True for faults caused by one client rather than by the channel itself.
+    /// </summary>
+    /// <remarks>
+    /// A client that disappears mid-exchange — the interface exiting, being killed, or
+    /// disconnecting between the dispatch and the reply — surfaces as an IOException on the
+    /// next read or write. Before this check such a fault escaped the accept loop, ended the
+    /// runtime host with a non-zero code, and took the whole Windows service down with it.
+    /// Losing hardware ownership because a GUI closed is not acceptable behaviour.
+    /// </remarks>
+    public static bool IsTransientConnectionFault(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return exception is IOException or ObjectDisposedException or
+            System.ComponentModel.Win32Exception or TimeoutException;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        int consecutiveFaults = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
-            // CurrentUserOnly is deliberately not used: under the SCM the server runs as
-            // LocalSystem while clients are interactive users, so that option would both
-            // lock out the UI and, on the client side, assert an identity match that no
-            // longer holds. RuntimePipeSecurity applies an explicit DACL instead, at
-            // creation time so the pipe is never briefly world-writable.
-            await using var pipe = RuntimePipeSecurity.CreateServerStream(
-                RuntimeIpcEndpoint.PipeName,
-                maximumServerInstances: 1);
-            await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                // CurrentUserOnly is deliberately not used: under the SCM the server runs as
+                // LocalSystem while clients are interactive users, so that option would both
+                // lock out the UI and, on the client side, assert an identity match that no
+                // longer holds. RuntimePipeSecurity applies an explicit DACL instead, at
+                // creation time so the pipe is never briefly world-writable.
+                await using var pipe = RuntimePipeSecurity.CreateServerStream(
+                    RuntimeIpcEndpoint.PipeName,
+                    maximumServerInstances: 1);
+                await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
+                consecutiveFaults = 0;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception) when (IsTransientConnectionFault(exception))
+            {
+                _onTransientFault?.Invoke(exception);
+                if (++consecutiveFaults >= MaximumConsecutiveAcceptFaults)
+                {
+                    throw;
+                }
+
+                await Task.Delay(AcceptFaultBackoff, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 

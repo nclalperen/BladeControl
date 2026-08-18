@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging;
 
 namespace BladeControl.Service.Tests;
 
@@ -201,6 +203,36 @@ public sealed class ServiceHostTests
         // able to claim the hardware.
         using RuntimeHostSingleton next = RuntimeHostSingleton.Acquire(name);
         Assert.IsTrue(next.IsOwner);
+    }
+
+    // --- The test host must stay out of the installed product's diagnostics ----------------
+
+    /// <summary>
+    /// A test run must not write into the Windows Event Log under the installed product's
+    /// source.
+    /// </summary>
+    /// <remarks>
+    /// It did. Every `dotnet test` run logged host-lifetime errors as "BladeControl Runtime",
+    /// so someone diagnosing the installed service saw entries such as "Another BladeControl
+    /// Runtime host already owns the hardware (Local\BladeControl.Test.&lt;guid&gt;)" that had
+    /// nothing to do with their machine. The provider is now registered only when the process
+    /// really is a Windows service.
+    /// </remarks>
+    [TestMethod]
+    public void HostDoesNotRegisterTheEventLogProviderOutsideAWindowsService()
+    {
+        Assert.IsFalse(
+            WindowsServiceHelpers.IsWindowsService(),
+            "Sanity: the test host is not a Windows service.");
+
+        using IHost host = RuntimeHostBuilder.BuildServiceHost(
+            run: _ => Task.FromResult(0),
+            singletonFactory: FakeSingleton.Owned);
+
+        Assert.IsFalse(
+            host.Services.GetServices<ILoggerProvider>().Any(provider =>
+                provider.GetType().Name.Contains("EventLog", StringComparison.OrdinalIgnoreCase)),
+            "A test or console run must not log into the installed product's event source.");
     }
 
     // --- Service identity -----------------------------------------------------------------

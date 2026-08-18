@@ -198,7 +198,8 @@ public sealed class RuntimeLifecycleTests
         await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 12);
 
         Assert.AreEqual(1, rig.Hardware.AutoAttempts);
-        Assert.AreEqual(RuntimeState.Faulted, runtime.State);
+        // Firmware Auto was established, so this is EmergencyHandoff rather than Faulted.
+        Assert.AreEqual(RuntimeState.EmergencyHandoff, runtime.State);
     }
 
     [TestMethod]
@@ -212,21 +213,24 @@ public sealed class RuntimeLifecycleTests
         await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 5);
 
         Assert.AreEqual(1, rig.Hardware.AutoAttempts);
-        Assert.AreEqual(RuntimeState.Faulted, runtime.State);
+        // A handoff that reached firmware Auto is the safety system working, not a fault.
+        Assert.AreEqual(RuntimeState.EmergencyHandoff, runtime.State);
     }
 
     [TestMethod]
-    public async Task CriticalTemperatureCausesImmediateEmergencyHandoff()
+    public async Task TjunctionTemperatureCausesImmediateEmergencyHandoff()
     {
         RuntimeRig rig = new();
         await using BladeRuntime runtime = rig.CreateRuntime();
         runtime.StartThermalControl();
-        rig.Telemetry.FixedCpuTemperature = 90;
+
+        // 100 C is Tjunction for the reference i9-13950HX: one authoritative sample is enough.
+        rig.Telemetry.FixedCpuTemperature = 100;
 
         await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 5);
 
         Assert.AreEqual(1, rig.Hardware.AutoAttempts);
-        Assert.AreEqual(RuntimeState.Faulted, runtime.State);
+        Assert.AreEqual(RuntimeState.EmergencyHandoff, runtime.State);
     }
 
     [TestMethod]
