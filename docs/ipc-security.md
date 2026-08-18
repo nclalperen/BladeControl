@@ -65,8 +65,28 @@ privilege they already have over the physical machine, including its power butto
 ## Client-side server verification
 
 `RuntimePipeSecurity.VerifyServerIsPrivileged` reads the connected pipe's security descriptor
-and requires the owner to be LocalSystem, Administrators, LocalService or NetworkService. A
-pipe squatted by a standard-user process has that user's SID as owner and is refused.
+and requires the owner to be one of exactly two identities:
+
+| Trusted owner | Hosting mode it corresponds to |
+|---|---|
+| `LocalSystem` | The installed service. The MSI registers it with `Account="LocalSystem"`, and nothing less can open Razer HID or read CPU MSRs. |
+| `BUILTIN\Administrators` | The documented elevated console host used for development. |
+
+**Why Administrators and not the developer's user account.** Windows takes an object's default
+owner from the creating token's `TOKEN_OWNER`, which is a distinct field from `TOKEN_USER`. For
+an elevated administrator token `TOKEN_OWNER` is the Administrators group (S-1-5-32-544), so
+that — not the user SID — is the owner an elevated console host actually produces. A
+*non-elevated* host would produce an ordinary user SID, and that is deliberately **not**
+trusted: accepting it would mean trusting any pipe published by any logged-on user, which is
+exactly the squatting attack this check exists to stop. A non-elevated host cannot reach the
+hardware anyway.
+
+**Why LocalService and NetworkService are not trusted.** The runtime can never run as either —
+they lack the privileges to reach the hardware — so accepting them would only widen the trusted
+set to include the kind of low-privilege sandboxed service account a hostile process is most
+likely to be running under.
+
+A pipe squatted by a standard-user process has that user's SID as owner and is refused.
 
 This reads the owner rather than inspecting the server process, deliberately: obtaining a
 handle to a LocalSystem process is something a standard user cannot do, so a process-identity
@@ -84,8 +104,11 @@ check would fail for every legitimate client. Reading the descriptor needs only
 
 ## Tests
 
-`tests/BladeControl.Runtime.Tests/PipeSecurityPolicyTests.cs` asserts the allow/deny decision
+`tests/BladeControl.Service.Tests/PipeSecurityPolicyTests.cs` asserts the allow/deny decision
 for each well-known identity, that interactive clients cannot create pipe instances or rewrite
-the descriptor, that the owner is LocalSystem, and that a non-privileged owner fails
-verification. These are policy tests against the built descriptor; they neither open hardware
+the descriptor, that a created pipe's owner is the creating token's `TOKEN_OWNER` (a
+regression test for an earlier incorrect `TOKEN_USER` assumption), that the client's verdict
+matches the production trusted-owner policy exactly, and that every identity outside the two
+trusted ones fails verification. These are policy tests against the built descriptor; they neither open
+hardware
 nor start a service.

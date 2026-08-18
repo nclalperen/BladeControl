@@ -117,19 +117,6 @@ public sealed class PipeSecurityPolicyTests
         Assert.AreEqual(expected, RuntimePipeSecurity.Evaluate(identity));
 
     [TestMethod]
-    public void OnlyPrivilegedAccountsCountAsAGenuineRuntimeServer()
-    {
-        Assert.IsTrue(RuntimePipeSecurity.IsPrivilegedOwner(Sid(WellKnownSidType.LocalSystemSid)));
-        Assert.IsTrue(RuntimePipeSecurity.IsPrivilegedOwner(
-            Sid(WellKnownSidType.BuiltinAdministratorsSid)));
-
-        // A pipe published by an ordinary user is a squatted pipe, not the runtime.
-        Assert.IsFalse(RuntimePipeSecurity.IsPrivilegedOwner(Sid(WellKnownSidType.WorldSid)));
-        Assert.IsFalse(RuntimePipeSecurity.IsPrivilegedOwner(Sid(WellKnownSidType.BuiltinUsersSid)));
-        Assert.IsFalse(RuntimePipeSecurity.IsPrivilegedOwner(Sid(WellKnownSidType.AnonymousSid)));
-    }
-
-    [TestMethod]
     public void EndpointIdentityAndProtocolBoundAreUnchanged()
     {
         Assert.AreEqual("BladeControl.Runtime.v1", RuntimeIpcEndpoint.PipeName);
@@ -170,13 +157,18 @@ public sealed class PipeSecurityPolicyTests
     }
 
     /// <summary>
-    /// The owner mechanism the client depends on: Windows makes the creating account the
-    /// owner, with no explicit SetOwner and therefore no privilege requirement. In the
-    /// installed service that account is LocalSystem; here it is whoever runs the tests,
-    /// which is exactly why an unprivileged squatter fails verification.
+    /// Regression test for a wrong assumption this test file previously made: that a newly
+    /// created object is owned by the creating token's <c>TOKEN_USER</c>.
     /// </summary>
+    /// <remarks>
+    /// Windows takes an object's default owner from <c>TOKEN_OWNER</c>, which is a separate
+    /// field. For an elevated administrator token it is <c>BUILTIN\Administrators</c>
+    /// (S-1-5-32-544), not the user account, so the old assertion passed only when the suite
+    /// happened to run unelevated and silently failed on an elevated machine. Asserting
+    /// against <see cref="WindowsIdentity.Owner"/> is correct in every context.
+    /// </remarks>
     [TestMethod]
-    public void PipeOwnerIsTheCreatingAccountWhichIsWhatServerVerificationReadsAndTrusts()
+    public void PipeOwnerComesFromTokenOwnerNotTokenUser()
     {
         string name = $"BladeControl.Test.{Guid.NewGuid():N}";
         using NamedPipeServerStream pipe = RuntimePipeSecurity.CreateServerStream(name);
@@ -186,13 +178,76 @@ public sealed class PipeSecurityPolicyTests
         Assert.IsNotNull(owner, "Verification reads the owner; it must be readable.");
 
         using WindowsIdentity self = WindowsIdentity.GetCurrent();
-        Assert.AreEqual(self.User, owner);
+        Assert.AreEqual(
+            self.Owner,
+            owner,
+            "A created object's owner is the token's TOKEN_OWNER.");
 
-        // A test host is normally an ordinary user, so verification must refuse it. If the
-        // suite is running elevated as SYSTEM the same call correctly accepts it.
+        if (!Equals(self.Owner, self.User))
+        {
+            // Elevated: this is precisely the case the old TOKEN_USER assumption got wrong.
+            Assert.AreNotEqual(
+                self.User,
+                owner,
+                "TOKEN_OWNER and TOKEN_USER differ here, so the owner must not be TOKEN_USER.");
+        }
+    }
+
+    /// <summary>
+    /// The security contract, stated without depending on how the suite happens to be run:
+    /// the client's verdict on a real pipe is exactly what the production trusted-owner
+    /// policy says about that pipe's actual owner.
+    /// </summary>
+    [TestMethod]
+    public void ServerVerificationAgreesWithTheProductionTrustedOwnerPolicy()
+    {
+        string name = $"BladeControl.Test.{Guid.NewGuid():N}";
+        using NamedPipeServerStream pipe = RuntimePipeSecurity.CreateServerStream(name);
+
+        var owner = (SecurityIdentifier)pipe.GetAccessControl()
+            .GetOwner(typeof(SecurityIdentifier))!;
+
         Assert.AreEqual(
             RuntimePipeSecurity.IsPrivilegedOwner(owner),
             RuntimePipeSecurity.VerifyServerIsPrivileged(pipe),
-            "VerifyServerIsPrivileged must agree with the owner it read.");
+            "VerifyServerIsPrivileged must return exactly what the policy says about the " +
+            "owner it read — no extra leniency, no extra strictness.");
+    }
+
+    /// <summary>
+    /// The trusted-owner set is exactly the two accounts a genuine runtime host can own its
+    /// pipe as: LocalSystem for the installed service, and BUILTIN\Administrators for the
+    /// documented elevated console host (whose TOKEN_OWNER is the group, not the user).
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(WellKnownSidType.LocalSystemSid, true, "the installed service runs as LocalSystem")]
+    [DataRow(WellKnownSidType.BuiltinAdministratorsSid, true, "an elevated console host owns as Administrators")]
+    [DataRow(WellKnownSidType.LocalServiceSid, false, "the runtime cannot reach hardware as LocalService")]
+    [DataRow(WellKnownSidType.NetworkServiceSid, false, "NetworkService is a sandbox, not a runtime host")]
+    [DataRow(WellKnownSidType.WorldSid, false, "Everyone is never a runtime host")]
+    [DataRow(WellKnownSidType.BuiltinUsersSid, false, "ordinary users are never trusted")]
+    [DataRow(WellKnownSidType.AuthenticatedUserSid, false, "authentication alone earns no trust")]
+    [DataRow(WellKnownSidType.InteractiveSid, false, "being logged on locally does not make you the runtime")]
+    [DataRow(WellKnownSidType.AnonymousSid, false, "anonymous is never trusted")]
+    public void TrustedOwnerPolicyAcceptsOnlyAccountsARuntimeHostCanOwnAs(
+        WellKnownSidType identity,
+        bool expected,
+        string because) =>
+        Assert.AreEqual(expected, RuntimePipeSecurity.IsPrivilegedOwner(Sid(identity)), because);
+
+    /// <summary>
+    /// An ordinary account SID is refused, which is the squatting case: a standard user
+    /// publishing the runtime's pipe name must not be mistaken for the runtime. Uses a
+    /// synthetic account SID so the result does not depend on who runs the suite.
+    /// </summary>
+    [TestMethod]
+    public void OrdinaryAccountOwnedPipeIsNotTrustedEvenThoughADeveloperHostWouldProduceOne()
+    {
+        var ordinaryUser = new SecurityIdentifier("S-1-5-21-1111111111-2222222222-3333333333-1001");
+
+        Assert.IsFalse(
+            RuntimePipeSecurity.IsPrivilegedOwner(ordinaryUser),
+            "Trusting arbitrary user-owned pipes to support a non-elevated developer host " +
+            "would re-open the squatting hole the owner check exists to close.");
     }
 }

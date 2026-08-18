@@ -102,11 +102,13 @@ public static class RuntimePipeSecurity
             ClientRights,
             AccessControlType.Allow));
 
-        // The owner is deliberately left unset. Windows makes the creating account the owner,
-        // which is LocalSystem for the installed service — exactly what
-        // VerifyServerIsPrivileged looks for. Forcing the owner explicitly would need
-        // SeRestorePrivilege and would fail for a non-elevated developer host, while adding
-        // nothing: an unprivileged squatter cannot become a privileged owner either way.
+        // The owner is deliberately left unset. Windows takes an object's default owner from
+        // the creating token's TOKEN_OWNER — which is not the same as TOKEN_USER: for an
+        // elevated administrator token it is BUILTIN\Administrators, and for a service it is
+        // LocalSystem. Both are exactly what VerifyServerIsPrivileged accepts. Forcing the
+        // owner explicitly would need SeRestorePrivilege and would fail for a non-elevated
+        // host, while adding nothing: an unprivileged squatter cannot produce a privileged
+        // TOKEN_OWNER either way.
         return security;
     }
 
@@ -179,15 +181,32 @@ public static class RuntimePipeSecurity
     }
 
     /// <summary>
-    /// True when the SID is one the runtime service could legitimately be running as.
+    /// True when the SID is one a genuine BladeControl runtime host could own its pipe as.
     /// </summary>
+    /// <remarks>
+    /// <para>Exactly two identities, because exactly two hosting modes exist:</para>
+    /// <list type="bullet">
+    /// <item><description><b>LocalSystem</b> — the installed service. The MSI registers it
+    /// with <c>Account="LocalSystem"</c>, and nothing less can open Razer HID or read CPU
+    /// MSRs.</description></item>
+    /// <item><description><b>BUILTIN\Administrators</b> — the documented elevated console
+    /// host used for development. Windows takes an object's default owner from the token's
+    /// <c>TOKEN_OWNER</c>, which for an elevated administrator token is the Administrators
+    /// group rather than the user, so this is the owner such a host actually produces.</description></item>
+    /// </list>
+    /// <para>LocalService and NetworkService are deliberately <i>not</i> trusted. The runtime
+    /// can never run as either — they lack the privileges to reach the hardware — so accepting
+    /// them would only widen the trusted set to include the kind of low-privilege sandboxed
+    /// service account a hostile process is most likely to be running under.</para>
+    /// <para>An ordinary user SID is never trusted, even though a non-elevated developer host
+    /// would produce one. Supporting that would mean trusting any pipe published by any
+    /// logged-on user, which is precisely the squatting attack this check exists to stop.</para>
+    /// </remarks>
     public static bool IsPrivilegedOwner(SecurityIdentifier owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
         return owner.IsWellKnown(WellKnownSidType.LocalSystemSid) ||
-            owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid) ||
-            owner.IsWellKnown(WellKnownSidType.LocalServiceSid) ||
-            owner.IsWellKnown(WellKnownSidType.NetworkServiceSid);
+            owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid);
     }
 }
 
