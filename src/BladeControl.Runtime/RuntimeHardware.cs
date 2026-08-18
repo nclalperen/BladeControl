@@ -76,6 +76,9 @@ public sealed class RazerRuntimeHardwareController : IRuntimeHardwareController
 
     public ThermalMachineState CaptureState() => _thermal.CaptureState();
 
+    public ThermalFanModeObservation ReadFanModeObservation() =>
+        _thermal.ReadFanModeObservation();
+
     public ThermalControlOperationResult EnterManualBaseline(FanRpm baseline) =>
         _thermal.EnterManualBaseline(baseline);
 

@@ -20,7 +20,11 @@ public sealed class ThermalRuntimeTests
         runtime.Start();
 
         Assert.AreEqual(ThermalControllerStateKind.Manual, runtime.State);
-        CollectionAssert.AreEqual(new[] { "Capture", "Enter 3000" }, control.Operations);
+        // The fresh fan-mode read sits between capture and the first SET: the Auto
+        // prerequisite is decided on live firmware immediately before ownership is taken.
+        CollectionAssert.AreEqual(
+            new[] { "Capture", "ReadFanMode", "Enter 3000" },
+            control.Operations);
     }
 
     [TestMethod]
@@ -49,7 +53,7 @@ public sealed class ThermalRuntimeTests
         ThermalSessionResult result = runtime.Stop();
 
         CollectionAssert.AreEqual(
-            new[] { "Capture", "Enter 3000", "Auto", "Restore" },
+            new[] { "Capture", "ReadFanMode", "Enter 3000", "Auto", "Restore" },
             control.Operations);
         Assert.IsTrue(result.Succeeded);
     }
@@ -247,10 +251,27 @@ public sealed class ThermalRuntimeTests
 
         internal bool RestoreSucceeds { get; set; } = true;
 
+        /// <summary>Fan mode the fresh pre-ownership read reports, if it differs from _current.</summary>
+        internal ThermalFanModeObservation? FreshObservationOverride { get; set; }
+
+        internal int FanModeObservations { get; private set; }
+
         public ThermalMachineState CaptureState()
         {
             Operations.Add("Capture");
             return _current;
+        }
+
+        public ThermalFanModeObservation ReadFanModeObservation()
+        {
+            Operations.Add("ReadFanMode");
+            FanModeObservations++;
+            return FreshObservationOverride ?? new ThermalFanModeObservation(
+                _current.Zone1PerformanceMode,
+                _current.Zone1FanMode,
+                _current.Zone2PerformanceMode,
+                _current.Zone2FanMode,
+                []);
         }
 
         public ThermalControlOperationResult EnterManualBaseline(FanRpm baseline)

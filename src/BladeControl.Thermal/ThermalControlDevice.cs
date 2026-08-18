@@ -29,6 +29,35 @@ public sealed record ThermalMachineState(
         Zone1FanMode == RazerFanMode.Auto;
 }
 
+/// <summary>
+/// The cheapest firmware observation that can authorise taking thermal ownership: the
+/// performance and fan mode of both zones, and nothing else.
+/// </summary>
+/// <remarks>
+/// Two GET 0x0D82 exchanges. Fan RPM (0x0D81) and performance levels (0x0D87) are
+/// deliberately absent — neither says anything about who owns the fans, so neither may gate
+/// the decision to take ownership.
+/// </remarks>
+public sealed record ThermalFanModeObservation(
+    RazerPerformanceMode Zone1PerformanceMode,
+    RazerFanMode Zone1FanMode,
+    RazerPerformanceMode Zone2PerformanceMode,
+    RazerFanMode Zone2FanMode,
+    IReadOnlyList<RazerExchangeTrace> Exchanges)
+{
+    public bool ZonesAgree =>
+        Zone1PerformanceMode == Zone2PerformanceMode &&
+        Zone1FanMode == Zone2FanMode;
+
+    /// <summary>Both zones agree and both report firmware Auto.</summary>
+    public bool IsAuto => ZonesAgree && Zone1FanMode == RazerFanMode.Auto;
+
+    /// <summary>What was actually observed, for a rejection message that explains itself.</summary>
+    public string Describe() =>
+        $"zone 1 {Zone1PerformanceMode} / {Zone1FanMode}, " +
+        $"zone 2 {Zone2PerformanceMode} / {Zone2FanMode}";
+}
+
 public sealed record ThermalControlOperationResult(
     bool Succeeded,
     bool AnyWriteAttempted,
@@ -41,6 +70,13 @@ public sealed record ThermalControlOperationResult(
 public interface IThermalControlDevice
 {
     ThermalMachineState CaptureState();
+
+    /// <summary>
+    /// Reads both zones' performance and fan mode from firmware. Used immediately before
+    /// taking ownership so the decision rests on what the firmware reports now, not on a
+    /// watchdog observation or a diagnostics snapshot taken at some earlier moment.
+    /// </summary>
+    ThermalFanModeObservation ReadFanModeObservation();
 
     ThermalControlOperationResult EnterManualBaseline(FanRpm baseline);
 
@@ -61,6 +97,18 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
     }
 
     public ThermalMachineState CaptureState() => Convert(_client.GetFanControlState());
+
+    public ThermalFanModeObservation ReadFanModeObservation()
+    {
+        RazerModeReading zone1 = _client.GetPerformanceAndFanMode(RazerZone.Zone1);
+        RazerModeReading zone2 = _client.GetPerformanceAndFanMode(RazerZone.Zone2);
+        return new ThermalFanModeObservation(
+            zone1.PerformanceMode,
+            zone1.FanMode,
+            zone2.PerformanceMode,
+            zone2.FanMode,
+            [zone1.Exchange, zone2.Exchange]);
+    }
 
     public ThermalControlOperationResult EnterManualBaseline(FanRpm baseline)
     {
@@ -115,22 +163,54 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
             exchanges);
     }
 
-    internal static PerformanceProfile CreateRestorationProfile(ThermalMachineState state)
+    /// <summary>
+    /// Builds the performance profile that will restore the machine when the session ends.
+    /// </summary>
+    /// <remarks>
+    /// <para>This answers "what should be restored later", never "is it safe to take ownership
+    /// now". It previously required <c>state.IsAuto</c>, which bundled two unrelated
+    /// conditions: that the zones agree (a real requirement — the profile is built from zone
+    /// 1's performance mode alone, so disagreeing zones cannot be restored coherently) and
+    /// that the fan mode was Auto (not a requirement at all — no branch below reads the fan
+    /// mode).</para>
+    /// <para>That fan-mode half was a second ownership gate sitting in front of the real one,
+    /// evaluated against the six-GET capture rather than the fresh two-GET observation. Fan
+    /// ownership is decided in exactly one place now, and it is not here. Restoring the fan
+    /// mode is a separate step: the stop path calls ReturnToBalancedAuto before
+    /// RestorePerformance, so the captured fan mode is never consulted for restoration.</para>
+    /// </remarks>
+    /// <returns>
+    /// False with a caller-presentable <paramref name="rejection"/> when the captured data
+    /// cannot describe a restorable state. Expected outcomes are returned, not thrown, so the
+    /// start path can classify them as prerequisite rejections without catching broadly.
+    /// </returns>
+    internal static bool TryCreateRestorationProfile(
+        ThermalMachineState state,
+        out PerformanceProfile profile,
+        out string? rejection)
     {
-        if (!state.IsAuto)
+        ArgumentNullException.ThrowIfNull(state);
+        profile = default!;
+
+        if (state.Zone1PerformanceMode != state.Zone2PerformanceMode)
         {
-            throw new InvalidOperationException(
-                "The captured state is not a consistent Auto-mode state.");
+            rejection = "the captured zones report different performance modes, so no single " +
+                "performance state can be restored";
+            return false;
         }
 
         if (state.Zone1PerformanceMode == RazerPerformanceMode.Balanced)
         {
-            return PerformanceProfile.Balanced;
+            profile = PerformanceProfile.Balanced;
+            rejection = null;
+            return true;
         }
 
         if (state.Zone1PerformanceMode == RazerPerformanceMode.Silent)
         {
-            return PerformanceProfile.Silent;
+            profile = PerformanceProfile.Silent;
+            rejection = null;
+            return true;
         }
 
         if (state.Zone1PerformanceMode == RazerPerformanceMode.Custom &&
@@ -138,11 +218,29 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
              state.CpuLevel == RazerCpuPerformanceLevel.Medium) &&
             state.GpuLevel == RazerGpuPerformanceLevel.Low)
         {
-            return PerformanceProfile.Custom(state.CpuLevel, state.GpuLevel);
+            profile = PerformanceProfile.Custom(state.CpuLevel, state.GpuLevel);
+            rejection = null;
+            return true;
         }
 
-        throw new InvalidOperationException(
-            "The captured performance state is outside the hardware-validated restoration policy.");
+        rejection = "the captured performance state is outside the hardware-validated " +
+            "restoration policy";
+        return false;
+    }
+
+    /// <summary>
+    /// Throwing form, for the stop path where an unrestorable capture is genuinely exceptional:
+    /// the start path already validated it, so failing here means something changed underneath.
+    /// </summary>
+    internal static PerformanceProfile CreateRestorationProfile(ThermalMachineState state)
+    {
+        if (!TryCreateRestorationProfile(state, out PerformanceProfile profile, out string? rejection))
+        {
+            throw new InvalidOperationException(
+                $"Cannot build a restoration profile: {rejection}.");
+        }
+
+        return profile;
     }
 
     private ThermalControlOperationResult ApplyFanProfile(FanControlProfile profile)

@@ -282,6 +282,19 @@ public sealed class BladeRuntime : IAsyncDisposable
                     "Thermal session started with fast telemetry and deadline scheduling.",
                     _sessionId!.Value));
             }
+            catch (ThermalPreflightException exception)
+            {
+                // A prerequisite was not met and no SET was sent, so firmware still owns
+                // cooling exactly as it did a moment ago. Nothing is broken: the runtime is
+                // simply not in a thermal session, which is what Stopped means.
+                //
+                // Faulting here was wrong and expensive — it made a benign "your fans are not
+                // in Auto" answer look like a runtime failure and demanded a service restart
+                // to clear. Faulted is reserved for conditions where the runtime or the
+                // hardware control path is actually broken.
+                RejectStart($"Thermal session start rejected: {exception.Message}");
+                throw;
+            }
             catch (Exception exception)
             {
                 Fault($"Thermal session start failed: {exception.Message}");
@@ -838,6 +851,26 @@ public sealed class BladeRuntime : IAsyncDisposable
         {
             throw new RuntimeOwnershipException(
                 $"Direct profile/diagnostic operation rejected while runtime state is {state}.");
+        }
+    }
+
+    /// <summary>
+    /// Records a safe start rejection and returns the runtime to Stopped.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Fault"/>: no SET was sent, firmware ownership is unchanged,
+    /// and a later attempt may succeed without restarting anything. The reason is kept so the
+    /// interface can explain why the last attempt did not take.
+    /// </remarks>
+    private void RejectStart(string message)
+    {
+        lock (_sync)
+        {
+            _lastFailure = message;
+            _state = RuntimeState.Stopped;
+            _sessionId = null;
+            _startTimestamp = null;
+            _currentProfile = null;
         }
     }
 

@@ -118,24 +118,64 @@ public sealed class ThermalRuntimeController
                 "No SET was sent.");
         }
 
+        // Step 2: capture what will be restored when the session ends. Performance data only —
+        // its fan-mode fields carry no authority over whether the session may start.
         OriginalState = _control.CaptureState();
         AddProtocolTrace(OriginalState.Exchanges, "Capture original non-telemetry state");
-        if (!OriginalState.IsAuto)
+
+        // Step 3: validate that capture as restoration data, before spending the ownership
+        // read. A typed result rather than a caught exception: an unrestorable capture is an
+        // expected prerequisite failure, and classifying it by exception type would risk
+        // treating it as a poisoned runtime.
+        if (!RazerThermalControlDevice.TryCreateRestorationProfile(
+                OriginalState,
+                out _,
+                out string? restorationRejection))
         {
             throw new ThermalPreflightException(
-                "Thermal control must start from a consistent Auto fan mode. No SET was sent.");
+                $"Original performance state cannot be restored safely: " +
+                $"{restorationRejection}. No SET was sent.");
         }
 
+        // Step 4: the single authoritative fan-ownership gate, and the last meaningful
+        // operation before the first SET. A fresh two-GET firmware read (0x0D82 zone 1 and
+        // zone 2).
+        //
+        // Authorising from a watchdog observation, a diagnostics snapshot, or the capture
+        // above is how a machine sitting in firmware Auto gets told it is not in Auto. Nothing
+        // may sit between this read and the SET below — not another validation, not a profile
+        // construction — so the window between deciding and acting stays as small as the
+        // protocol allows.
+        ThermalFanModeObservation observed;
         try
         {
-            _ = RazerThermalControlDevice.CreateRestorationProfile(OriginalState);
+            observed = _control.ReadFanModeObservation();
         }
-        catch (InvalidOperationException exception)
+        catch (Exception exception) when (IsRecoverable(exception))
         {
             throw new ThermalPreflightException(
-                $"Original performance state cannot be restored safely: {exception.Message} No SET was sent.");
+                "Fan mode could not be read from firmware immediately before taking " +
+                $"ownership: {exception.Message} No SET was sent.");
         }
 
+        AddProtocolTrace(observed.Exchanges, "Fresh fan-mode qualification before ownership");
+
+        // Step 5: the ownership decision.
+        if (!observed.ZonesAgree)
+        {
+            throw new ThermalPreflightException(
+                "Thermal control requires both zones to report the same mode; firmware " +
+                $"reported {observed.Describe()}. No SET was sent.");
+        }
+
+        if (!observed.IsAuto)
+        {
+            throw new ThermalPreflightException(
+                "Thermal control requires both zones in Auto; firmware reported " +
+                $"{observed.Describe()}. No SET was sent.");
+        }
+
+        // Step 6.
         State = ThermalControllerStateKind.Ready;
         ThermalControlOperationResult entry = _control.EnterManualBaseline(
             new FanRpm(ThermalCurve.MinimumDynamicRpm));

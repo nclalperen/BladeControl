@@ -173,6 +173,12 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
 
     internal bool RestoreSucceeds { get; set; } = true;
 
+    /// <summary>
+    /// When false, the Manual baseline SET fails. Lets a test distinguish a genuine control
+    /// failure — which must still Fault — from a prerequisite that was simply not met.
+    /// </summary>
+    internal bool FanApplySucceeds { get; set; } = true;
+
     internal PerformanceProfile? LastPerformanceProfile { get; private set; }
 
     internal RuntimeRazerModeState ModeState => new(
@@ -221,6 +227,34 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
         }
     }
 
+    /// <summary>
+    /// Overrides what the fresh pre-ownership read reports, so a test can make the cached
+    /// picture and the live firmware disagree — which is the whole point of reading fresh.
+    /// </summary>
+    internal ThermalFanModeObservation? FreshFanModeOverride { get; set; }
+
+    internal int FanModeObservations { get; private set; }
+
+    public ThermalFanModeObservation ReadFanModeObservation()
+    {
+        Operations.Add("ReadFanMode");
+        FanModeObservations++;
+        if (FreshFanModeOverride is { } forced)
+        {
+            return forced;
+        }
+
+        // Two GET 0x0D82 exchanges, matching the production read exactly.
+        RazerExchangeTrace zone1 = Emit(0x0D, 0x82);
+        RazerExchangeTrace zone2 = Emit(0x0D, 0x82);
+        return new ThermalFanModeObservation(
+            _state.Zone1PerformanceMode,
+            _state.Zone1FanMode,
+            _state.Zone2PerformanceMode,
+            _state.Zone2FanMode,
+            [zone1, zone2]);
+    }
+
     public RuntimeRazerModeState ReadModeState()
     {
         ModeReads++;
@@ -241,6 +275,13 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
     {
         Operations.Add($"Enter {baseline.Value}");
         FanWrites++;
+        if (!FanApplySucceeds)
+        {
+            // The SET was attempted and firmware refused it: state is unchanged and this is a
+            // genuine control failure, not an unmet prerequisite.
+            return Result(false, _state, "injected fan apply failure");
+        }
+
         _state = Machine(
             RazerPerformanceMode.Balanced,
             RazerFanMode.Manual,
@@ -318,6 +359,22 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
     private FanControlApplyResult ApplyFan(FanControlProfile profile)
     {
         FanControlState initial = new(CreatePerformanceState());
+        if (!FanApplySucceeds)
+        {
+            // Firmware refused the write and the state is unchanged: a real control failure,
+            // as distinct from a prerequisite that was simply not met.
+            return new FanControlApplyResult(
+                initial,
+                profile,
+                new FanControlPlan([]),
+                [],
+                initial,
+                [],
+                new FanControlVerification(false, "injected fan apply failure"),
+                FanControlApplyOutcome.Failed,
+                null);
+        }
+
         if (profile.IsFixed)
         {
             _state = Machine(

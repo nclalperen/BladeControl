@@ -164,6 +164,14 @@ public sealed class ThermalSelfTestTests
 
         internal int RestoreCount { get; private set; }
 
+        public ThermalFanModeObservation ReadFanModeObservation() =>
+            new(
+                CaptureState().Zone1PerformanceMode,
+                CaptureState().Zone1FanMode,
+                CaptureState().Zone2PerformanceMode,
+                CaptureState().Zone2FanMode,
+                []);
+
         public ThermalMachineState CaptureState() => _current;
 
         public ThermalControlOperationResult EnterManualBaseline(FanRpm baseline)
