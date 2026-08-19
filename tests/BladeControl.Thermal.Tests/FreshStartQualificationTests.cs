@@ -164,7 +164,10 @@ public sealed class FreshStartQualificationTests
         InvalidOperationException refused = Assert.ThrowsException<InvalidOperationException>(
             () => RazerThermalControlDevice.CreateRestorationProfile(mixed));
 
-        StringAssert.Contains(refused.Message, "performance modes");
+        // The values, not only the verdict: a rejection that omits what was seen cannot be
+        // acted on afterwards, because the next firmware read usually shows something else.
+        StringAssert.Contains(refused.Message, "zone 1 performance = Balanced");
+        StringAssert.Contains(refused.Message, "zone 2 performance = Silent");
     }
 
     // --- The read is minimal and correctly placed -------------------------------------------
@@ -186,9 +189,9 @@ public sealed class FreshStartQualificationTests
             control.FanModeObservations,
             "One observation, which is two GET 0x0D82 exchanges — not a six-command snapshot.");
         Assert.AreEqual(
-            1,
+            2,
             control.CaptureCalls,
-            "Capture stays a single call for restoration data; it is not the gate.");
+            "Two captures stabilize the restoration state; neither is the ownership gate.");
     }
 
     [TestMethod]
@@ -249,7 +252,7 @@ public sealed class FreshStartQualificationTests
 
         Assert.AreEqual(ThermalControllerStateKind.Manual, runtime.State);
         CollectionAssert.AreEqual(
-            new[] { "Capture", "ReadFanMode", "Enter 3000" },
+            new[] { "Capture", "Capture", "ReadFanMode", "Enter 3000" },
             control.Operations);
     }
 
@@ -278,14 +281,18 @@ public sealed class FreshStartQualificationTests
         ThermalPreflightException rejected =
             Assert.ThrowsException<ThermalPreflightException>(runtime.Start);
 
-        StringAssert.Contains(rejected.Message, "different performance modes");
+        StringAssert.Contains(rejected.Message, "zone 1 performance = Balanced");
+        StringAssert.Contains(rejected.Message, "zone 2 performance = Silent");
         StringAssert.Contains(rejected.Message, "No SET was sent.");
         Assert.AreEqual(0, control.WriteOperations);
         Assert.AreEqual(
             0,
             control.FanModeObservations,
             "Invalid restoration data must not cost an ownership read.");
-        CollectionAssert.AreEqual(new[] { "Capture" }, control.Operations);
+        CollectionAssert.AreEqual(
+            new[] { "Capture", "Capture", "Capture" },
+            control.Operations,
+            "Stabilization takes its three bounded captures, then stops; no ownership read.");
     }
 
     /// <summary>

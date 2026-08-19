@@ -18,7 +18,8 @@ public enum RuntimeEventKind
     SessionStopped,
     RecoveryAttempt,
     RecoveryResult,
-    ProtocolExchange
+    ProtocolExchange,
+    RestorationStateCaptured
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "eventType")]
@@ -34,6 +35,7 @@ public enum RuntimeEventKind
 [JsonDerivedType(typeof(RecoveryAttemptEvent), "RecoveryAttempt")]
 [JsonDerivedType(typeof(RecoveryResultEvent), "RecoveryResult")]
 [JsonDerivedType(typeof(ProtocolExchangeEvent), "ProtocolExchange")]
+[JsonDerivedType(typeof(RestorationStateCapturedEvent), "RestorationStateCaptured")]
 public abstract record RuntimeEvent(
     RuntimeEventKind Kind,
     long Sequence,
@@ -122,6 +124,40 @@ public sealed record ProtocolExchangeEvent(
     string Message,
     RazerExchangeTrace Exchange)
     : RuntimeEvent(RuntimeEventKind.ProtocolExchange, Sequence, Timestamp, Message);
+
+/// <summary>
+/// One restoration capture taken during a start attempt, recorded before anything acts on it.
+/// </summary>
+/// <remarks>
+/// <para>Emitted for every capture of every start attempt, refused ones included. A refusal
+/// that reports only its verdict destroys the evidence needed to act on it: in the field a
+/// start was correctly refused for zone disagreement, and by the time diagnostics were read the
+/// machine reported both zones agreeing — leaving nothing to show what had actually been
+/// seen.</para>
+/// <para>One event per capture, labelled A, B and C, so the <i>sequence</i> is visible. Two
+/// differing captures establish that the restoration state was not persistent across the read
+/// window; they cannot show whether the firmware transitioned or the sequential reads straddled
+/// a transition, and nothing here claims otherwise.</para>
+/// <para>Fields are carried individually rather than only as prose so successive captures can
+/// be compared without parsing. Fan mode is included as evidence even though it is deliberately
+/// excluded from the stability fingerprint — it is never restored.</para>
+/// </remarks>
+/// <param name="Capture">Which capture in the sequence: "A", "B" or "C".</param>
+/// <param name="Accepted">Whether this capture was the one accepted as the stable state.</param>
+public sealed record RestorationStateCapturedEvent(
+    long Sequence,
+    DateTimeOffset Timestamp,
+    string Message,
+    string Capture,
+    string Zone1PerformanceMode,
+    string Zone2PerformanceMode,
+    string Zone1FanMode,
+    string Zone2FanMode,
+    string CpuLevel,
+    string GpuLevel,
+    bool ZonesAgree,
+    bool Accepted)
+    : RuntimeEvent(RuntimeEventKind.RestorationStateCaptured, Sequence, Timestamp, Message);
 
 public sealed class BoundedRuntimeEventLog
 {

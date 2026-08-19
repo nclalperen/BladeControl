@@ -23,7 +23,7 @@ public sealed class ThermalRuntimeTests
         // The fresh fan-mode read sits between capture and the first SET: the Auto
         // prerequisite is decided on live firmware immediately before ownership is taken.
         CollectionAssert.AreEqual(
-            new[] { "Capture", "ReadFanMode", "Enter 3000" },
+            new[] { "Capture", "Capture", "ReadFanMode", "Enter 3000" },
             control.Operations);
     }
 
@@ -53,7 +53,7 @@ public sealed class ThermalRuntimeTests
         ThermalSessionResult result = runtime.Stop();
 
         CollectionAssert.AreEqual(
-            new[] { "Capture", "ReadFanMode", "Enter 3000", "Auto", "Restore" },
+            new[] { "Capture", "Capture", "ReadFanMode", "Enter 3000", "Auto", "Restore" },
             control.Operations);
         Assert.IsTrue(result.Succeeded);
     }

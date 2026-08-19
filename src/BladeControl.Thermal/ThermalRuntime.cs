@@ -53,6 +53,7 @@ public sealed class ThermalRuntimeController
     private readonly IThermalControlDevice _control;
     private readonly IThermalClock _clock;
     private readonly ThermalDecisionEngine _engine;
+    private readonly List<ThermalMachineState> _restorationCaptures = [];
     private readonly Queue<ThermalDecision> _decisions = [];
     private readonly Queue<ThermalTraceEntry> _trace = [];
     private readonly int _historyCapacity;
@@ -86,11 +87,109 @@ public sealed class ThermalRuntimeController
 
     public ThermalMachineState? OriginalState { get; private set; }
 
+    /// <summary>
+    /// The stabilised capture, retained even when the start is later refused.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="OriginalState"/> is the restoration source for a session that ran.
+    /// This is the forensic record: it survives a rejected start, so "why was this refused"
+    /// can be answered from what was seen rather than from a later, different read.
+    /// </remarks>
+    public ThermalMachineState? CapturedRestorationState { get; private set; }
+
+    /// <summary>
+    /// Every capture the start attempt took, in order — A, then B, then C if needed.
+    /// </summary>
+    /// <remarks>
+    /// Kept whole rather than collapsed to the accepted one. When stabilisation fails, the
+    /// sequence <i>is</i> the finding: it shows what changed between reads, which a single
+    /// surviving capture cannot.
+    /// </remarks>
+    public IReadOnlyList<ThermalMachineState> RestorationCaptures => _restorationCaptures;
+
     public ThermalMachineState? FinalState { get; private set; }
 
     public IReadOnlyList<ThermalDecision> Decisions => _decisions.ToArray();
 
     public IReadOnlyList<ThermalTraceEntry> Trace => _trace.ToArray();
+
+    /// <summary>
+    /// Reads the restoration state until the machine reports the same one twice in a row, or
+    /// gives up after three attempts.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why every start, not only visibly odd ones.</b> A capture is six sequential
+    /// GETs with no atomic firmware snapshot behind it. A pair of agreeing zones proves the two
+    /// zone reads matched each other; it proves nothing about whether the CPU and GPU level
+    /// reads that followed belonged to the same moment. Requiring two consecutive identical
+    /// fingerprints replaces "the first read looked internally consistent" with the stronger and
+    /// far simpler invariant: <i>the state we intend to restore was observed twice in a
+    /// row</i>.</para>
+    /// <para><b>What instability does and does not prove.</b> Two differing captures establish
+    /// that the restoration state was not persistent across the read window. They cannot
+    /// distinguish a brief firmware transition from a read sequence that straddled one, and this
+    /// code does not claim to. It refuses either way, because either way the captured state is
+    /// not something to promise to put back.</para>
+    /// <para>Bounded and unpaced: at most three captures, no sleeps, no retry loop. Start is a
+    /// one-shot ownership transition, so twelve GETs on the normal path is a cost worth paying
+    /// once; the 500 ms telemetry path is untouched by any of this.</para>
+    /// </remarks>
+    /// <returns>The stabilised capture: B when A and B agree, otherwise C.</returns>
+    /// <exception cref="ThermalPreflightException">
+    /// The state never settled, or settled on something asymmetric. No SET has been sent.
+    /// </exception>
+    private ThermalMachineState StabilizeRestorationState()
+    {
+        ThermalMachineState first = Capture("A");
+        ThermalMachineState second = Capture("B");
+        if (IsStable(first, second))
+        {
+            return second;
+        }
+
+        ThermalMachineState third = Capture("C");
+        if (IsStable(second, third))
+        {
+            return third;
+        }
+
+        throw new ThermalPreflightException(
+            "Original performance state did not stabilize safely. " +
+            DescribeCaptures() +
+            " No SET was sent.");
+    }
+
+    /// <summary>
+    /// Two captures are usable only if they describe the same restoration state <i>and</i> that
+    /// state is one restoration can express.
+    /// </summary>
+    /// <remarks>
+    /// Both halves are load-bearing. A stable asymmetric reading is still unrestorable —
+    /// restoration writes a single performance mode to both zones — so it must never be accepted
+    /// merely because the machine reported it consistently.
+    /// </remarks>
+    private static bool IsStable(ThermalMachineState earlier, ThermalMachineState later)
+    {
+        ThermalRestorationFingerprint first = earlier.RestorationFingerprint;
+        ThermalRestorationFingerprint second = later.RestorationFingerprint;
+        return first == second && first.ZonesAgree && second.ZonesAgree;
+    }
+
+    private ThermalMachineState Capture(string label)
+    {
+        ThermalMachineState state = _control.CaptureState();
+        _restorationCaptures.Add(state);
+        AddProtocolTrace(
+            state.Exchanges,
+            $"Restoration capture {label}: {state.Describe()}");
+        return state;
+    }
+
+    /// <summary>Every capture taken, so a rejection carries the whole sequence.</summary>
+    private string DescribeCaptures() => string.Join(
+        " ",
+        _restorationCaptures.Select((state, index) =>
+            $"Capture {(char)('A' + index)}: {state.Describe()}."));
 
     public void Start()
     {
@@ -118,15 +217,15 @@ public sealed class ThermalRuntimeController
                 "No SET was sent.");
         }
 
-        // Step 2: capture what will be restored when the session ends. Performance data only —
-        // its fan-mode fields carry no authority over whether the session may start.
-        OriginalState = _control.CaptureState();
-        AddProtocolTrace(OriginalState.Exchanges, "Capture original non-telemetry state");
+        // Steps 2-4: capture what will be restored when the session ends, and require the
+        // machine to report it twice in a row before trusting it.
+        OriginalState = StabilizeRestorationState();
+        CapturedRestorationState = OriginalState;
 
-        // Step 3: validate that capture as restoration data, before spending the ownership
-        // read. A typed result rather than a caught exception: an unrestorable capture is an
-        // expected prerequisite failure, and classifying it by exception type would risk
-        // treating it as a poisoned runtime.
+        // Step 5: validate the stabilised capture as restoration data, before spending the
+        // ownership read. A typed result rather than a caught exception: an unrestorable
+        // capture is an expected prerequisite failure, and classifying it by exception type
+        // would risk treating it as a poisoned runtime.
         if (!RazerThermalControlDevice.TryCreateRestorationProfile(
                 OriginalState,
                 out _,
@@ -137,7 +236,7 @@ public sealed class ThermalRuntimeController
                 $"{restorationRejection}. No SET was sent.");
         }
 
-        // Step 4: the single authoritative fan-ownership gate, and the last meaningful
+        // Step 6: the single authoritative fan-ownership gate, and the last meaningful
         // operation before the first SET. A fresh two-GET firmware read (0x0D82 zone 1 and
         // zone 2).
         //
@@ -160,7 +259,7 @@ public sealed class ThermalRuntimeController
 
         AddProtocolTrace(observed.Exchanges, "Fresh fan-mode qualification before ownership");
 
-        // Step 5: the ownership decision.
+        // Step 7: the ownership decision.
         if (!observed.ZonesAgree)
         {
             throw new ThermalPreflightException(
@@ -175,7 +274,29 @@ public sealed class ThermalRuntimeController
                 $"{observed.Describe()}. No SET was sent.");
         }
 
-        // Step 6.
+        // The same two GETs also close the last gap in the restoration promise. Stabilization
+        // established what to put back; between then and now the machine could have moved to a
+        // different performance mode, and the session would restore a state that was already
+        // stale when it was adopted.
+        //
+        // No extra read: 0x0D82 returns performance mode alongside fan mode, so this costs
+        // nothing and adds nothing to the window between deciding and acting. CPU and GPU
+        // levels are deliberately not rechecked here — 0x0D87 would be two more GETs after the
+        // ownership decision, widening exactly the window this ordering exists to keep narrow.
+        // They stay covered by the two-consecutive-fingerprint requirement.
+        if (observed.Zone1PerformanceMode != OriginalState.Zone1PerformanceMode ||
+            observed.Zone2PerformanceMode != OriginalState.Zone2PerformanceMode)
+        {
+            throw new ThermalPreflightException(
+                "Performance state changed after restoration stabilization; ownership was " +
+                "not taken. " +
+                $"Stabilized: Z1 {OriginalState.Zone1PerformanceMode}, " +
+                $"Z2 {OriginalState.Zone2PerformanceMode}. " +
+                $"Final: Z1 {observed.Zone1PerformanceMode}, " +
+                $"Z2 {observed.Zone2PerformanceMode}. No SET was sent.");
+        }
+
+        // Step 8.
         State = ThermalControllerStateKind.Ready;
         ThermalControlOperationResult entry = _control.EnterManualBaseline(
             new FanRpm(ThermalCurve.MinimumDynamicRpm));

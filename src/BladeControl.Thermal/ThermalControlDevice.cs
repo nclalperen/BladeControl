@@ -2,6 +2,38 @@ using BladeControl.Razer;
 
 namespace BladeControl.Thermal;
 
+/// <summary>
+/// Exactly the state a thermal session promises to put back, and nothing else.
+/// </summary>
+/// <remarks>
+/// <para>Fan mode is deliberately absent. A session takes fan ownership and hands it back by
+/// establishing firmware Auto, authorised by its own fresh 0x0D82 gate; the captured fan mode
+/// is never written back, so letting it participate here would make an irrelevant field able
+/// to destabilise a restoration that is otherwise identical.</para>
+/// <para>Used to decide whether two consecutive captures describe the same machine. That is a
+/// weaker and more honest claim than naming a physical cause: six sequential GETs with no
+/// atomic firmware snapshot behind them cannot distinguish a brief hardware transition from a
+/// read sequence that straddled one. What the software can establish is only whether the state
+/// it intends to restore was observed twice in a row — that is, whether the restoration
+/// snapshot was persistent.</para>
+/// </remarks>
+public readonly record struct ThermalRestorationFingerprint(
+    RazerPerformanceMode Zone1PerformanceMode,
+    RazerPerformanceMode Zone2PerformanceMode,
+    RazerCpuPerformanceLevel CpuLevel,
+    RazerGpuPerformanceLevel GpuLevel)
+{
+    /// <summary>
+    /// Whether both zones report the same performance mode.
+    /// </summary>
+    /// <remarks>
+    /// Restoration writes one performance mode to both zones, so an asymmetric fingerprint has
+    /// no coherent restoration — even a perfectly stable one. Stability and symmetry are
+    /// separate requirements and both are checked.
+    /// </remarks>
+    public bool ZonesAgree => Zone1PerformanceMode == Zone2PerformanceMode;
+}
+
 public sealed record ThermalMachineState(
     RazerDeviceInfo Device,
     RazerPerformanceMode Zone1PerformanceMode,
@@ -27,6 +59,30 @@ public sealed record ThermalMachineState(
     public bool IsBalancedAuto => ZonesAgree &&
         Zone1PerformanceMode == RazerPerformanceMode.Balanced &&
         Zone1FanMode == RazerFanMode.Auto;
+
+    /// <summary>The subset of this capture that restoration actually depends on.</summary>
+    public ThermalRestorationFingerprint RestorationFingerprint => new(
+        Zone1PerformanceMode,
+        Zone2PerformanceMode,
+        CpuLevel,
+        GpuLevel);
+
+    /// <summary>
+    /// Everything the capture actually observed, for a rejection that explains itself.
+    /// </summary>
+    /// <remarks>
+    /// A rejection that says only "the zones report different performance modes" throws away
+    /// the one fact needed to act on it — <i>which</i> modes. Reproducing it afterwards means
+    /// a second firmware read, by which time the machine has usually settled and the evidence
+    /// is gone. That is exactly what happened in the field: the refusal was correct and
+    /// completely unactionable.
+    /// </remarks>
+    public string Describe() =>
+        $"zone 1 performance = {Zone1PerformanceMode}, " +
+        $"zone 2 performance = {Zone2PerformanceMode}, " +
+        $"zone 1 fan mode = {Zone1FanMode}, " +
+        $"zone 2 fan mode = {Zone2FanMode}, " +
+        $"CPU level = {CpuLevel}, GPU level = {GpuLevel}";
 }
 
 /// <summary>
@@ -194,8 +250,13 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
 
         if (state.Zone1PerformanceMode != state.Zone2PerformanceMode)
         {
-            rejection = "the captured zones report different performance modes, so no single " +
-                "performance state can be restored";
+            // The values, not merely the verdict. ReadCompleteStatus issues six sequential
+            // GETs with no atomic firmware snapshot behind them, so a disagreeing pair may be
+            // a non-persistent observation rather than the machine's settled state. The
+            // captured values are what let the two be told apart afterwards.
+            rejection =
+                "the captured performance state cannot be represented by the current " +
+                $"restoration model ({state.Describe()})";
             return false;
         }
 
@@ -223,8 +284,9 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
             return true;
         }
 
-        rejection = "the captured performance state is outside the hardware-validated " +
-            "restoration policy";
+        rejection =
+            "the captured performance state is outside the hardware-validated restoration " +
+            $"policy ({state.Describe()})";
         return false;
     }
 

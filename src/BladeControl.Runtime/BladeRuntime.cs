@@ -287,6 +287,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                 // is later reported from the field, the event log says what the thresholds
                 // were rather than leaving them to be inferred.
                 GpuThermalLimits? gpuLimits = _controlTelemetry.Capabilities.GpuThermalLimits;
+                PublishCapturedRestorationState(accepted: true);
                 AddEvent((sequence, timestamp) => new SessionStartedEvent(
                     sequence,
                     timestamp,
@@ -296,6 +297,10 @@ public sealed class BladeRuntime : IAsyncDisposable
             }
             catch (ThermalPreflightException exception)
             {
+                // Whatever the controller managed to capture before refusing is the only
+                // record of what the firmware actually reported at that instant.
+                PublishCapturedRestorationState(accepted: false);
+
                 // A prerequisite was not met and no SET was sent, so firmware still owns
                 // cooling exactly as it did a moment ago. Nothing is broken: the runtime is
                 // simply not in a thermal session, which is what Stopped means.
@@ -807,6 +812,48 @@ public sealed class BladeRuntime : IAsyncDisposable
             timestamp,
             $"Cycle {cycle.Sequence} exceeded its next deadline by {overrun.TotalMilliseconds:F1} ms.",
             overrun));
+
+    /// <summary>
+    /// Publishes every restoration capture the start attempt took, in order.
+    /// </summary>
+    /// <remarks>
+    /// Called on both outcomes. A refused start is precisely the case where this matters: the
+    /// captures are the only record of what firmware reported at those instants, and any later
+    /// read observes a different moment. Publishing the whole sequence rather than the accepted
+    /// one is what makes an unstable state legible after the fact.
+    /// </remarks>
+    private void PublishCapturedRestorationState(bool accepted)
+    {
+        if (_controller is not { } controller)
+        {
+            return;
+        }
+
+        IReadOnlyList<ThermalMachineState> captures = controller.RestorationCaptures;
+        for (int index = 0; index < captures.Count; index++)
+        {
+            ThermalMachineState capture = captures[index];
+            string label = ((char)('A' + index)).ToString();
+
+            // Stabilization adopts the capture that corroborated its predecessor, which is
+            // always the last one taken. Marked only when the start actually went on to
+            // succeed — an adopted capture on a refused start would be a contradiction.
+            bool isAccepted = accepted && index == captures.Count - 1;
+            AddEvent((sequence, timestamp) => new RestorationStateCapturedEvent(
+                sequence,
+                timestamp,
+                $"Restoration capture {label}: {capture.Describe()}.",
+                label,
+                capture.Zone1PerformanceMode.ToString(),
+                capture.Zone2PerformanceMode.ToString(),
+                capture.Zone1FanMode.ToString(),
+                capture.Zone2FanMode.ToString(),
+                capture.CpuLevel.ToString(),
+                capture.GpuLevel.ToString(),
+                capture.ZonesAgree,
+                isAccepted));
+        }
+    }
 
     private void AddEvent(Func<long, DateTimeOffset, RuntimeEvent> factory)
     {

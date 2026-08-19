@@ -133,12 +133,15 @@ public sealed class StartRejectionTests
         await using BladeRuntime runtime = rig.CreateRuntime();
         Assert.IsTrue(runtime.InitializeHost());
 
-        // Capture will report Manual; the live ownership read reports Auto.
+        // Capture will report Manual; the live ownership read reports Auto. The performance
+        // mode is held equal to the capture on purpose — this test is about the fan mode
+        // having no veto, and a differing performance mode would be refused for its own,
+        // separate reason (the restoration state having gone stale before ownership).
         rig.Hardware.SetMode(RazerPerformanceMode.Balanced, RazerFanMode.Manual);
         rig.Hardware.FreshFanModeOverride = new ThermalFanModeObservation(
-            RazerPerformanceMode.Custom,
+            RazerPerformanceMode.Balanced,
             RazerFanMode.Auto,
-            RazerPerformanceMode.Custom,
+            RazerPerformanceMode.Balanced,
             RazerFanMode.Auto,
             []);
 
