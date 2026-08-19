@@ -83,6 +83,8 @@ public sealed record RuntimeDoctorReportDto(
     bool GpuTemperatureHealthy,
     bool GpuSelectionDeterministic,
     bool RazerHidAvailable,
+    bool GpuThermalLimitsKnown,
+    string? GpuThermalLimitDiagnostic,
     bool ThermalOwnershipReady,
     IReadOnlyList<string>? Reasons,
     DateTimeOffset? QualificationTimestamp);

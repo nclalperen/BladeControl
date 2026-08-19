@@ -79,6 +79,10 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
     /// </summary>
     internal GpuThermalLimits? GpuThermalLimits { get; set; } = ReferenceGpuLimits;
 
+    /// <summary>What discovery concluded, carried alongside the result in either direction.</summary>
+    internal string GpuThermalLimitDiagnostic { get; set; } =
+        "max operating 75 C, hardware slowdown 77 C, hardware shutdown 80 C";
+
     internal static GpuThermalLimits ReferenceGpuLimits { get; } = Build(75, 77, 80);
 
     private static GpuThermalLimits Build(double maxOperating, double slowdown, double shutdown)
@@ -154,6 +158,7 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
             : null,
         GpuTemperatureSupported = !MissingGpu,
         GpuThermalLimits = GpuThermalLimits,
+        GpuThermalLimitDiagnostic = GpuThermalLimitDiagnostic,
         PawnIoAvailable = CpuProviderProvenanceSafe,
         CpuPackageTemperatureAvailable = !MissingCpu,
         GpuSelectionAmbiguous = false

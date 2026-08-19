@@ -95,6 +95,7 @@ internal static partial class Program
             Console.WriteLine($"GPU temperature              {Support(capabilities.GpuTemperatureSupported)}");
             Console.WriteLine($"GPU power                    {Support(capabilities.GpuPowerSupported)}");
             Console.WriteLine($"GPU thermal limits           {DescribeGpuThermalLimits(capabilities.GpuThermalLimits)}");
+            Console.WriteLine($"GPU limit discovery          {capabilities.GpuThermalLimitDiagnostic}");
             Console.WriteLine($"LibreHardwareMonitor version {capabilities.LibreHardwareMonitorVersion}");
             Console.WriteLine($"PawnIO                       {Availability(capabilities.PawnIoAvailable)}");
             Console.WriteLine($"PawnIO version               {telemetry.PawnIoProvenance.Version}");
@@ -112,13 +113,20 @@ internal static partial class Program
             Console.WriteLine($"CPU Package power            {Availability(capabilities.CpuPackagePowerAvailable)}");
             Console.WriteLine($"ACPI zones                   {(capabilities.AcpiZonesAvailable ? "available" : "unavailable")} / diagnostic only");
             Console.WriteLine();
-            Console.WriteLine("Thermal-control qualification");
+
+            // The authoritative qualifier — the same call the runtime makes before it will
+            // take thermal ownership, and the same result the GUI displays. This heading used
+            // to sit over TelemetryHealthEvaluator.Evaluate, which only checks that the two
+            // temperatures are present, plausible and fresh; it has no opinion on GPU thermal
+            // limits, PawnIO provenance, Razer HID or GPU ambiguity, so it reported "Healthy"
+            // on machines this qualifier was refusing.
+            ThermalOwnershipQualification qualification = telemetry.QualifyThermalOwnership();
+            PrintThermalOwnershipQualification(qualification);
+
+            Console.WriteLine();
+            Console.WriteLine("Telemetry sample health (sensor plausibility only, not qualification)");
             TelemetryHealth health = TelemetryHealthEvaluator.Evaluate(snapshot, DateTimeOffset.UtcNow);
             Console.WriteLine($"  {health.Kind}: {health.Reason}");
-            if (capabilities.GpuSelectionAmbiguous)
-            {
-                Console.WriteLine("  Automatic control refused: NVIDIA GPU selection is ambiguous.");
-            }
 
             if (verbose)
             {
@@ -712,7 +720,9 @@ internal static partial class Program
         PrintMetric("  Memory clock", snapshot.GpuMemoryClockMegahertz, "MHz", verbose);
         PrintMemoryMetric("  VRAM used", snapshot.GpuVramUsedBytes, verbose);
         PrintMemoryMetric("  VRAM total", snapshot.GpuVramTotalBytes, verbose);
-        PrintGpuThermalLimits(capabilities.GpuThermalLimits);
+        PrintGpuThermalLimits(
+            capabilities.GpuThermalLimits,
+            capabilities.GpuThermalLimitDiagnostic);
 
         if (snapshot.RazerFirmwareState is not null)
         {
@@ -742,6 +752,43 @@ internal static partial class Program
     }
 
     /// <summary>
+    /// Renders the one authoritative qualification result, verdict first and every component
+    /// beneath it.
+    /// </summary>
+    /// <remarks>
+    /// Displays the result; it does not recompute one. Every prerequisite is listed even when
+    /// it passed, so a reader can see which of them the verdict actually rests on rather than
+    /// inferring it from whichever line happens to be printed nearby.
+    /// </remarks>
+    private static void PrintThermalOwnershipQualification(
+        ThermalOwnershipQualification qualification)
+    {
+        Console.WriteLine("Thermal ownership qualification (authoritative)");
+        Console.WriteLine(
+            $"  Verdict             {(qualification.ThermalOwnershipReady ? "QUALIFIED" : "NOT QUALIFIED")}");
+        Console.WriteLine($"  Evaluated           {qualification.Timestamp:O}");
+        Console.WriteLine($"  CPU provider trust  {Pass(qualification.CpuProviderProvenanceSafe)}");
+        Console.WriteLine($"  CPU temperature     {Pass(qualification.CpuPackageTemperatureHealthy)}");
+        Console.WriteLine($"  GPU temperature     {Pass(qualification.GpuTemperatureHealthy)}");
+        Console.WriteLine($"  GPU selection       {Pass(qualification.GpuSelectionDeterministic)}");
+        Console.WriteLine($"  GPU thermal limits  {Pass(qualification.GpuThermalLimitsKnown)}");
+        Console.WriteLine($"  Razer HID           {Pass(qualification.RazerHidAvailable)}");
+        foreach (string reason in qualification.Reasons)
+        {
+            Console.WriteLine($"  - {reason}");
+        }
+
+        if (!qualification.ThermalOwnershipReady)
+        {
+            Console.WriteLine(
+                "  Dynamic Cooling will refuse to start in this state and no fan or " +
+                "performance write will be sent.");
+        }
+    }
+
+    private static string Pass(bool value) => value ? "pass" : "FAIL";
+
+    /// <summary>
     /// Prints the GPU thermal limits the safety ladder is built from, separating what the
     /// device reported from what BladeControl decided to do about it.
     /// </summary>
@@ -750,13 +797,14 @@ internal static partial class Program
     /// hand off a degree early is ours. Labelling a policy margin as a device specification
     /// would misrepresent the hardware.
     /// </remarks>
-    private static void PrintGpuThermalLimits(GpuThermalLimits? limits)
+    private static void PrintGpuThermalLimits(GpuThermalLimits? limits, string diagnostic)
     {
         Console.WriteLine();
         Console.WriteLine("GPU thermal limits");
         if (limits is null)
         {
             Console.WriteLine("  Status              unavailable");
+            Console.WriteLine($"  Reason              {diagnostic}");
             Console.WriteLine(
                 "  Effect              closed-loop thermal control will not qualify; " +
                 "no threshold is assumed");
@@ -775,6 +823,7 @@ internal static partial class Program
             $"  Immediate handoff   {limits.ImmediateEmergencyCelsius,3:F0} C   BladeControl policy " +
             $"({GpuThermalLimits.PreShutdownPolicyMarginCelsius:F0} C pre-shutdown margin)");
         Console.WriteLine($"  Source              {limits.DescribeSource()}");
+        Console.WriteLine($"  Discovery           {diagnostic}");
     }
 
     /// <summary>One-line form for the doctor summary.</summary>

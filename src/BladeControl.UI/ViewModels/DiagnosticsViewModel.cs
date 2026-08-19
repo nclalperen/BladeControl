@@ -203,10 +203,12 @@ public sealed class DiagnosticsViewModel : PageViewModel
         _copyToClipboard = copyToClipboard;
         Runtime = new DiagnosticGroup("Runtime");
         Razer = new DiagnosticGroup("Razer");
+        Qualification = new DiagnosticGroup("Thermal ownership qualification");
         Telemetry = new DiagnosticGroup("Telemetry");
         PawnIo = new DiagnosticGroup("PawnIO");
         Scheduler = new DiagnosticGroup("Scheduler");
-        Groups = [Runtime, Razer, Telemetry, PawnIo, Scheduler];
+        Groups = [Runtime, Razer,
+            Qualification, Telemetry, PawnIo, Scheduler];
         Events = new ReadOnlyObservableCollection<RuntimeEventViewModel>(_events);
         FilteredEvents = [];
         EventKinds = new ReadOnlyObservableCollection<string>(_kinds);
@@ -222,6 +224,17 @@ public sealed class DiagnosticsViewModel : PageViewModel
     public DiagnosticGroup Runtime { get; }
 
     public DiagnosticGroup Razer { get; }
+
+    /// <summary>
+    /// The authoritative qualification result, current whatever the runtime state is.
+    /// </summary>
+    /// <remarks>
+    /// Its own group because it is not session data. It previously sat inside Telemetry, whose
+    /// heading becomes "Last session telemetry" while stopped — so a live "may this machine
+    /// take thermal ownership" answer was presented as a record of a session that, after a
+    /// service restart, had never run.
+    /// </remarks>
+    public DiagnosticGroup Qualification { get; }
 
     public DiagnosticGroup Telemetry { get; }
 
@@ -418,7 +431,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
         RuntimeStatusDto? status = Connection.Status;
         bool stopped = string.Equals(status?.State, "Stopped", StringComparison.Ordinal);
         Razer.Title = stopped ? "Razer · Last watchdog observation" : "Razer";
-        Telemetry.Title = stopped ? "Last session telemetry" : "Telemetry";
+        Telemetry.Title = stopped ? "Telemetry · last session values" : "Telemetry";
         Scheduler.Title = stopped ? "Last session scheduler" : "Scheduler";
         RuntimeDoctorReportDto? doctor = Connection.Doctor;
         RuntimeTelemetryCapabilitiesDto? capabilities = doctor?.Capabilities;
@@ -517,13 +530,24 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Balanced manual",
                 watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.IsBalancedManual)),
             new DiagnosticItem(
-                "Firmware-reported fan state",
+                stopped
+                    ? "Firmware-reported fan state · last observation"
+                    : "Firmware-reported fan state",
                 Connection.Fan is { } fan
                     ? $"Fan 1 {Display.FirmwareFanValue(fan.Fan1Rpm)} · " +
                         $"Fan 2 {Display.FirmwareFanValue(fan.Fan2Rpm)}"
                     : Display.Unavailable,
-                "Firmware-reported value (Razer 0x0D81). Not proven to be a physical " +
-                "tachometer reading.")
+                // Two separate cautions, and both matter. The value is a firmware echo of the
+                // last commanded target rather than a tachometer, and while stopped it is
+                // whatever was last observed — which can be many minutes old and is not what
+                // the fans are doing now.
+                stopped
+                    ? "Historical: the value last observed by the watchdog, not a current " +
+                        "reading. Firmware-reported (Razer 0x0D81) and not proven to be a " +
+                        "physical tachometer reading."
+                    : "Firmware-reported value (Razer 0x0D81). Not proven to be a physical " +
+                        "tachometer reading.",
+                stopped ? StatusTone.Muted : StatusTone.Neutral)
         ]);
 
         Telemetry.Replace(
@@ -585,13 +609,73 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 capabilities is null
                     ? Display.Unavailable
                     : Display.Boolean(capabilities.AcpiZonesAvailable)),
+        ]);
+
+        Qualification.Replace(
+        [
             new DiagnosticItem(
                 "Thermal ownership ready",
                 doctor is null ? Display.Unavailable : Display.Boolean(doctor.ThermalOwnershipReady),
                 Connection.ThermalReadinessReason,
                 doctor is null
                     ? StatusTone.Muted
-                    : Display.BooleanTone(doctor.ThermalOwnershipReady))
+                    : Display.BooleanTone(doctor.ThermalOwnershipReady)),
+            new DiagnosticItem(
+                "GPU thermal limits",
+                doctor is null ? Display.Unavailable : Display.Boolean(doctor.GpuThermalLimitsKnown),
+                doctor?.GpuThermalLimitDiagnostic,
+                doctor is null
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(doctor.GpuThermalLimitsKnown)),
+            new DiagnosticItem(
+                "CPU provider trust",
+                doctor is null
+                    ? Display.Unavailable
+                    : Display.Boolean(doctor.CpuProviderProvenanceSafe),
+                null,
+                doctor is null
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(doctor.CpuProviderProvenanceSafe)),
+            new DiagnosticItem(
+                "CPU temperature",
+                doctor is null
+                    ? Display.Unavailable
+                    : Display.Boolean(doctor.CpuPackageTemperatureHealthy),
+                null,
+                doctor is null
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(doctor.CpuPackageTemperatureHealthy)),
+            new DiagnosticItem(
+                "GPU temperature",
+                doctor is null
+                    ? Display.Unavailable
+                    : Display.Boolean(doctor.GpuTemperatureHealthy),
+                null,
+                doctor is null
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(doctor.GpuTemperatureHealthy)),
+            new DiagnosticItem(
+                "GPU selection",
+                doctor is null
+                    ? Display.Unavailable
+                    : Display.Boolean(doctor.GpuSelectionDeterministic),
+                null,
+                doctor is null
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(doctor.GpuSelectionDeterministic)),
+            new DiagnosticItem(
+                "Razer HID",
+                doctor is null ? Display.Unavailable : Display.Boolean(doctor.RazerHidAvailable),
+                null,
+                doctor is null
+                    ? StatusTone.Muted
+                    : Display.BooleanTone(doctor.RazerHidAvailable)),
+            new DiagnosticItem(
+                "Evaluated",
+                doctor?.QualificationTimestamp is { } evaluated
+                    ? evaluated.ToLocalTime().ToString("HH:mm:ss")
+                    : Display.Unavailable,
+                "Current qualification, not a record of the last session.")
         ]);
 
         PawnIo.Replace(

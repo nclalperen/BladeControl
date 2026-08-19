@@ -159,7 +159,8 @@ public static class RuntimeUiSampleData
 
     public static RuntimeDoctorReportDto Doctor(
         bool thermalOwnershipReady = true,
-        IReadOnlyList<string>? reasons = null) => new(
+        IReadOnlyList<string>? reasons = null,
+        bool gpuThermalLimitsKnown = true) => new(
         new RuntimeTelemetryCapabilitiesDto(
             true,
             true,
@@ -196,6 +197,10 @@ public static class RuntimeUiSampleData
         true,
         true,
         true,
+        gpuThermalLimitsKnown,
+        gpuThermalLimitsKnown
+            ? "max operating 75 C, hardware slowdown 77 C, hardware shutdown 80 C"
+            : "GPU thermal limits could not be established.",
         thermalOwnershipReady,
         reasons ?? [],
         DateTimeOffset.UtcNow);

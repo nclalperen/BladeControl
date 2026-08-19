@@ -20,6 +20,12 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
     /// them on the 500 ms telemetry path would cost NVML calls for values that never change.
     /// </summary>
     private readonly GpuThermalLimits? _gpuThermalLimits;
+
+    /// <summary>
+    /// What that discovery concluded, kept whether it succeeded or failed, so the reason
+    /// travels with the capabilities instead of only reaching a verbose diagnostic list.
+    /// </summary>
+    private readonly string _gpuThermalLimitDiagnostic;
     private bool _disposed;
 
     private WindowsTelemetrySession(
@@ -39,19 +45,27 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
         PawnIoProvenance = pawnIoProvenance;
         _diagnostics = diagnostics.ToList();
 
-        if (_gpu is not null)
+        if (_gpu is null)
         {
-            if (_gpu.TryDiscoverThermalLimits(out GpuThermalLimits? limits, out string diagnostic))
-            {
-                _gpuThermalLimits = limits;
-                _diagnostics.Add($"GPU thermal limits: {diagnostic}");
-            }
-            else
-            {
-                // Recorded, not fatal here: closed-loop thermal control refuses to qualify
-                // without limits, while every other feature is unaffected.
-                _diagnostics.Add($"GPU thermal limits unavailable: {diagnostic}");
-            }
+            _gpuThermalLimitDiagnostic =
+                "NVML did not initialize, so GPU thermal limits could not be read.";
+            _diagnostics.Add(_gpuThermalLimitDiagnostic);
+        }
+        else if (_gpu.TryDiscoverThermalLimits(
+            out GpuThermalLimits? limits,
+            out string diagnostic))
+        {
+            _gpuThermalLimits = limits;
+            _gpuThermalLimitDiagnostic = diagnostic;
+            _diagnostics.Add($"GPU thermal limits: {diagnostic}");
+        }
+        else
+        {
+            // Recorded, not fatal here: closed-loop thermal control refuses to qualify
+            // without limits, while every other feature is unaffected. The reason is kept on
+            // the capabilities so the refusal can explain itself wherever it surfaces.
+            _gpuThermalLimitDiagnostic = diagnostic;
+            _diagnostics.Add($"GPU thermal limits unavailable: {diagnostic}");
         }
 
         Capabilities = CreateCapabilities(null, null);
@@ -215,6 +229,7 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
             SelectedGpu = _gpu?.SelectedGpu,
             GpuTemperatureSupported = gpu?.TemperatureCelsius.IsSupported == true,
             GpuThermalLimits = _gpuThermalLimits,
+            GpuThermalLimitDiagnostic = _gpuThermalLimitDiagnostic,
             GpuPowerSupported = gpu?.PowerWatts.IsSupported == true,
             LibreHardwareMonitorVersion = _cpu?.LibraryVersion ??
             $"{PinnedLibreHardwareMonitorVersion} (provider unavailable)",

@@ -283,6 +283,17 @@ public sealed class TelemetryCapabilities
     /// </summary>
     public GpuThermalLimits? GpuThermalLimits { get; init; }
 
+    /// <summary>
+    /// What the production discovery attempt actually concluded, in either direction.
+    /// </summary>
+    /// <remarks>
+    /// "Unavailable" on its own is not a diagnosis. This carries the concrete outcome — which
+    /// field failed, which predicate rejected, which signature did not match — so that a
+    /// machine reporting no limits explains itself without needing a second, separate probe
+    /// run to guess at what production did.
+    /// </remarks>
+    public string GpuThermalLimitDiagnostic { get; init; } = "GPU thermal limit discovery was not attempted.";
+
     public bool GpuPowerSupported { get; init; }
 
     public string LibreHardwareMonitorVersion { get; init; } = "unavailable";
@@ -302,6 +313,26 @@ public sealed class TelemetryCapabilities
     public IReadOnlyList<string> Diagnostics { get; init; } = [];
 }
 
+/// <summary>
+/// The single authoritative answer to "may this machine take thermal ownership right now".
+/// </summary>
+/// <remarks>
+/// <para>Runtime start, the CLI doctor and the GUI all consume <i>this</i> result. None of them
+/// recomputes an approximation of it.</para>
+/// <para>They used to. The CLI printed a heading of "Thermal-control qualification" over the
+/// output of <see cref="TelemetryHealthEvaluator.Evaluate"/>, which only checks that the CPU
+/// and GPU temperatures are present, plausible and fresh. It knows nothing about GPU thermal
+/// limits, PawnIO provenance, Razer HID availability or GPU selection ambiguity — so it
+/// answered "Healthy" on a machine that this qualifier was refusing, and the two statements sat
+/// four lines apart in the same report.</para>
+/// </remarks>
+/// <param name="GpuThermalLimitsKnown">
+/// Whether the GPU reported thermal limits that qualified. Required: without them there is no
+/// GPU safety ladder and no threshold worth guessing.
+/// </param>
+/// <param name="GpuThermalLimitDiagnostic">
+/// What discovery concluded, carried from the production path so a refusal is self-explaining.
+/// </param>
 public sealed record ThermalOwnershipQualification(
     DateTimeOffset Timestamp,
     bool CpuProviderProvenanceSafe,
@@ -309,9 +340,20 @@ public sealed record ThermalOwnershipQualification(
     bool GpuTemperatureHealthy,
     bool GpuSelectionDeterministic,
     bool RazerHidAvailable,
+    bool GpuThermalLimitsKnown,
+    string GpuThermalLimitDiagnostic,
     bool ThermalOwnershipReady,
     TelemetryCapabilities Capabilities,
-    IReadOnlyList<string> Reasons);
+    IReadOnlyList<string> Reasons)
+{
+    /// <summary>The discovered limits, or null. Sourced from the same evaluated capabilities.</summary>
+    public GpuThermalLimits? GpuThermalLimits => Capabilities.GpuThermalLimits;
+
+    /// <summary>One line suitable for any surface that shows a verdict.</summary>
+    public string Summary => ThermalOwnershipReady
+        ? "QUALIFIED"
+        : $"NOT QUALIFIED: {string.Join(" ", Reasons)}";
+}
 
 public static class ThermalOwnershipQualifier
 {
@@ -376,9 +418,11 @@ public static class ThermalOwnershipQualifier
         bool gpuLimitsKnown = capabilities.GpuThermalLimits is not null;
         if (!gpuLimitsKnown)
         {
+            // Carry the concrete discovery outcome into the refusal. A bare "limits
+            // unavailable" forces whoever reads it to go and reproduce the discovery by hand.
             reasons.Add(
-                "GPU thermal limits could not be read from the device, so no GPU safety " +
-                "thresholds can be established.");
+                "GPU thermal limits could not be established, so no GPU safety thresholds " +
+                $"exist: {capabilities.GpuThermalLimitDiagnostic}");
         }
 
         bool ready = cpuProviderProvenanceSafe && cpuHealthy && gpuHealthy &&
@@ -395,6 +439,8 @@ public static class ThermalOwnershipQualifier
             gpuHealthy,
             deterministicGpu,
             razerAvailable,
+            gpuLimitsKnown,
+            capabilities.GpuThermalLimitDiagnostic,
             ready,
             capabilities,
             reasons);

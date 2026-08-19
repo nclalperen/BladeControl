@@ -108,6 +108,8 @@ public static class RuntimeWindowsHost
             qualification.GpuTemperatureHealthy,
             qualification.GpuSelectionDeterministic,
             qualification.RazerHidAvailable,
+            qualification.GpuThermalLimitsKnown,
+            qualification.GpuThermalLimitDiagnostic,
             qualification.ThermalOwnershipReady,
             qualification.Reasons,
             QualificationTimestamp = qualification.Timestamp
