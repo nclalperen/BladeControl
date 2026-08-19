@@ -147,6 +147,7 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli telemetry doctor [--verbose]");
         Console.WriteLine("  BladeControl.Cli telemetry snapshot [--verbose]");
         Console.WriteLine("  BladeControl.Cli telemetry monitor [--interval MS] [--verbose]");
+        Console.WriteLine("  BladeControl.Cli telemetry gpu-thermal-probe");
         Console.WriteLine("  BladeControl.Cli thermal status [--verbose]");
         Console.WriteLine("  BladeControl.Cli thermal curve show default");
         Console.WriteLine("  BladeControl.Cli thermal curve validate <file>");

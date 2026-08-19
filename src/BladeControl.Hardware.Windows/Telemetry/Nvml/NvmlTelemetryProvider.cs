@@ -35,7 +35,101 @@ internal interface INvmlApi
         NvmlDevice device,
         out ulong usedBytes,
         out ulong totalBytes);
+
+    /// <summary>
+    /// Reads the three core T.Limit <b>specifications</b> through nvmlDeviceGetFieldValues.
+    /// Called once at qualification, never per sample.
+    /// </summary>
+    /// <remarks>
+    /// Each output carries its own per-field <c>nvmlReturn</c> and declared value type, so a
+    /// caller can tell a refused field from a successful one. The method's own return value is
+    /// the outer call result only.
+    /// </remarks>
+    NvmlResult GetThermalLimitSpecifications(
+        NvmlDevice device,
+        out NvmlFieldReading shutdown,
+        out NvmlFieldReading slowdown,
+        out NvmlFieldReading gpuMax);
+
+    /// <summary>
+    /// Reads nvmlDeviceGetMarginTemperature: a <i>live</i> quantity, documented as the
+    /// distance to the nearest slowdown threshold.
+    /// </summary>
+    NvmlResult GetMarginTemperature(NvmlDevice device, out int marginCelsius);
+
+    /// <summary>
+    /// Reads one absolute threshold through the legacy nvmlDeviceGetTemperatureThreshold API.
+    /// Qualification-time corroboration only.
+    /// </summary>
+    NvmlResult GetTemperatureThreshold(
+        NvmlDevice device,
+        NvmlTemperatureThreshold threshold,
+        out double celsius);
+
+    /// <summary>
+    /// Reads nvmlDeviceGetThermalSettings for one sensor index. Diagnostic only.
+    /// </summary>
+    NvmlResult GetThermalSettings(
+        NvmlDevice device,
+        uint sensorIndex,
+        out uint count,
+        out IReadOnlyList<NvmlThermalSensor> sensors);
 }
+
+/// <summary>One nvmlDeviceGetThermalSettings query and everything it returned.</summary>
+internal sealed record NvmlThermalSettingsReading(
+    uint RequestedIndex,
+    NvmlResult Result,
+    uint Count,
+    IReadOnlyList<NvmlThermalSensor> Sensors);
+
+/// <summary>One absolute threshold from the legacy API, with the driver's own status.</summary>
+internal readonly record struct NvmlThresholdReading(
+    NvmlTemperatureThreshold Threshold,
+    NvmlResult Result,
+    double? Celsius)
+{
+    internal string Describe() =>
+        $"{Threshold}: result {Result}, " +
+        (Celsius is { } value ? $"{value:F0} C" : "unavailable");
+}
+
+/// <summary>
+/// One element of an nvmlDeviceGetFieldValues response, kept raw so a diagnostic can show what
+/// the driver actually returned rather than only what was made of it.
+/// </summary>
+internal readonly record struct NvmlFieldReading(
+    uint FieldId,
+    NvmlResult Result,
+    NvmlValueType ValueType,
+    long RawValue,
+    double? Celsius)
+{
+    internal bool IsUsable => Result == NvmlResult.Success && Celsius is not null;
+
+    internal string Describe() =>
+        $"field {FieldId}: result {Result}, valueType {ValueType}, raw 0x{RawValue:X16}, " +
+        (Celsius is { } value ? $"{value:F0} C" : "not readable as a temperature");
+}
+
+/// <summary>
+/// Everything the driver said about this device's thermal limits in one read-only pass, before
+/// any interpretation. Exists so the conversion can be verified against the hardware instead of
+/// inferred.
+/// </summary>
+internal sealed record NvmlThermalLimitProbe(
+    NvmlResult FieldCallResult,
+    NvmlFieldReading Shutdown,
+    NvmlFieldReading Slowdown,
+    NvmlFieldReading GpuMax,
+    NvmlResult MarginResult,
+    int? MarginCelsius,
+    NvmlResult TemperatureResult,
+    string TemperatureSource,
+    double? CurrentTemperatureCelsius,
+    NvmlThresholdReading LegacyShutdown,
+    NvmlThresholdReading LegacySlowdown,
+    NvmlThresholdReading LegacyGpuMax);
 
 internal sealed class NativeNvmlApi : INvmlApi
 {
@@ -160,6 +254,119 @@ internal sealed class NativeNvmlApi : INvmlApi
         NvmlResult result = NvmlNativeMethods.GetClockInfo(device.Handle, type, out uint value);
         megahertz = value;
         return result;
+    }
+
+    public NvmlResult GetThermalLimitSpecifications(
+        NvmlDevice device,
+        out NvmlFieldReading shutdown,
+        out NvmlFieldReading slowdown,
+        out NvmlFieldReading gpuMax)
+    {
+        // Results are matched by fieldId on the way out, never by position, so a driver that
+        // reorders or omits entries cannot silently swap one limit for another.
+        NvmlFieldValue[] values = Array.ConvertAll(
+            NvmlFieldId.CoreThermalLimitRequest,
+            fieldId => new NvmlFieldValue { FieldId = fieldId });
+
+        NvmlResult result = NvmlNativeMethods.GetFieldValues(
+            device.Handle,
+            values.Length,
+            values);
+
+        shutdown = Reading(values, NvmlFieldId.TemperatureShutdownTLimit, result);
+        slowdown = Reading(values, NvmlFieldId.TemperatureSlowdownTLimit, result);
+        gpuMax = Reading(values, NvmlFieldId.TemperatureGpuMaxTLimit, result);
+        return result;
+    }
+
+    public NvmlResult GetMarginTemperature(NvmlDevice device, out int marginCelsius)
+    {
+        var request = new NvmlMarginTemperature
+        {
+            Version = NvmlNativeMethods.MarginTemperatureVersion
+        };
+
+        NvmlResult result = NvmlNativeMethods.GetMarginTemperature(device.Handle, ref request);
+        marginCelsius = result == NvmlResult.Success ? request.MarginTemperature : 0;
+        return result;
+    }
+
+    public NvmlResult GetTemperatureThreshold(
+        NvmlDevice device,
+        NvmlTemperatureThreshold threshold,
+        out double celsius)
+    {
+        NvmlResult result = NvmlNativeMethods.GetTemperatureThreshold(
+            device.Handle,
+            threshold,
+            out uint value);
+        celsius = result == NvmlResult.Success ? value : double.NaN;
+        return result;
+    }
+
+    public NvmlResult GetThermalSettings(
+        NvmlDevice device,
+        uint sensorIndex,
+        out uint count,
+        out IReadOnlyList<NvmlThermalSensor> sensors)
+    {
+        NvmlGpuThermalSettings settings = NvmlGpuThermalSettings.Create();
+        NvmlResult result = NvmlNativeMethods.GetThermalSettings(
+            device.Handle,
+            sensorIndex,
+            ref settings);
+        if (result != NvmlResult.Success)
+        {
+            count = 0;
+            sensors = [];
+            return result;
+        }
+
+        // Trust the struct's own count over the array length, but never past the array: a
+        // driver reporting more sensors than the header allows would otherwise read past it.
+        count = settings.Count;
+        int usable = (int)Math.Min(settings.Count, (uint)NvmlGpuThermalSettings.MaxSensors);
+        sensors = settings.Sensors.Take(usable).ToArray();
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts one field by identifier, preserving the driver's own per-field status.
+    /// </summary>
+    /// <remarks>
+    /// A field the driver never populated is reported as <see cref="NvmlResult.NotFound"/>
+    /// rather than defaulting to success with a zero value, which would read as a perfectly
+    /// plausible 0 C specification.
+    /// </remarks>
+    private static NvmlFieldReading Reading(
+        NvmlFieldValue[] values,
+        uint fieldId,
+        NvmlResult callResult)
+    {
+        foreach (NvmlFieldValue value in values)
+        {
+            if (value.FieldId != fieldId)
+            {
+                continue;
+            }
+
+            bool readable = value.Result == NvmlResult.Success &&
+                value.TryReadCelsius(out double celsius);
+            return new NvmlFieldReading(
+                fieldId,
+                callResult == NvmlResult.Success ? value.Result : callResult,
+                value.ValueType,
+                value.Value,
+                readable ? RoundTrip(value) : null);
+        }
+
+        return new NvmlFieldReading(fieldId, NvmlResult.NotFound, default, 0, null);
+    }
+
+    private static double RoundTrip(NvmlFieldValue value)
+    {
+        _ = value.TryReadCelsius(out double celsius);
+        return celsius;
     }
 
     public NvmlResult GetMemory(
@@ -347,6 +554,176 @@ internal sealed class NvmlTelemetryProvider : IDisposable
             memoryClock,
             usedMemory,
             totalMemory);
+    }
+
+    /// <summary>
+    /// Reads everything the driver will say about this device's thermal limits, raw and
+    /// uninterpreted.
+    /// </summary>
+    /// <remarks>
+    /// Separated from <see cref="TryDiscoverThermalLimits"/> so a diagnostic can show the
+    /// driver's own answers — per-field return codes, declared value types, raw union
+    /// payloads — next to what was derived from them. Strictly read-only.
+    /// </remarks>
+    internal NvmlThermalLimitProbe ProbeThermalLimits()
+    {
+        NvmlResult fieldResult = _api.GetThermalLimitSpecifications(
+            _device,
+            out NvmlFieldReading shutdown,
+            out NvmlFieldReading slowdown,
+            out NvmlFieldReading gpuMax);
+
+        NvmlResult marginResult = _api.GetMarginTemperature(_device, out int margin);
+
+        string temperatureSource = "nvmlDeviceGetTemperatureV";
+        NvmlResult temperatureResult = _api.GetTemperatureCurrent(
+            _device,
+            out double currentTemperature);
+        if (temperatureResult != NvmlResult.Success)
+        {
+            temperatureSource = "nvmlDeviceGetTemperature";
+            temperatureResult = _api.GetTemperatureLegacy(_device, out currentTemperature);
+        }
+
+        return new NvmlThermalLimitProbe(
+            fieldResult,
+            shutdown,
+            slowdown,
+            gpuMax,
+            marginResult,
+            marginResult == NvmlResult.Success ? margin : null,
+            temperatureResult,
+            temperatureSource,
+            temperatureResult == NvmlResult.Success ? currentTemperature : null,
+            Threshold(NvmlTemperatureThreshold.Shutdown),
+            Threshold(NvmlTemperatureThreshold.Slowdown),
+            Threshold(NvmlTemperatureThreshold.GpuMax));
+    }
+
+    private NvmlThresholdReading Threshold(NvmlTemperatureThreshold threshold)
+    {
+        NvmlResult result = _api.GetTemperatureThreshold(_device, threshold, out double celsius);
+        return new NvmlThresholdReading(
+            threshold,
+            result,
+            result == NvmlResult.Success && double.IsFinite(celsius) ? celsius : null);
+    }
+
+    /// <summary>
+    /// Reads every member of nvmlTemperatureThresholds_t, for diagnostics only.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in the control path depends on this. It exists because the three thresholds the
+    /// qualification gate consults turned out not to mean what their names suggest on Ada, and
+    /// the fastest way to see that is the whole set side by side.
+    /// </remarks>
+    internal IReadOnlyList<NvmlThresholdReading> ProbeAllTemperatureThresholds() =>
+        Enum.GetValues<NvmlTemperatureThreshold>().Select(Threshold).ToArray();
+
+    /// <summary>
+    /// Queries nvmlDeviceGetThermalSettings across the sensor indices the header allows, plus
+    /// the all-sensors target value. Diagnostic only; nothing in the control path reads it.
+    /// </summary>
+    /// <remarks>
+    /// The API takes a sensor <i>index</i> while NVML_THERMAL_TARGET_ALL is a <i>target</i>
+    /// constant, so which one a given driver honours is not something to assume. Both are
+    /// asked and both answers reported.
+    /// </remarks>
+    internal IReadOnlyList<NvmlThermalSettingsReading> ProbeThermalSettings()
+    {
+        uint[] indices =
+        [
+            0,
+            1,
+            2,
+            (uint)NvmlThermalTarget.All
+        ];
+
+        return indices
+            .Select(index =>
+            {
+                NvmlResult result = _api.GetThermalSettings(
+                    _device,
+                    index,
+                    out uint count,
+                    out IReadOnlyList<NvmlThermalSensor> sensors);
+                return new NvmlThermalSettingsReading(index, result, count, sensors);
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Discovers the device's absolute thermal limits once, at qualification.
+    /// </summary>
+    /// <remarks>
+    /// <para>The three T.Limit fields are <b>specifications</b>: signed offsets from the device
+    /// maximum operating temperature. Converting them to absolute temperatures needs an anchor,
+    /// and the anchor is a separate live quantity — the margin API — sampled together with a
+    /// core temperature.</para>
+    /// <para>Returns false rather than guessing. A device that will not report its limits is
+    /// refused thermal ownership, because the alternative is inventing a threshold for silicon
+    /// whose real limits are unknown.</para>
+    /// </remarks>
+    internal bool TryDiscoverThermalLimits(
+        out GpuThermalLimits? limits,
+        out string diagnostic)
+    {
+        limits = null;
+        NvmlThermalLimitProbe probe = ProbeThermalLimits();
+
+        if (probe.FieldCallResult != NvmlResult.Success)
+        {
+            diagnostic = Describe("GPU thermal limit discovery", probe.FieldCallResult);
+            return false;
+        }
+
+        foreach (NvmlFieldReading reading in new[] { probe.Shutdown, probe.Slowdown, probe.GpuMax })
+        {
+            if (!reading.IsUsable)
+            {
+                diagnostic = $"GPU thermal limit discovery failed: {reading.Describe()}.";
+                return false;
+            }
+        }
+
+        if (probe.MarginResult != NvmlResult.Success || probe.MarginCelsius is not { } margin)
+        {
+            diagnostic = Describe("GPU thermal margin", probe.MarginResult);
+            return false;
+        }
+
+        if (probe.TemperatureResult != NvmlResult.Success ||
+            probe.CurrentTemperatureCelsius is not { } currentTemperature)
+        {
+            diagnostic = Describe(
+                "GPU temperature for thermal limit anchoring",
+                probe.TemperatureResult);
+            return false;
+        }
+
+        // The T.Limit specifications are relative, so the derivation rests entirely on what the
+        // live margin is anchored to, and ordering and plausibility cannot detect a uniformly
+        // shifted anchor. No NVML interface on this driver settles it: the legacy absolute
+        // thresholds report a different quantity (105/97/100 on the reference part) and the
+        // thermal-settings API reports a sensor range (0-127). So the interpretation is
+        // established per GPU signature, by hand, against hardware — matched on device name
+        // plus the exact limits it was observed to produce. Anything else is refused.
+        if (!GpuThermalLimits.TryFromValidatedSignature(
+                _device.Identity.Name,
+                currentTemperature,
+                margin,
+                probe.GpuMax.Celsius!.Value,
+                probe.Slowdown.Celsius!.Value,
+                probe.Shutdown.Celsius!.Value,
+                out limits,
+                out string? rejection))
+        {
+            diagnostic = rejection ?? "GPU thermal limits could not be derived.";
+            return false;
+        }
+
+        diagnostic = limits!.Describe();
+        return true;
     }
 
     public void Dispose()

@@ -73,6 +73,26 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
 
     public TelemetryCapabilities Capabilities => CreateCapabilities();
 
+    /// <summary>
+    /// Reference RTX 4090 Laptop limits by default: max operating 75 C, hardware slowdown
+    /// 77 C, hardware shutdown 80 C. Set to null to model a GPU that cannot report limits.
+    /// </summary>
+    internal GpuThermalLimits? GpuThermalLimits { get; set; } = ReferenceGpuLimits;
+
+    internal static GpuThermalLimits ReferenceGpuLimits { get; } = Build(75, 77, 80);
+
+    private static GpuThermalLimits Build(double maxOperating, double slowdown, double shutdown)
+    {
+        _ = GpuThermalLimits.TryCreate(
+            maxOperating,
+            slowdown,
+            shutdown,
+            GpuThermalLimitSource.NvmlTemperatureLimitSpecificationsCorroborated,
+            out GpuThermalLimits? limits,
+            out _);
+        return limits!;
+    }
+
     public ThermalTelemetrySample GetControlSample()
     {
         long sample = ++_sample;
@@ -133,6 +153,7 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
             ? new TelemetryGpuIdentity("Fake GPU", "GPU-fake", "00000000:01:00.0")
             : null,
         GpuTemperatureSupported = !MissingGpu,
+        GpuThermalLimits = GpuThermalLimits,
         PawnIoAvailable = CpuProviderProvenanceSafe,
         CpuPackageTemperatureAvailable = !MissingCpu,
         GpuSelectionAmbiguous = false

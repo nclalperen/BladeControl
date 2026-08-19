@@ -14,6 +14,12 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
     private readonly List<string> _diagnostics;
     private readonly bool _gpuAmbiguous;
     private readonly IReadOnlyList<TelemetryGpuIdentity> _enumeratedGpus;
+
+    /// <summary>
+    /// Discovered once when the session opens. These are per-device constants, so re-reading
+    /// them on the 500 ms telemetry path would cost NVML calls for values that never change.
+    /// </summary>
+    private readonly GpuThermalLimits? _gpuThermalLimits;
     private bool _disposed;
 
     private WindowsTelemetrySession(
@@ -32,6 +38,22 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
         _enumeratedGpus = enumeratedGpus.ToArray();
         PawnIoProvenance = pawnIoProvenance;
         _diagnostics = diagnostics.ToList();
+
+        if (_gpu is not null)
+        {
+            if (_gpu.TryDiscoverThermalLimits(out GpuThermalLimits? limits, out string diagnostic))
+            {
+                _gpuThermalLimits = limits;
+                _diagnostics.Add($"GPU thermal limits: {diagnostic}");
+            }
+            else
+            {
+                // Recorded, not fatal here: closed-loop thermal control refuses to qualify
+                // without limits, while every other feature is unaffected.
+                _diagnostics.Add($"GPU thermal limits unavailable: {diagnostic}");
+            }
+        }
+
         Capabilities = CreateCapabilities(null, null);
     }
 
@@ -192,6 +214,7 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
             NvmlAvailable = _gpu is not null,
             SelectedGpu = _gpu?.SelectedGpu,
             GpuTemperatureSupported = gpu?.TemperatureCelsius.IsSupported == true,
+            GpuThermalLimits = _gpuThermalLimits,
             GpuPowerSupported = gpu?.PowerWatts.IsSupported == true,
             LibreHardwareMonitorVersion = _cpu?.LibraryVersion ??
             $"{PinnedLibreHardwareMonitorVersion} (provider unavailable)",

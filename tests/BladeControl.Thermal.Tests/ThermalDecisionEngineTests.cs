@@ -121,12 +121,18 @@ public sealed class ThermalDecisionEngineTests
         Assert.AreEqual(FanRpm.MaximumValue, decision.EffectiveTarget.Value);
     }
 
+    /// <summary>
+    /// Superseded policy. 80 C was a hard-coded threshold that, on the reference RTX 4090
+    /// Laptop GPU, is the temperature at which the hardware shuts itself down. Without
+    /// device-discovered limits the engine now has no GPU ladder at all, and thermal ownership
+    /// is refused at qualification rather than run against an assumed threshold.
+    /// </summary>
     [TestMethod]
-    public void GpuAt80TriggersImmediateAuto()
+    public void GpuHeatDoesNothingWithoutDeviceDiscoveredLimits()
     {
         ThermalDecision decision = NewEngine().Evaluate(Snapshot(50, 80, Start), Start);
 
-        Assert.IsTrue(decision.EmergencyAuto);
+        Assert.IsFalse(decision.EmergencyAuto);
     }
 
     [TestMethod]

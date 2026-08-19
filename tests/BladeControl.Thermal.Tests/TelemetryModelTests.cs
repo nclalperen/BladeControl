@@ -183,6 +183,19 @@ public sealed class TelemetryModelTests
             ReadySample());
         Assert.IsFalse(ambiguous.ThermalOwnershipReady);
 
+        // A GPU that cannot report its own thermal limits cannot be given closed-loop
+        // control: the previous hard-coded threshold turned out to be the reference part's
+        // hardware shutdown temperature, so there is nothing safe to assume.
+        TelemetryCapabilities noLimits = ReadyCapabilities(gpuThermalLimitsKnown: false);
+        ThermalOwnershipQualification unknownLimits = ThermalOwnershipQualifier.Evaluate(
+            Now,
+            cpuProviderProvenanceSafe: true,
+            noLimits,
+            ReadySample());
+        Assert.IsFalse(unknownLimits.ThermalOwnershipReady);
+        Assert.IsTrue(unknownLimits.Reasons.Any(reason =>
+            reason.Contains("GPU thermal limits", StringComparison.Ordinal)));
+
         TelemetryCapabilities noRazer = ReadyCapabilities(razerHidAvailable: false);
         ThermalOwnershipQualification missingRazer = ThermalOwnershipQualifier.Evaluate(
             Now,
@@ -192,10 +205,27 @@ public sealed class TelemetryModelTests
         Assert.IsFalse(missingRazer.ThermalOwnershipReady);
     }
 
+    /// <summary>Reference RTX 4090 Laptop: 75 / 77 / 80 C.</summary>
+    private static GpuThermalLimits ReferenceGpuLimits
+    {
+        get
+        {
+            _ = GpuThermalLimits.TryCreate(
+                75,
+                77,
+                80,
+                GpuThermalLimitSource.NvmlTemperatureLimitSpecifications,
+                out GpuThermalLimits? limits,
+                out _);
+            return limits!;
+        }
+    }
+
     private static TelemetryCapabilities ReadyCapabilities(
         bool gpuTemperatureSupported = true,
         bool gpuSelectionAmbiguous = false,
-        bool razerHidAvailable = true) => new()
+        bool razerHidAvailable = true,
+        bool gpuThermalLimitsKnown = true) => new()
         {
             RazerHidAvailable = razerHidAvailable,
             NvmlAvailable = true,
@@ -204,6 +234,7 @@ public sealed class TelemetryModelTests
             "GPU-test",
             "00000000:01:00.0"),
             GpuTemperatureSupported = gpuTemperatureSupported,
+            GpuThermalLimits = gpuThermalLimitsKnown ? ReferenceGpuLimits : null,
             PawnIoAvailable = true,
             CpuPackageTemperatureAvailable = true,
             GpuSelectionAmbiguous = gpuSelectionAmbiguous

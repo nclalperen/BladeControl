@@ -312,16 +312,20 @@ public sealed class GradedThermalSafetyTests
 
     // --- Untouched emergency paths ---------------------------------------------------------
 
+    /// <summary>
+    /// GPU heat is now governed by the device's own limits, covered in
+    /// GradedGpuSafetyTests. Here the point is only that the CPU ladder does not depend on it:
+    /// with no GPU limits configured, GPU temperature cannot end the session.
+    /// </summary>
     [TestMethod]
-    public void GpuCriticalStillHandsOffImmediately()
+    public void CpuLadderIsIndependentOfGpuHeatWhenNoGpuLimitsAreConfigured()
     {
         ThermalDecisionEngine engine = NewEngine();
 
-        ThermalDecision decision = engine.Evaluate(
-            Snapshot(50, TelemetryHealthEvaluator.GpuEmergencyTemperatureCelsius, Start),
-            Start);
+        ThermalDecision decision = engine.Evaluate(Snapshot(50, 85, Start), Start);
 
-        Assert.IsTrue(decision.EmergencyAuto, "GPU policy is unchanged by the CPU tiering.");
+        Assert.IsFalse(decision.EmergencyAuto);
+        Assert.IsFalse(engine.IsCriticalCoolingActive);
     }
 
     [TestMethod]

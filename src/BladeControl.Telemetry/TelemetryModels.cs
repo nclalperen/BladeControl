@@ -275,6 +275,14 @@ public sealed class TelemetryCapabilities
 
     public bool GpuTemperatureSupported { get; init; }
 
+    /// <summary>
+    /// Thermal limits discovered from the GPU itself. Null when the device could not report
+    /// them, which disqualifies it for thermal ownership rather than falling back to a guess.
+    /// Discovered once at qualification: these are per-device constants, and nothing on the
+    /// 500 ms telemetry path re-reads them.
+    /// </summary>
+    public GpuThermalLimits? GpuThermalLimits { get; init; }
+
     public bool GpuPowerSupported { get; init; }
 
     public string LibreHardwareMonitorVersion { get; init; } = "unavailable";
@@ -361,8 +369,20 @@ public static class ThermalOwnershipQualifier
             reasons.Add("The selected Razer HID management interface is unavailable.");
         }
 
+        // Without limits reported by the GPU itself there is no safe GPU thermal ladder, and
+        // no threshold worth guessing: the previous hard-coded 80 C turned out to be the
+        // reference part's hardware shutdown temperature. A device that cannot describe its
+        // own limits does not qualify for closed-loop control.
+        bool gpuLimitsKnown = capabilities.GpuThermalLimits is not null;
+        if (!gpuLimitsKnown)
+        {
+            reasons.Add(
+                "GPU thermal limits could not be read from the device, so no GPU safety " +
+                "thresholds can be established.");
+        }
+
         bool ready = cpuProviderProvenanceSafe && cpuHealthy && gpuHealthy &&
-            deterministicGpu && razerAvailable;
+            deterministicGpu && razerAvailable && gpuLimitsKnown;
         if (ready)
         {
             reasons.Add("Authoritative CPU/GPU telemetry and Razer HID are ready.");

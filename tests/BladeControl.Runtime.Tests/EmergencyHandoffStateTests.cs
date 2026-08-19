@@ -1,5 +1,7 @@
+using BladeControl.Razer;
 using BladeControl.Runtime;
 using BladeControl.Telemetry;
+using BladeControl.Thermal;
 
 namespace BladeControl.Runtime.Tests;
 
@@ -133,6 +135,128 @@ public sealed class EmergencyHandoffStateTests
 
         Assert.AreEqual(1, rig.Hardware.AutoAttempts);
         Assert.AreEqual(RuntimeState.EmergencyHandoff, runtime.State);
+    }
+
+    // --- The GPU ladder, driven through the runtime -------------------------------------------
+
+    /// <summary>
+    /// The GPU counterpart of the CPU spike case. 75 C is this device's maximum operating
+    /// temperature, well short of the 80 C at which it shuts itself down, so the answer is
+    /// more cooling rather than surrendering control.
+    /// </summary>
+    [TestMethod]
+    public async Task GpuAtMaxOperatingTemperatureRaisesFansWithoutHandingOff()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        runtime.StartThermalControl();
+
+        rig.Telemetry.FixedGpuTemperature =
+            FakeRuntimeTelemetry.ReferenceGpuLimits.CriticalCoolingCelsius;
+        await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 3);
+
+        Assert.AreEqual(0, rig.Hardware.AutoAttempts);
+        Assert.AreEqual(RuntimeState.Running, runtime.State);
+        CollectionAssert.Contains(
+            rig.Hardware.Operations,
+            $"Set {FanRpm.MaximumValue}",
+            "Maximum cooling, not a handoff.");
+    }
+
+    [TestMethod]
+    public async Task SustainedGpuSlowdownHandsOffAsEmergencyHandoffNotFaulted()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        runtime.StartThermalControl();
+
+        rig.Telemetry.FixedGpuTemperature =
+            FakeRuntimeTelemetry.ReferenceGpuLimits.SustainedEmergencyCelsius;
+        await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 10);
+
+        Assert.AreEqual(1, rig.Hardware.AutoAttempts);
+        Assert.AreEqual(RuntimeState.EmergencyHandoff, runtime.State);
+    }
+
+    /// <summary>
+    /// The old behaviour handed off at a fixed 80 C, which on this device is the hardware
+    /// shutdown point itself. The handoff now happens with a degree of margin instead.
+    /// </summary>
+    [TestMethod]
+    public async Task GpuNearHardwareShutdownHandsOffBeforeReachingIt()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        runtime.StartThermalControl();
+
+        rig.Telemetry.FixedGpuTemperature =
+            FakeRuntimeTelemetry.ReferenceGpuLimits.ImmediateEmergencyCelsius;
+        await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 5);
+
+        Assert.AreEqual(1, rig.Hardware.AutoAttempts);
+        Assert.AreEqual(RuntimeState.EmergencyHandoff, runtime.State);
+        Assert.IsTrue(
+            FakeRuntimeTelemetry.ReferenceGpuLimits.ImmediateEmergencyCelsius <
+                FakeRuntimeTelemetry.ReferenceGpuLimits.HardwareShutdownCelsius,
+            "The handoff must arrive before the GPU's own shutdown point.");
+    }
+
+    /// <summary>
+    /// 74 C used to be indistinguishable from any other reading; it is still ordinary, which
+    /// is the point — the ladder did not simply move the old cliff downward.
+    /// </summary>
+    [TestMethod]
+    public async Task GpuBelowMaxOperatingTemperatureIsOrdinary()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        runtime.StartThermalControl();
+
+        rig.Telemetry.FixedGpuTemperature =
+            FakeRuntimeTelemetry.ReferenceGpuLimits.CriticalCoolingCelsius - 1;
+        await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 10);
+
+        Assert.AreEqual(0, rig.Hardware.AutoAttempts);
+        Assert.AreEqual(RuntimeState.Running, runtime.State);
+    }
+
+    /// <summary>
+    /// Without limits there is no safe threshold to act on, so thermal ownership is refused
+    /// up front rather than falling back to an assumed number.
+    /// </summary>
+    [TestMethod]
+    public async Task StartIsRefusedWhenTheGpuCannotReportItsThermalLimits()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        rig.Telemetry.GpuThermalLimits = null;
+
+        ThermalPreflightException rejection =
+            Assert.ThrowsException<ThermalPreflightException>(runtime.StartThermalControl);
+
+        StringAssert.Contains(rejection.Message, "GPU thermal limits");
+        Assert.AreEqual(RuntimeState.Stopped, runtime.State, "A refusal is not a fault.");
+        Assert.AreEqual(0, rig.Hardware.FanWrites, "No SET may be sent by a refused start.");
+    }
+
+    /// <summary>
+    /// A field report of a handoff should not require guessing what the thresholds were.
+    /// </summary>
+    [TestMethod]
+    public async Task SessionStartRecordsTheThermalLimitsItIsRunningUnder()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        await using BladeRuntime runtime = rig.CreateRuntime();
+        List<string> messages = [];
+        runtime.EventPublished += published => messages.Add(published.Message);
+
+        runtime.StartThermalControl();
+
+        string started = string.Join(" ", messages);
+        StringAssert.Contains(started, "max operating 75 C");
+        StringAssert.Contains(started, "hardware slowdown 77 C");
+        StringAssert.Contains(started, "hardware shutdown 80 C");
+        StringAssert.Contains(started, "NVML device thermal limits");
     }
 
     [TestMethod]

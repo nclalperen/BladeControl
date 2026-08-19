@@ -1,0 +1,152 @@
+namespace BladeControl.Telemetry;
+
+/// <summary>
+/// A GPU thermal signature: an NVML device identity paired with the absolute limits that the
+/// T.Limit derivation was observed to produce for it.
+/// </summary>
+/// <param name="DeviceName">Exact NVML device name, matched ordinally.</param>
+/// <param name="MaxOperatingCelsius">Observed maximum operating temperature.</param>
+/// <param name="HardwareSlowdownCelsius">Observed hardware slowdown temperature.</param>
+/// <param name="HardwareShutdownCelsius">Observed hardware shutdown temperature.</param>
+/// <param name="Evidence">Where and how the signature was established, for the record.</param>
+public sealed record ValidatedGpuThermalSignature(
+    string DeviceName,
+    double MaxOperatingCelsius,
+    double HardwareSlowdownCelsius,
+    double HardwareShutdownCelsius,
+    string Evidence);
+
+/// <summary>
+/// The GPU thermal signatures for which the NVML T.Limit interpretation has been checked
+/// against real hardware.
+/// </summary>
+/// <remarks>
+/// <para><b>What this actually gates on.</b> Two things, both exact: the NVML device name, and
+/// the three absolute limits the derivation produces from that device's T.Limit data. Nothing
+/// else. It does not identify the laptop, the chassis, or the firmware — there is no SMBIOS or
+/// WMI check here and no machine-model requirement.</para>
+/// <para><b>What it therefore validates.</b> The <i>interpretation of the T.Limit data</i>, not
+/// a whole machine. The evidence was collected on a Razer Blade 16 (RZ09-0483), but what was
+/// established there is how this GPU's relative T.Limit values convert to absolute
+/// temperatures. Another chassis carrying the same GPU, whose T.Limit data derives to the same
+/// signature, is running the same interpretation this evidence covers — so it qualifies. A
+/// machine-model gate would be claiming something the evidence does not support in either
+/// direction.</para>
+/// <para><b>Why a signature list rather than a rule.</b> The T.Limit specifications are
+/// relative, so every derived limit depends on what the live margin is anchored to. NVML
+/// documents <c>nvmlDeviceGetMarginTemperature</c> as the distance to the nearest slowdown
+/// threshold; on the reference part it is measurably the distance to the maximum operating
+/// temperature. Those two readings differ by a uniform 2 C and both produce well-ordered,
+/// plausible limit sets, so no amount of internal validation can tell them apart.</para>
+/// <para>Three NVML interfaces were checked for an independent absolute witness that could
+/// settle it on driver 610.88, and none can:</para>
+/// <list type="bullet">
+/// <item><description><c>nvmlDeviceGetTemperatureThreshold</c> returns 105 / 97 / 100 for
+/// GPU_MAX / SLOWDOWN / SHUTDOWN — not the operating thresholds, and not even ordered as an
+/// operating set, since the maximum sits above the shutdown point.</description></item>
+/// <item><description><c>nvmlDeviceGetThermalSettings</c> reports the GPU sensor as
+/// <c>defaultMin 0 / defaultMax 127</c>, a measurement span rather than a limit.</description></item>
+/// <item><description>nvidia-smi's <c>GPU Target Temperature Specification</c> reads 75 C, but
+/// it is a separate quantity that coincides here, so it proves nothing.</description></item>
+/// </list>
+/// <para><b>Failure is closed, and there is no generic Ada fallback.</b> An unrecognised device
+/// name, or a recognised one whose derivation no longer reproduces its signature, yields no GPU
+/// thermal limits at all. That refuses closed-loop thermal ownership and sends no fan write —
+/// it does not fall back to the old fixed 80 C, and it does not lend one GPU's numbers to
+/// another. Guessing the anchor wrong in the unsafe direction would put the pre-shutdown
+/// handoff above the temperature at which the GPU shuts itself down, disabling the ladder
+/// exactly where it is meant to act.</para>
+/// <para>Adding a signature means running <c>bladectl telemetry gpu-thermal-probe</c> on that
+/// hardware, correlating with <c>nvidia-smi -q -d TEMPERATURE</c> in the same window, and
+/// confirming the anchor holds across at least two operating points.</para>
+/// </remarks>
+public static class ValidatedGpuThermalSignatures
+{
+    /// <summary>
+    /// The RTX 4090 Laptop GPU signature.
+    /// </summary>
+    /// <remarks>
+    /// Evidence collected on a Razer Blade 16 (RZ09-0483), NVIDIA driver 610.88. The anchor was
+    /// confirmed at four operating points, each resolving to the same reference temperature:
+    /// <code>
+    /// core 66 C + margin  9 = 75
+    /// core 47 C + margin 28 = 75
+    /// core 46 C + margin 29 = 75
+    /// core 44 C + margin 31 = 75
+    /// </code>
+    /// with static specifications GPU_MAX 0, SLOWDOWN -2, SHUTDOWN -5 throughout, matching
+    /// nvidia-smi in the same time window.
+    /// </remarks>
+    public static ValidatedGpuThermalSignature Rtx4090Laptop { get; } = new(
+        "NVIDIA GeForce RTX 4090 Laptop GPU",
+        MaxOperatingCelsius: 75,
+        HardwareSlowdownCelsius: 77,
+        HardwareShutdownCelsius: 80,
+        Evidence:
+            "T.Limit anchor confirmed at four operating points against nvidia-smi on a " +
+            "Razer Blade 16 RZ09-0483, NVIDIA driver 610.88");
+
+    public static IReadOnlyList<ValidatedGpuThermalSignature> All { get; } = [Rtx4090Laptop];
+
+    /// <summary>
+    /// Confirms that a derived limit set matches a signature whose T.Limit interpretation has
+    /// been validated.
+    /// </summary>
+    /// <remarks>
+    /// <para>Both halves are load-bearing. The device name alone would accept a same-model GPU
+    /// whose vBIOS reports different limits. The derived values alone would accept any device
+    /// that happened to land on the same numbers by a different route. Requiring both means a
+    /// match says: this is the identity whose T.Limit data was decoded by hand, and it is still
+    /// decoding to what was observed.</para>
+    /// <para>Exact equality, no tolerance. Both sides are integral, so a disagreement of even
+    /// one degree means something changed — a driver revision, a different vBIOS, a shifted
+    /// anchor — and that is precisely the case to refuse rather than round away.</para>
+    /// </remarks>
+    public static bool TryMatch(
+        string? deviceName,
+        GpuThermalLimits derived,
+        out ValidatedGpuThermalSignature? signature,
+        out string? rejection)
+    {
+        ArgumentNullException.ThrowIfNull(derived);
+        signature = null;
+
+        if (string.IsNullOrWhiteSpace(deviceName))
+        {
+            rejection =
+                "The GPU did not report a device name, so its thermal limit interpretation " +
+                "cannot be matched against a validated signature.";
+            return false;
+        }
+
+        ValidatedGpuThermalSignature? candidate = All.FirstOrDefault(
+            entry => entry.DeviceName.Equals(deviceName, StringComparison.Ordinal));
+        if (candidate is null)
+        {
+            rejection =
+                $"GPU \"{deviceName}\" has no validated thermal signature. The relative " +
+                "T.Limit specifications cannot be converted to absolute temperatures without " +
+                "knowing what the live margin is measured against, and no NVML interface on " +
+                "this driver reports that independently.";
+            return false;
+        }
+
+        if (derived.MaxOperatingCelsius != candidate.MaxOperatingCelsius ||
+            derived.HardwareSlowdownCelsius != candidate.HardwareSlowdownCelsius ||
+            derived.HardwareShutdownCelsius != candidate.HardwareShutdownCelsius)
+        {
+            rejection =
+                $"GPU \"{deviceName}\" derived thermal limits " +
+                $"({derived.MaxOperatingCelsius:F0}/{derived.HardwareSlowdownCelsius:F0}/" +
+                $"{derived.HardwareShutdownCelsius:F0} C) do not match its validated signature " +
+                $"({candidate.MaxOperatingCelsius:F0}/{candidate.HardwareSlowdownCelsius:F0}/" +
+                $"{candidate.HardwareShutdownCelsius:F0} C). The device is no longer behaving " +
+                "as it did when its T.Limit data was interpreted.";
+            return false;
+        }
+
+        signature = candidate;
+        rejection = null;
+        return true;
+    }
+}

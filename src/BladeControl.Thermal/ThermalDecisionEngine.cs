@@ -40,6 +40,12 @@ public sealed record ThermalPolicy
     /// released back to the normal curve.
     /// </summary>
     public int CriticalCoolingRecoverySamples { get; init; } = 3;
+
+    /// <summary>
+    /// Device-discovered GPU thermal limits. Null means the GPU could not be qualified, which
+    /// is refused at start rather than papered over with an assumed threshold.
+    /// </summary>
+    public GpuThermalLimits? GpuLimits { get; init; }
 }
 
 public sealed record ThermalDecision(
@@ -77,7 +83,10 @@ public sealed class ThermalDecisionEngine
     private int _invalidSamples;
     private int _sustainedEmergencySamples;
     private int _criticalRecoverySamples;
-    private bool _criticalCoolingActive;
+    private bool _cpuCriticalCoolingActive;
+    private int _gpuSustainedEmergencySamples;
+    private int _gpuCriticalRecoverySamples;
+    private bool _gpuCriticalCoolingActive;
     private bool _initialized;
     private bool _emergencyStopped;
     private long _sequence;
@@ -94,9 +103,21 @@ public sealed class ThermalDecisionEngine
 
     /// <summary>
     /// True while the critical cooling override holds the fans at the validated maximum,
-    /// overriding the curve. Exposed for diagnostics and tests.
+    /// overriding the curve.
     /// </summary>
-    public bool IsCriticalCoolingActive => _criticalCoolingActive;
+    /// <remarks>
+    /// Composed: either sensor alone can demand maximum cooling, and it is released only when
+    /// <b>both</b> have individually recovered. One sensor cooling down must never withdraw
+    /// cooling the other still needs.
+    /// </remarks>
+    public bool IsCriticalCoolingActive =>
+        _cpuCriticalCoolingActive || _gpuCriticalCoolingActive;
+
+    /// <summary>True while the CPU ladder alone demands maximum cooling.</summary>
+    public bool IsCpuCriticalCoolingActive => _cpuCriticalCoolingActive;
+
+    /// <summary>True while the GPU ladder alone demands maximum cooling.</summary>
+    public bool IsGpuCriticalCoolingActive => _gpuCriticalCoolingActive;
 
     public void InitializeBaseline(DateTimeOffset timestamp)
     {
@@ -128,10 +149,18 @@ public sealed class ThermalDecisionEngine
         double cpuTemperature = snapshot.CpuPackageTemperatureCelsius.Value!.Value;
         double gpuTemperature = snapshot.GpuTemperatureCelsius.Value!.Value;
 
+        // Either sensor can demand cooling or end the session. Both ladders are advanced every
+        // sample so neither can be starved by the other reaching its threshold first.
         ThermalDecision? emergency = EvaluateCpuThermalSeverity(cpuTemperature, now);
+        ThermalDecision? gpuEmergency = EvaluateGpuThermalSeverity(gpuTemperature, now);
         if (emergency is not null)
         {
             return emergency;
+        }
+
+        if (gpuEmergency is not null)
+        {
+            return gpuEmergency;
         }
 
         FanRpm cpuTarget = _profile.CpuCurve.Evaluate(cpuTemperature);
@@ -145,7 +174,7 @@ public sealed class ThermalDecisionEngine
         FanRpm effective;
         string reason;
         bool canWrite;
-        if (_criticalCoolingActive)
+        if (IsCriticalCoolingActive)
         {
             // Safety override. The curve, the 3 C hysteresis, the three-sample downward
             // qualification and the 300 RPM/s slew limit all exist to keep ordinary fan
@@ -157,10 +186,7 @@ public sealed class ThermalDecisionEngine
             _lowerSamples = 0;
             effective = new FanRpm(FanRpm.MaximumValue);
             requested = effective;
-            reason = $"Critical cooling override: CPU Package {cpuTemperature:F1} C at or " +
-                $"above {TelemetryHealthEvaluator.CpuCriticalCoolingTemperatureCelsius:F0} C; " +
-                $"holding {FanRpm.MaximumValue} RPM until " +
-                $"{TelemetryHealthEvaluator.CpuCriticalCoolingRecoveryTemperatureCelsius:F0} C.";
+            reason = DescribeCriticalOverride(cpuTemperature, gpuTemperature);
             canWrite = effective != _writtenTarget;
         }
         else
@@ -360,12 +386,12 @@ public sealed class ThermalDecisionEngine
     {
         if (cpuTemperature >= TelemetryHealthEvaluator.CpuCriticalCoolingTemperatureCelsius)
         {
-            _criticalCoolingActive = true;
+            _cpuCriticalCoolingActive = true;
             _criticalRecoverySamples = 0;
             return;
         }
 
-        if (!_criticalCoolingActive)
+        if (!_cpuCriticalCoolingActive)
         {
             return;
         }
@@ -380,9 +406,102 @@ public sealed class ThermalDecisionEngine
 
         if (++_criticalRecoverySamples >= _policy.CriticalCoolingRecoverySamples)
         {
-            _criticalCoolingActive = false;
+            _cpuCriticalCoolingActive = false;
             _criticalRecoverySamples = 0;
         }
+    }
+
+    /// <summary>
+    /// Advances the graded GPU thermal-safety ladder using the device's own discovered limits.
+    /// </summary>
+    /// <remarks>
+    /// Without limits there is no ladder and no safe assumption to fall back on, so the start
+    /// path refuses to qualify the device rather than inventing a threshold here.
+    /// </remarks>
+    private ThermalDecision? EvaluateGpuThermalSeverity(double gpuTemperature, DateTimeOffset now)
+    {
+        if (_policy.GpuLimits is not { } limits)
+        {
+            return null;
+        }
+
+        GpuThermalSeverity severity =
+            TelemetryHealthEvaluator.ClassifyGpuThermalSeverity(gpuTemperature, limits);
+
+        // Within the policy margin of the temperature at which the GPU shuts itself down.
+        // Waiting any longer would mean racing the hardware's own protection.
+        if (severity == GpuThermalSeverity.ImmediateEmergency)
+        {
+            return EmergencyDecision(
+                $"GPU core temperature reached {gpuTemperature:F1} C, within " +
+                $"{GpuThermalLimits.PreShutdownPolicyMarginCelsius:F0} C of the " +
+                $"{limits.HardwareShutdownCelsius:F0} C hardware shutdown limit.",
+                now);
+        }
+
+        if (severity == GpuThermalSeverity.SustainedEmergency)
+        {
+            _gpuSustainedEmergencySamples++;
+            if (_gpuSustainedEmergencySamples >= _policy.SustainedEmergencySamples)
+            {
+                return EmergencyDecision(
+                    $"GPU core temperature held at or above the " +
+                    $"{limits.HardwareSlowdownCelsius:F0} C hardware slowdown limit for " +
+                    $"{_gpuSustainedEmergencySamples} consecutive samples " +
+                    $"(latest {gpuTemperature:F1} C).",
+                    now);
+            }
+        }
+        else
+        {
+            _gpuSustainedEmergencySamples = 0;
+        }
+
+        UpdateGpuCriticalCoolingOverride(gpuTemperature, limits);
+        return null;
+    }
+
+    private void UpdateGpuCriticalCoolingOverride(double gpuTemperature, GpuThermalLimits limits)
+    {
+        if (gpuTemperature >= limits.CriticalCoolingCelsius)
+        {
+            _gpuCriticalCoolingActive = true;
+            _gpuCriticalRecoverySamples = 0;
+            return;
+        }
+
+        if (!_gpuCriticalCoolingActive)
+        {
+            return;
+        }
+
+        if (gpuTemperature > limits.CriticalRecoveryCelsius)
+        {
+            // Between recovery and entry: hold. This is the band that would otherwise chatter.
+            _gpuCriticalRecoverySamples = 0;
+            return;
+        }
+
+        if (++_gpuCriticalRecoverySamples >= _policy.CriticalCoolingRecoverySamples)
+        {
+            _gpuCriticalCoolingActive = false;
+            _gpuCriticalRecoverySamples = 0;
+        }
+    }
+
+    /// <summary>Names whichever sensor or sensors are holding maximum cooling.</summary>
+    private string DescribeCriticalOverride(double cpuTemperature, double gpuTemperature)
+    {
+        string who = (_cpuCriticalCoolingActive, _gpuCriticalCoolingActive) switch
+        {
+            (true, true) =>
+                $"CPU Package {cpuTemperature:F1} C and GPU core {gpuTemperature:F1} C",
+            (true, false) => $"CPU Package {cpuTemperature:F1} C",
+            _ => $"GPU core {gpuTemperature:F1} C"
+        };
+
+        return $"Critical cooling override: {who} at or above the critical threshold; " +
+            $"holding {FanRpm.MaximumValue} RPM until every critical sensor recovers.";
     }
 
     private ThermalDecision EmergencyDecision(string reason, DateTimeOffset now)

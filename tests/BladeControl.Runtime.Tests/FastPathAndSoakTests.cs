@@ -141,6 +141,8 @@ public sealed class FastPathAndSoakTests
         {
             if (sample >= 10)
             {
+                // 80 C is the reference hardware shutdown limit, so this is well past the
+                // pre-shutdown handoff point on the discovered ladder.
                 rig.Telemetry.FixedGpuTemperature = 80;
             }
         };

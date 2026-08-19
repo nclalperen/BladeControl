@@ -262,10 +262,17 @@ public sealed class BladeRuntime : IAsyncDisposable
 
             try
             {
+                // The GPU ladder is built from limits the device reported at qualification.
+                // Passing them per-session keeps the engine free of provider concerns and
+                // keeps discovery off the telemetry path.
                 _controller = new ThermalRuntimeController(
                     _telemetryAdapter,
                     _hardware,
                     _profile,
+                    policy: new ThermalPolicy
+                    {
+                        GpuLimits = _controlTelemetry.Capabilities.GpuThermalLimits
+                    },
                     clock: new ThermalClockAdapter(_clock));
                 _controller.Start();
                 _currentTarget = ThermalCurve.MinimumDynamicRpm;
@@ -276,10 +283,15 @@ public sealed class BladeRuntime : IAsyncDisposable
                     _state = RuntimeState.Running;
                 }
 
+                // Record which GPU thermal limits the session is running under. When a handoff
+                // is later reported from the field, the event log says what the thresholds
+                // were rather than leaving them to be inferred.
+                GpuThermalLimits? gpuLimits = _controlTelemetry.Capabilities.GpuThermalLimits;
                 AddEvent((sequence, timestamp) => new SessionStartedEvent(
                     sequence,
                     timestamp,
-                    "Thermal session started with fast telemetry and deadline scheduling.",
+                    "Thermal session started with fast telemetry and deadline scheduling. " +
+                    $"GPU thermal limits: {gpuLimits?.Describe() ?? "unavailable"}.",
                     _sessionId!.Value));
             }
             catch (ThermalPreflightException exception)

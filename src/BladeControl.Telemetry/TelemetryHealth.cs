@@ -56,6 +56,15 @@ public static class TelemetryHealthEvaluator
     /// </remarks>
     public const double CpuEmergencyTemperatureCelsius = 90;
 
+    /// <summary>
+    /// GPU temperature at or above which closed-loop control refuses to <i>start</i>.
+    /// </summary>
+    /// <remarks>
+    /// Entry gate only, and deliberately conservative: on the reference part this is the
+    /// hardware shutdown temperature, so a machine already there has no business starting a
+    /// new thermal session. Once running, the graded ladder built from device-discovered
+    /// limits governs instead — see <see cref="ClassifyGpuThermalSeverity"/>.
+    /// </remarks>
     public const double GpuEmergencyTemperatureCelsius = 80;
 
     /// <summary>CPU temperature at which the running loop demands maximum cooling.</summary>
@@ -135,7 +144,7 @@ public static class TelemetryHealthEvaluator
             return cpu;
         }
 
-        TelemetryHealth gpu = EvaluateRequiredGpuTemperature(
+        TelemetryHealth gpu = EvaluateGpuTemperatureIntegrity(
             snapshot.GpuTemperatureCelsius,
             now);
         if (!gpu.IsHealthy)
@@ -144,6 +153,43 @@ public static class TelemetryHealthEvaluator
         }
 
         return new TelemetryHealth(TelemetryHealthKind.Healthy, "Required telemetry is healthy.");
+    }
+
+    /// <summary>
+    /// Presence, plausibility and freshness of the GPU reading, with no opinion about heat.
+    /// </summary>
+    /// <remarks>
+    /// The fixed 80 C GPU emergency it replaces on this path was, on the reference RTX 4090
+    /// Laptop GPU, the temperature at which the hardware shuts itself down. Treating that as
+    /// the software handoff meant no cooling response and no margin. The running loop now uses
+    /// device-discovered limits; the preflight gate below keeps its conservative fixed bar.
+    /// </remarks>
+    public static TelemetryHealth EvaluateGpuTemperatureIntegrity(
+        TelemetryMetric<double> metric,
+        DateTimeOffset now) => EvaluateRequiredTemperature(metric, now, "GPU core");
+
+    /// <summary>
+    /// Places a valid GPU reading on the graded ladder defined by the device's own limits.
+    /// </summary>
+    public static GpuThermalSeverity ClassifyGpuThermalSeverity(
+        double celsius,
+        GpuThermalLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+
+        if (celsius >= limits.ImmediateEmergencyCelsius)
+        {
+            return GpuThermalSeverity.ImmediateEmergency;
+        }
+
+        if (celsius >= limits.SustainedEmergencyCelsius)
+        {
+            return GpuThermalSeverity.SustainedEmergency;
+        }
+
+        return celsius >= limits.CriticalCoolingCelsius
+            ? GpuThermalSeverity.CriticalCooling
+            : GpuThermalSeverity.Normal;
     }
 
     /// <summary>

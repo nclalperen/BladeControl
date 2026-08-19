@@ -48,6 +48,11 @@ internal static partial class Program
             return ParseAndRunTelemetryMonitor(args.Skip(1).ToArray());
         }
 
+        if (subcommand.Equals("gpu-thermal-probe", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunGpuThermalProbe();
+        }
+
         Console.Error.WriteLine($"Unknown telemetry subcommand: {subcommand}");
         PrintUsage();
         return 2;
@@ -89,6 +94,7 @@ internal static partial class Program
             Console.WriteLine($"Selected NVIDIA GPU          {FormatGpu(capabilities.SelectedGpu)}");
             Console.WriteLine($"GPU temperature              {Support(capabilities.GpuTemperatureSupported)}");
             Console.WriteLine($"GPU power                    {Support(capabilities.GpuPowerSupported)}");
+            Console.WriteLine($"GPU thermal limits           {DescribeGpuThermalLimits(capabilities.GpuThermalLimits)}");
             Console.WriteLine($"LibreHardwareMonitor version {capabilities.LibreHardwareMonitorVersion}");
             Console.WriteLine($"PawnIO                       {Availability(capabilities.PawnIoAvailable)}");
             Console.WriteLine($"PawnIO version               {telemetry.PawnIoProvenance.Version}");
@@ -706,6 +712,7 @@ internal static partial class Program
         PrintMetric("  Memory clock", snapshot.GpuMemoryClockMegahertz, "MHz", verbose);
         PrintMemoryMetric("  VRAM used", snapshot.GpuVramUsedBytes, verbose);
         PrintMemoryMetric("  VRAM total", snapshot.GpuVramTotalBytes, verbose);
+        PrintGpuThermalLimits(capabilities.GpuThermalLimits);
 
         if (snapshot.RazerFirmwareState is not null)
         {
@@ -733,6 +740,48 @@ internal static partial class Program
             Console.WriteLine($"Warning: {warning}");
         }
     }
+
+    /// <summary>
+    /// Prints the GPU thermal limits the safety ladder is built from, separating what the
+    /// device reported from what BladeControl decided to do about it.
+    /// </summary>
+    /// <remarks>
+    /// The distinction matters: NVML reports the shutdown temperature, but the decision to
+    /// hand off a degree early is ours. Labelling a policy margin as a device specification
+    /// would misrepresent the hardware.
+    /// </remarks>
+    private static void PrintGpuThermalLimits(GpuThermalLimits? limits)
+    {
+        Console.WriteLine();
+        Console.WriteLine("GPU thermal limits");
+        if (limits is null)
+        {
+            Console.WriteLine("  Status              unavailable");
+            Console.WriteLine(
+                "  Effect              closed-loop thermal control will not qualify; " +
+                "no threshold is assumed");
+            return;
+        }
+
+        Console.WriteLine($"  Max operating       {limits.MaxOperatingCelsius,3:F0} C   device specification");
+        Console.WriteLine($"  HW slowdown         {limits.HardwareSlowdownCelsius,3:F0} C   device specification");
+        Console.WriteLine($"  HW shutdown         {limits.HardwareShutdownCelsius,3:F0} C   device specification");
+        Console.WriteLine($"  Maximum cooling at  {limits.CriticalCoolingCelsius,3:F0} C   BladeControl action");
+        Console.WriteLine(
+            $"  Release cooling at  {limits.CriticalRecoveryCelsius,3:F0} C   BladeControl policy " +
+            $"({GpuThermalLimits.CriticalRecoveryPolicyMarginCelsius:F0} C hysteresis, 3 samples)");
+        Console.WriteLine($"  Sustained handoff   {limits.SustainedEmergencyCelsius,3:F0} C   BladeControl action (3 samples)");
+        Console.WriteLine(
+            $"  Immediate handoff   {limits.ImmediateEmergencyCelsius,3:F0} C   BladeControl policy " +
+            $"({GpuThermalLimits.PreShutdownPolicyMarginCelsius:F0} C pre-shutdown margin)");
+        Console.WriteLine($"  Source              {limits.DescribeSource()}");
+    }
+
+    /// <summary>One-line form for the doctor summary.</summary>
+    private static string DescribeGpuThermalLimits(GpuThermalLimits? limits) =>
+        limits is null
+            ? "unavailable (thermal control will not qualify)"
+            : limits.Describe();
 
     private static void PrintMetric(
         string label,
