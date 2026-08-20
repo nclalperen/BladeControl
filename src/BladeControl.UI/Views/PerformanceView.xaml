@@ -1,4 +1,4 @@
-<UserControl x:Class="BladeControl.UI.Views.PerformanceView"
+﻿<UserControl x:Class="BladeControl.UI.Views.PerformanceView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
@@ -81,7 +81,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="CURRENT POLICY" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding CurrentSummary}" Margin="0,9,0,0" FontSize="23" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding CurrentSummary}" Margin="0,9,0,0" FontSize="23" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock Margin="{StaticResource LabelValueMargin}" FontSize="11.5">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
@@ -180,7 +180,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="PENDING" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="{Binding PendingSummary}" Margin="{StaticResource LabelValueMargin}" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding PendingSummary}" Margin="{StaticResource LabelValueMargin}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock Text="{Binding ApplyBlockedReason}"
                                    Margin="0,5,18,0"
                                    Foreground="{StaticResource WarningBrush}"

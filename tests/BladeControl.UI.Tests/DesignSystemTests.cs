@@ -203,6 +203,53 @@ public sealed class DesignSystemTests
         return pixels;
     }
 
+    /// <summary>
+    /// The caption style wraps, because captions carry the qualifying prose.
+    /// </summary>
+    /// <remarks>
+    /// Captions are where every surface explains what a reading means and why a control is
+    /// unavailable — including the sentence saying a fan value is a command rather than a
+    /// tachometer reading. None of the text styles set TextWrapping, so those sentences were
+    /// clipped at the panel edge, and a clipped qualifier reads as a stronger claim than the
+    /// full one. Eyebrows and metrics are excluded deliberately: short labels and single values
+    /// are broken by wrapping, not saved by it.
+    /// </remarks>
+    [TestMethod]
+    public void CaptionTextWrapsAndShortLabelStylesDoNot()
+    {
+        ResourceDictionary theme = LoadTheme();
+
+        var caption = (Style)theme["CaptionTextStyle"];
+        Assert.AreEqual(
+            TextWrapping.Wrap,
+            Setter(caption, TextBlock.TextWrappingProperty),
+            "Caption prose must wrap rather than clip.");
+
+        foreach (string key in new[] { "EyebrowTextStyle", "MetricTextStyle" })
+        {
+            Assert.IsNull(
+                Setter((Style)theme[key], TextBlock.TextWrappingProperty),
+                $"{key} labels a single short value and must not wrap.");
+        }
+    }
+
+    /// <summary>The value a style sets for a property, or null if it sets none.</summary>
+    private static object? Setter(Style style, DependencyProperty property)
+    {
+        for (Style? current = style; current is not null; current = current.BasedOn)
+        {
+            foreach (SetterBase entry in current.Setters)
+            {
+                if (entry is Setter setter && setter.Property == property)
+                {
+                    return setter.Value;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static ResourceDictionary LoadTheme()
     {
         // These tests load the theme without constructing an Application (only one may

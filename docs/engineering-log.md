@@ -555,3 +555,17 @@ session ran" was allowed to mean "nothing to report about the runtime."
 The recovery was validated live once, on an idle machine, and the reporting fixes are pinned by
 unit tests rather than by a second crash. Re-killing the service to re-read a corrected string
 is not worth another uncontrolled window; the fixes are behavioural and covered.
+
+## Caption prose was being clipped
+
+None of the shared text styles set `TextWrapping`, and `CaptionTextStyle` is where every
+surface puts its qualifying prose — what a reading means, why a control is unavailable, which
+values are commands rather than measurements. Six blocks of explanatory text were clipping at
+the panel edge, including the sentence on the Fans page saying fan values are commands and not
+tachometer readings.
+
+A clipped qualifier is worse than no qualifier: "Values are commands, not physical" reads as a
+stronger claim than the full sentence, and the half that got cut is the half doing the work.
+Fixed at the style rather than per call site, so the four caption-styled blocks and the two
+performance summaries are covered together. Eyebrows and metrics are deliberately excluded —
+short labels and single values are broken by wrapping, not saved by it.
