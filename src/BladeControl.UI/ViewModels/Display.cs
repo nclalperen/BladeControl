@@ -75,11 +75,25 @@ public static class Display
     public static StatusTone BooleanTone(bool value) => value ? StatusTone.Good : StatusTone.Danger;
 
     /// <summary>Tone for a Runtime Core state name.</summary>
+    /// <summary>
+    /// Runtime state colouring, which distinguishes protection working from protection failing.
+    /// </summary>
+    /// <remarks>
+    /// <para>EmergencyHandoff is <see cref="StatusTone.Warning"/>, not Danger. The runtime
+    /// reaches that state only after firmware Auto has been established and verified — cooling
+    /// is safely with the firmware and the machine is fine. It warrants attention because a
+    /// thermal event occurred and the session will not resume by itself, which is what Warning
+    /// means.</para>
+    /// <para>Faulted keeps Danger. That is the state where the handoff could <i>not</i> be
+    /// established, so who owns cooling is genuinely uncertain. The runtime went to the trouble
+    /// of separating these two outcomes; painting them the same colour throws that away and
+    /// tells a user their machine is broken when the safety system just did its job.</para>
+    /// </remarks>
     public static StatusTone RuntimeStateTone(string? state) => state switch
     {
         "Running" => StatusTone.Good,
         "Starting" or "Stopping" => StatusTone.Warning,
-        "EmergencyHandoff" => StatusTone.Danger,
+        "EmergencyHandoff" => StatusTone.Warning,
         "Faulted" => StatusTone.Danger,
         "Stopped" => StatusTone.Neutral,
         _ => StatusTone.Muted
@@ -91,7 +105,11 @@ public static class Display
         "Starting" => "Acquiring hardware ownership.",
         "Running" => "Runtime Core owns cooling.",
         "Stopping" => "Handing cooling back to firmware.",
-        "EmergencyHandoff" => "Emergency handoff to firmware Auto in progress.",
+        // Not "in progress": the runtime only reports this state once the handoff is done and
+        // verified. Describing a completed, successful safety action as ongoing reads like the
+        // machine is still in trouble when it is already safe.
+        "EmergencyHandoff" =>
+            "Firmware Auto owns cooling after a thermal emergency. Restart to resume.",
         "Faulted" => "Runtime Core faulted; check Diagnostics.",
         _ => "Unknown runtime state."
     };

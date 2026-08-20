@@ -736,15 +736,37 @@ public sealed class BladeRuntime : IAsyncDisposable
     private static TimeSpan Positive(TimeSpan value) =>
         value > TimeSpan.Zero ? value : TimeSpan.Zero;
 
-    private static string DescribeSchedulerHealth(SchedulerMetrics metrics) =>
-        metrics.SlowCycleCount == 0
-            ? metrics.CatchUpCycleCount == 0
-                ? "Healthy"
-                : $"Healthy: {metrics.CatchUpCycleCount} late starts, no slow cycles."
-            : $"Degraded: {metrics.SlowCycleCount} slow cycles " +
-                $"(max {metrics.MaximumCycleExecutionDuration.TotalMilliseconds:F0} ms), " +
-                $"{metrics.CatchUpCycleCount} catch-up cycles, " +
-                $"{metrics.MissedDeadlinePeriods} missed periods.";
+    /// <summary>
+    /// Health judged on recent behaviour, with the session totals reported alongside it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Health used to be derived from cumulative counts, so a single slow cycle early in
+    /// a session left the runtime reading "Degraded" for as long as it ran. That is a true
+    /// statement about the session's history and a useless one about its present state — an
+    /// operator asking "is it coping now" got an answer about an hour ago.</para>
+    /// <para>The verdict now comes from slow cycles inside the rolling window. The lifetime
+    /// totals are still printed, because "none recently, 13 in this session" is a more useful
+    /// sentence than either half alone.</para>
+    /// </remarks>
+    private static string DescribeSchedulerHealth(SchedulerMetrics metrics)
+    {
+        if (metrics.RecentWindowSize == 0)
+        {
+            return metrics.CompletedCycles == 0
+                ? "No session has run."
+                : "Healthy";
+        }
+
+        string history = metrics.SlowCycleCount == 0
+            ? "none this session"
+            : $"{metrics.SlowCycleCount} this session, " +
+                $"max {metrics.MaximumCycleExecutionDuration.TotalMilliseconds:F0} ms";
+
+        return metrics.RecentSlowCycleCount == 0
+            ? $"Healthy: no slow cycles in the last {metrics.RecentWindowSize} ({history})."
+            : $"Degraded: {metrics.RecentSlowCycleCount} slow cycles in the last " +
+                $"{metrics.RecentWindowSize} ({history}).";
+    }
 
     private TimeSpan WatchdogObservationFreshness => _controlPeriod;
 

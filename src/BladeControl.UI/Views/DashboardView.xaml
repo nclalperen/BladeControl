@@ -169,7 +169,8 @@
                                 <TextBlock Text="{Binding FirmwareFanMode}" Margin="{StaticResource MetricValueMargin}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="REPORTED FAN STATE" Style="{StaticResource EyebrowTextStyle}" />
+                                <TextBlock Text="REPORTED FAN STATE" Style="{StaticResource EyebrowTextStyle}"
+                                           ToolTip="Firmware-reported value (Razer 0x0D81): the commanded target echoed back. This hardware exposes no fan tachometer through any available interface, so actual fan speed is not measured and is not shown." />
                                 <TextBlock Margin="{StaticResource MetricValueMargin}">
                                     <Run Text="1 · " /><Run Text="{Binding FirmwareFan1Value, Mode=OneWay}" /><Run Text="   2 · " /><Run Text="{Binding FirmwareFan2Value, Mode=OneWay}" />
                                 </TextBlock>

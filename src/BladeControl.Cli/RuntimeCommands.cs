@@ -220,6 +220,17 @@ internal static partial class Program
         }
 
         output.WriteLine();
+
+        // A runtime that has never run a session has no scheduler history, and a table of
+        // zeros under a "Healthy" heading is absence dressed as measurement — the same defect
+        // as rendering an unreported metric as zero. Say there is nothing yet instead.
+        if (status.Scheduler.CompletedCycles == 0)
+        {
+            output.WriteLine("Scheduler statistics");
+            output.WriteLine("  No session has run since the runtime started.");
+            return;
+        }
+
         output.WriteLine($"{sessionPrefix} scheduler statistics");
         output.WriteLine($"  Health                 {status.SchedulerHealth}");
         output.WriteLine($"  Completed cycles       {status.Scheduler.CompletedCycles}");

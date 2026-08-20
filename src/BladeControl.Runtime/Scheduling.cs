@@ -111,6 +111,26 @@ public sealed class RollingDurationWindow
         return TimeSpan.FromTicks(sorted[Math.Clamp(rank - 1, 0, _count - 1)]);
     }
 
+    /// <summary>How many observations in the current window exceed a threshold.</summary>
+    /// <remarks>
+    /// Lets "how is this behaving lately" be answered from the window that is already kept,
+    /// without a second counter to maintain. A cumulative total cannot answer it: one slow
+    /// cycle an hour ago would report the machine as degraded forever.
+    /// </remarks>
+    public int CountAbove(TimeSpan threshold)
+    {
+        int above = 0;
+        for (int index = 0; index < _count; index++)
+        {
+            if (_ticks[index] > threshold.Ticks)
+            {
+                above++;
+            }
+        }
+
+        return above;
+    }
+
     public void Reset()
     {
         _count = 0;
@@ -184,6 +204,12 @@ public sealed record DurationStatistics(
 /// a runtime older than this field carries none, and a diagnostic tool must degrade rather than
 /// crash during exactly the upgrade window where it is most needed.
 /// </param>
+/// <param name="RecentSlowCycleCount">
+/// Slow cycles within the rolling window, not since the session began. Health is judged on
+/// this: a cumulative count reports a machine as degraded forever because of one slow cycle
+/// hours ago, which tells an operator nothing about now.
+/// </param>
+/// <param name="RecentWindowSize">How many cycles the recent counts are drawn from.</param>
 /// <param name="SkippedDeadlines">
 /// Always zero. The loop never skips an iteration: deadlines advance absolutely and a late loop
 /// runs back to back until it catches up. Retained as an explicitly defined zero rather than
@@ -202,6 +228,8 @@ public sealed record SchedulerMetrics(
     TimeSpan MaximumCycleExecutionDuration,
     TimeSpan MaximumDeadlineLateness,
     DurationStatistics? CycleExecution,
+    int RecentSlowCycleCount = 0,
+    int RecentWindowSize = 0,
     long SkippedDeadlines = 0)
 {
     /// <summary>
@@ -339,7 +367,9 @@ public sealed class DeadlineScheduler
                 missedPeriods,
                 maximumExecution,
                 maximumLateness,
-                DurationStatistics.From(_cycleExecution));
+                DurationStatistics.From(_cycleExecution),
+                _cycleExecution.CountAbove(_period),
+                _cycleExecution.Count);
             if (slow)
             {
                 CycleOverrun?.Invoke(context, duration - _period);

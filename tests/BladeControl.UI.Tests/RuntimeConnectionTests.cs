@@ -192,14 +192,28 @@ public sealed class RuntimeConnectionTests
         Assert.AreEqual(1, client.PerformanceRequests.Count);
     }
 
+    /// <summary>
+    /// Both states raise a prominent alert and permit a stop, but they are not the same event
+    /// and are no longer coloured the same.
+    /// </summary>
+    /// <remarks>
+    /// EmergencyHandoff is reached only after firmware Auto has been established and verified:
+    /// cooling is safely with the firmware and the machine is fine. It warrants attention — a
+    /// thermal event happened and the session will not resume by itself — which is Warning.
+    /// Faulted is the state where the handoff could not be established, so ownership is
+    /// genuinely uncertain, and that stays Danger. The runtime separates these two outcomes
+    /// deliberately; painting them identically told a user their machine was broken when the
+    /// safety system had just done its job.
+    /// </remarks>
     [DataTestMethod]
-    [DataRow("Faulted", "CPU sensor failed", null, "CPU sensor failed")]
-    [DataRow("EmergencyHandoff", null, "Firmware Auto handoff verified", "Emergency handoff")]
+    [DataRow("Faulted", "CPU sensor failed", null, "CPU sensor failed", StatusTone.Danger)]
+    [DataRow("EmergencyHandoff", null, "Firmware Auto handoff verified", "Emergency handoff", StatusTone.Warning)]
     public async Task FaultAndEmergencyStatesRenderProminentAlertsAndPermitStop(
         string state,
         string? failure,
         string? emergency,
-        string expectedAlert)
+        string expectedAlert,
+        StatusTone expectedTone)
     {
         var client = new FakeRuntimeUiClient
         {
@@ -219,7 +233,7 @@ public sealed class RuntimeConnectionTests
 
         Assert.IsTrue(dashboard.HasRuntimeAlert);
         StringAssert.Contains(dashboard.RuntimeAlert!, expectedAlert);
-        Assert.AreEqual(StatusTone.Danger, dashboard.RuntimeStateTone);
+        Assert.AreEqual(expectedTone, dashboard.RuntimeStateTone);
         Assert.IsTrue(connection.CanStopThermalControl);
         Assert.IsFalse(connection.CanApplyStaticProfile);
     }

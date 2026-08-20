@@ -721,13 +721,30 @@ public sealed class DiagnosticsViewModel : PageViewModel
         ]);
 
         SchedulerMetrics? metrics = status?.Scheduler;
+
+        // Nothing has run yet: a table of zeros under a health verdict presents absence as
+        // measurement. One honest line is more informative than eleven misleading ones.
+        if (metrics is null || metrics.CompletedCycles == 0)
+        {
+            Scheduler.Title = "Scheduler";
+            Scheduler.Replace(
+            [
+                new DiagnosticItem(
+                    "History",
+                    "No session yet",
+                    "The runtime has not run a thermal session since it started.",
+                    StatusTone.Muted)
+            ]);
+            return;
+        }
+
         Scheduler.Replace(
         [
             new DiagnosticItem(
                 "Requested period",
                 metrics is null ? Display.Unavailable : Display.Duration(metrics.RequestedPeriod)),
             new DiagnosticItem(
-                "Actual start-to-start",
+                "Latest start-to-start",
                 metrics is null
                     ? Display.Unavailable
                     : Display.Duration(metrics.LatestStartToStart)),

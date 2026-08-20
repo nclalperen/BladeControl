@@ -261,7 +261,13 @@ public sealed class DashboardViewModel : PageViewModel
 
             if (string.Equals(Status.State, "EmergencyHandoff", StringComparison.Ordinal))
             {
-                return "Runtime Core is performing an emergency handoff to firmware Auto.";
+                // Say what happened, that the machine is safe, and what to do — in that order.
+                // The previous wording described the handoff as still happening, which is both
+                // untrue by the time this state is reported and needlessly alarming. The
+                // "Emergency handoff" lead is kept: it is the term users and support search for.
+                return "Emergency handoff: a thermal limit was reached and cooling was handed " +
+                    "back to firmware Auto. The machine is safe. Restart the runtime to resume " +
+                    "thermal control.";
             }
 
             if (string.Equals(Status.State, "Faulted", StringComparison.Ordinal))
