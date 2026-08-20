@@ -821,3 +821,32 @@ driver is entitled to change.
 Not implemented here. Re-qualifying after ownership would be strictly additive — more checking,
 never less — but it is a change to the start path and the ownership gate, and the outcome it
 prevents is conservative rather than dangerous. It belongs with the decision it is evidence for.
+
+## Auditing what else the mode finding invalidated
+
+A finding that overturns a measurement should be chased through everything that cited it. Two
+comments justified `GpuEmergencyTemperatureCelsius = 80` as "the hardware shutdown temperature
+on the reference part". That is a statement about Silent, not about the device.
+
+The constant is right and unchanged — as a preflight bar, the lower of the two mode-dependent
+shutdown limits is the conservative choice. The justification was the problem, and it was the
+dangerous kind of wrong: it invites someone comparing the constant against a live Balanced
+reading to find it 12 °C low and "align" it, loosening an entry gate to match a number the
+driver is entitled to move. Both comments now say what it is — a fixed policy bar, not a
+reading of the device — and a test pins it so the change has to be deliberate.
+
+The rest of the audit found nothing, which is worth recording as much as a defect would be:
+
+- **The bar cannot trigger a live handoff.** The running loop calls `EvaluateForControlLoop`,
+  whose GPU check tests presence, plausibility and freshness with no opinion about heat. At
+  95 °C it still returns healthy; the graded ladder decides. This is the earlier "heat as a
+  telemetry fault" separation holding up under a case it was not written for.
+- **No path starts a session with null GPU limits.** `EvaluateGpuThermalSeverity` returns no
+  ladder when limits are absent and relies on the start gate refusing first, which
+  `GpuLimitStartGateTests` already pins across refusal, absence of Razer writes, reason
+  propagation and the positive case.
+- **The CPU constants stand on their own evidence.** 100 °C is Tjunction for the reference
+  i9-13950HX, and the 90/85 critical-cooling pair is a policy choice with its hysteresis
+  reasoning stated. Neither derives from NVML, so neither is affected.
+
+The GPU entry gate was the only casualty, and it was a comment rather than a behaviour.
