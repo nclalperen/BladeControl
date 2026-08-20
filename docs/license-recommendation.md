@@ -1,8 +1,36 @@
 # BladeControl licence recommendation
 
-**Status: recommendation only. No licence has been applied.** Choosing a licence is an
-irreversible-in-practice project decision and belongs to the copyright holder, not to the
-release engineering that produced this report.
+> ## Decision: GPL-3.0. Applied.
+>
+> The copyright holder chose **GPL-3.0**, not the Apache-2.0 recommended below. The
+> recommendation is retained unedited because its dependency analysis is still correct and
+> because a decision is easier to review against the argument it overrode.
+>
+> **Why the answer changed: the objective changed.** The analysis below optimises for adoption
+> and reuse — explicitly counting it against GPL-3.0 that copyleft "prevents the vendor or a
+> driver project from adopting the protocol implementation". The stated goal is the opposite:
+> ensure that a fork, including a vendor's, cannot be taken closed. GPL-3.0 is the licence that
+> delivers that; Apache-2.0 permits precisely the outcome to be avoided.
+>
+> **What GPL-3.0 does and does not do.** It prevents anyone from distributing a closed
+> derivative. It does *not* shield the project from patent claims, trademark claims, or
+> reverse-engineering claims by a hardware vendor — GPL-3.0 §11, like Apache-2.0 §3, binds
+> contributors, not third parties. Those risks are addressed by the trademark disclaimer in the
+> README, by redistributing nothing of the vendor's, and by keeping PawnIO external. Choosing
+> GPL-3.0 as protection against a vendor beyond the closed-fork case would be a
+> misunderstanding, and is recorded here so it is not repeated.
+>
+> **Dependency compatibility is unaffected.** GPL-3.0 was already in the feasible set below.
+> Apache-2.0 (HidSharp) is one-way compatible with GPL-3.0; MPL-2.0 §3.3 and MIT impose no
+> obstacle. GPL-2.0-*only* remains unavailable, which is why bundling PawnIO stays off the table.
+>
+> **Open follow-up: contributor licensing.** Relicensing is free only while there is a single
+> copyright holder. Accepting outside contributions without a CLA makes any future change
+> require every contributor's agreement. That decision is still open.
+
+---
+
+**Status of what follows: superseded recommendation, retained for the record.**
 
 This document records what the [third-party audit](../THIRD-PARTY-NOTICES.md) constrains,
 what it does not, and which licence best fits BladeControl specifically.

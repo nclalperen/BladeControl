@@ -223,9 +223,21 @@ Stop the installed service first — only one host may own the hardware.
 
 ## Licence
 
-**Not yet chosen.** The [third-party audit](THIRD-PARTY-NOTICES.md) is complete and a
-[recommendation](docs/license-recommendation.md) is on record; applying a licence is a project
-decision that has not been taken. Until then no licence is granted beyond evaluation.
+**GNU General Public License v3.0.** See [LICENSE](LICENSE).
+
+BladeControl is free software: you may redistribute and modify it under the terms of the GPL as
+published by the Free Software Foundation, either version 3 or (at your option) any later
+version. It is distributed in the hope that it will be useful, but **without any warranty** —
+see the [warning](#warning) below and sections 15 and 16 of the licence.
+
+Every shipped dependency is compatible: MPL-2.0 (LibreHardwareMonitorLib and friends),
+Apache-2.0 (HidSharp, one-way compatible with GPL-3.0), and MIT (.NET runtime,
+`Microsoft.Extensions.*`). See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the audit
+and [docs/license-recommendation.md](docs/license-recommendation.md) for why GPL-3.0 was chosen
+over the alternatives.
+
+PawnIO is GPL-2.0-or-later and is **not** redistributed — it remains an external dependency the
+user installs separately.
 
 ## Warning
 
