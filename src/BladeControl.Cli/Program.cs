@@ -179,6 +179,7 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli thermal selftest --verbose");
         Console.WriteLine("  BladeControl.Cli runtime status [--verbose]");
         Console.WriteLine("  BladeControl.Cli runtime doctor [--verbose]");
+        Console.WriteLine("  BladeControl.Cli runtime stop-thermal");
         Console.WriteLine("  BladeControl.Cli service console [--verbose]");
         Console.WriteLine();
         Console.WriteLine(

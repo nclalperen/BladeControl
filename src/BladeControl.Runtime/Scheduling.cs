@@ -163,10 +163,18 @@ public sealed record DurationStatistics(
 /// cause.
 /// </param>
 /// <param name="CatchUpCycleCount">
-/// Cycles that began late because an earlier cycle overran. These are the recovery tail, not
-/// independent faults: one slow cycle typically produces several. Counting them together with
-/// slow cycles is what made 136 "overruns" look far worse than the ~35 events behind them.
+/// Cycles that began late <i>because the previous cycle was still running when their deadline
+/// passed</i>. These are the recovery tail, not independent faults: one slow cycle typically
+/// produces several. Counting them together with slow cycles is what made 136 "overruns" look
+/// far worse than the ~35 events behind them.
 /// </param>
+/// <remarks>
+/// The predecessor test matters. Defining a catch-up cycle as merely "started late" counted
+/// ordinary timer jitter: a live 479-cycle session reported 296 catch-up cycles while its
+/// worst lateness was 28.3 ms and it lost no whole period. Windows timer granularity makes
+/// almost every cycle start a millisecond or two late, so that definition measured the clock,
+/// not the workload — the same conflation the old single overrun counter made.
+/// </remarks>
 /// <param name="MissedDeadlinePeriods">
 /// How many whole period boundaries elapsed while the loop was running late, summed. Answers
 /// "how much schedule was lost", which neither count above does.
@@ -256,6 +264,7 @@ public sealed class DeadlineScheduler
 
         TimeSpan deadline = _clock.MonotonicNow;
         TimeSpan? previousStart = null;
+        TimeSpan? previousEnd = null;
         long sequence = 0;
         long slowCycles = 0;
         long catchUpCycles = 0;
@@ -291,7 +300,12 @@ public sealed class DeadlineScheduler
             // one slow cycle into a handful of reported faults and hides how many events there
             // really were.
             bool slow = duration > _period;
-            bool caughtUp = !slow && lateness > TimeSpan.Zero;
+
+            // Late *because the predecessor was still running*, not merely late. Timer
+            // granularity alone makes nearly every start a millisecond or two late; only a
+            // cycle whose deadline passed while the previous one was still executing is
+            // recovering from an overrun.
+            bool caughtUp = !slow && previousEnd.HasValue && previousEnd.Value > deadline;
             if (slow)
             {
                 slowCycles++;
@@ -332,6 +346,7 @@ public sealed class DeadlineScheduler
             }
 
             previousStart = start;
+            previousEnd = end;
 
             // Absolute advance: the schedule never rebases to "now", so a late loop catches up
             // rather than drifting. That is deliberate and unchanged.

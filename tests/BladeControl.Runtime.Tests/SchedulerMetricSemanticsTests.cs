@@ -122,6 +122,66 @@ public sealed class SchedulerMetricSemanticsTests
         Assert.AreEqual(0, scheduler.Metrics.SkippedDeadlines);
     }
 
+    /// <summary>
+    /// Starting a fraction late is not catching up. Timer granularity alone makes nearly every
+    /// cycle start a millisecond or two late; only a cycle whose deadline passed while its
+    /// predecessor was still running is recovering from an overrun.
+    /// </summary>
+    /// <remarks>
+    /// A live 479-cycle session reported 296 catch-up cycles under the previous "started late"
+    /// definition, while its worst lateness was 28.3 ms and it lost no whole period. That
+    /// measured the clock rather than the workload — the same conflation the old single overrun
+    /// counter made, reintroduced one level down.
+    /// </remarks>
+    [TestMethod]
+    public async Task JitterSizedLatenessIsNotCountedAsCatchUp()
+    {
+        var clock = new VirtualRuntimeClock();
+        var scheduler = new DeadlineScheduler(clock, Period);
+
+        await scheduler.RunAsync(
+            (_, _) =>
+            {
+                // Comfortably inside the period, so no cycle is ever pushed by its predecessor.
+                clock.Advance(TimeSpan.FromMilliseconds(50));
+                return ValueTask.FromResult(true);
+            },
+            CancellationToken.None,
+            maximumCycles: 20);
+
+        Assert.AreEqual(
+            0,
+            scheduler.Metrics.CatchUpCycleCount,
+            "Cycles that finish well inside the period are not recovering from anything.");
+    }
+
+    /// <summary>
+    /// A cycle still running when the next deadline passes does produce a catch-up cycle.
+    /// </summary>
+    [TestMethod]
+    public async Task ACycleOverrunningItsSuccessorsDeadlineCountsAsCatchUp()
+    {
+        var clock = new VirtualRuntimeClock();
+        var scheduler = new DeadlineScheduler(clock, Period);
+        long sequence = 0;
+
+        await scheduler.RunAsync(
+            (_, _) =>
+            {
+                clock.Advance(++sequence == 1
+                    ? TimeSpan.FromMilliseconds(1200)
+                    : TimeSpan.FromMilliseconds(10));
+                return ValueTask.FromResult(true);
+            },
+            CancellationToken.None,
+            maximumCycles: 4);
+
+        Assert.AreEqual(1, scheduler.Metrics.SlowCycleCount);
+        Assert.IsTrue(
+            scheduler.Metrics.CatchUpCycleCount > 0,
+            "The cycles pushed by that overrun are still reported as recovery.");
+    }
+
     // --- Latest really means latest, max really retains the maximum -------------------------
 
     [TestMethod]

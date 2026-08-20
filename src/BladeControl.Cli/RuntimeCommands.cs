@@ -33,6 +33,15 @@ internal static partial class Program
 
     private static int RunRuntimeCommand(string[] args)
     {
+        // stop-thermal ends a running session through the same IPC operation the GUI uses,
+        // which performs the safe firmware-Auto handoff and restores the captured performance
+        // state. Without a command-line surface the only way to end a session was the GUI, so
+        // a headless machine could be diagnosed but not returned to firmware control.
+        if (args.Length >= 1 && args[0].Equals("stop-thermal", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunThermalStopCommand();
+        }
+
         bool verbose = args.Length == 2 &&
             args[1].Equals("--verbose", StringComparison.OrdinalIgnoreCase);
         if ((args.Length != 1 && !verbose) ||
@@ -40,7 +49,8 @@ internal static partial class Program
              !args[0].Equals("doctor", StringComparison.OrdinalIgnoreCase)))
         {
             Console.Error.WriteLine(
-                "Expected: runtime status [--verbose] OR runtime doctor [--verbose]");
+                "Expected: runtime status [--verbose] OR runtime doctor [--verbose] " +
+                "OR runtime stop-thermal");
             return 2;
         }
 
@@ -96,6 +106,39 @@ internal static partial class Program
         {
             Console.Error.WriteLine(
                 $"BladeControl Runtime returned an invalid response: {exception.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Ends a running thermal session, handing the fans back to firmware.
+    /// </summary>
+    /// <remarks>
+    /// A thin wrapper over the existing <see cref="RuntimeIpcOperation.StopThermalControl"/>
+    /// operation — the same one the GUI issues. It introduces no new protocol and changes no
+    /// safety behaviour: the runtime still establishes firmware Auto first and then restores
+    /// the captured performance state.
+    /// </remarks>
+    private static int RunThermalStopCommand()
+    {
+        try
+        {
+            RuntimeIpcResponse response =
+                RuntimePipeClient.SendAsync(RuntimeIpcOperation.StopThermalControl)
+                    .GetAwaiter().GetResult();
+            if (!response.Succeeded)
+            {
+                Console.Error.WriteLine($"Stop request failed: {response.Error}");
+                return 1;
+            }
+
+            Console.WriteLine("Thermal control stop requested; firmware Auto handoff performed.");
+            return 0;
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException)
+        {
+            Console.Error.WriteLine(
+                $"BladeControl runtime service is unavailable: {exception.Message}");
             return 1;
         }
     }
