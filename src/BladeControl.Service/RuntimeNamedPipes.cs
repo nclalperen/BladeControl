@@ -221,12 +221,26 @@ public sealed class NamedPipeRuntimeIpcClient : IRuntimeIpcClient
         object? payload = null,
         CancellationToken cancellationToken = default)
     {
+        // CurrentUserOnly is intentionally absent, exactly as in the GUI client. It asserts
+        // that the server runs as the connecting user, which stopped being true when the
+        // runtime became a LocalSystem service — the CLI could not reach the installed service
+        // at all, failing with UnauthorizedAccessException from ValidateRemotePipeUser before
+        // any request was sent. The equivalent protection is the explicit check below, which
+        // additionally defeats a pipe squatted by an unprivileged process.
         using var pipe = new NamedPipeClientStream(
             serverName: ".",
             pipeName: RuntimeNamedPipeServer.PipeName,
             direction: PipeDirection.InOut,
-            options: PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            options: PipeOptions.Asynchronous);
         await pipe.ConnectAsync(_connectTimeoutMilliseconds, cancellationToken).ConfigureAwait(false);
+        if (!RuntimePipeSecurity.VerifyServerIsPrivileged(pipe))
+        {
+            throw new UnauthorizedAccessException(
+                $"The process listening on '{RuntimeNamedPipeServer.PipeName}' is not the " +
+                "BladeControl Runtime service. Refusing to exchange hardware-control messages " +
+                "with it.");
+        }
+
         using var reader = new StreamReader(
             pipe,
             new UTF8Encoding(false, true),

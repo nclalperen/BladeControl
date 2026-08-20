@@ -274,7 +274,8 @@ public sealed class SchedulerMetricSemanticsTests
             CancellationToken.None,
             maximumCycles: 3);
 
-        Assert.AreEqual(3, scheduler.Metrics.CycleExecution.SampleCount);
-        Assert.AreEqual(40, scheduler.Metrics.CycleExecution.P95.TotalMilliseconds);
+        DurationStatistics cycleExecution = scheduler.Metrics.CycleExecution!;
+        Assert.AreEqual(3, cycleExecution.SampleCount);
+        Assert.AreEqual(40, cycleExecution.P95.TotalMilliseconds);
     }
 }

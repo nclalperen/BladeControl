@@ -171,6 +171,11 @@ public sealed record DurationStatistics(
 /// How many whole period boundaries elapsed while the loop was running late, summed. Answers
 /// "how much schedule was lost", which neither count above does.
 /// </param>
+/// <param name="CycleExecution">
+/// Rolling latest/max/p95/p99 for cycle execution. Nullable because a deserialised status from
+/// a runtime older than this field carries none, and a diagnostic tool must degrade rather than
+/// crash during exactly the upgrade window where it is most needed.
+/// </param>
 /// <param name="SkippedDeadlines">
 /// Always zero. The loop never skips an iteration: deadlines advance absolutely and a late loop
 /// runs back to back until it catches up. Retained as an explicitly defined zero rather than
@@ -188,7 +193,7 @@ public sealed record SchedulerMetrics(
     long MissedDeadlinePeriods,
     TimeSpan MaximumCycleExecutionDuration,
     TimeSpan MaximumDeadlineLateness,
-    DurationStatistics CycleExecution,
+    DurationStatistics? CycleExecution,
     long SkippedDeadlines = 0)
 {
     /// <summary>

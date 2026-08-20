@@ -100,6 +100,16 @@ internal static partial class Program
         }
     }
 
+    /// <summary>Renders one bounded statistic, or says plainly that it was not reported.</summary>
+    private static string Describe(DurationStatistics? statistics) =>
+        statistics is null
+            ? "not reported by this runtime"
+            : $"latest {statistics.Latest.TotalMilliseconds:F1} ms, " +
+                $"p95 {statistics.P95.TotalMilliseconds:F1} ms, " +
+                $"p99 {statistics.P99.TotalMilliseconds:F1} ms, " +
+                $"max {statistics.Maximum.TotalMilliseconds:F1} ms " +
+                $"({statistics.SampleCount} samples)";
+
     internal static void PrintRuntimeStatus(
         RuntimeStatusDto status,
         bool verbose,
@@ -164,11 +174,23 @@ internal static partial class Program
         output.WriteLine(
             $"  Latest start-to-start  " +
             $"{status.Scheduler.LatestStartToStart.TotalMilliseconds:F1} ms");
+        // A runtime older than these fields sends none of them, and a plain long deserialises
+        // to zero. Printing "Slow cycles 0" for a runtime that just reported hundreds of
+        // overruns would present an absence as a measurement, so the block is withheld
+        // entirely. The nullable statistics object is the marker that distinguishes "none"
+        // from "not sent"; a long cannot.
+        if (status.Scheduler.CycleExecution is not { } cycleExecution)
+        {
+            output.WriteLine(
+                "  Cycle timing           not reported by this runtime (older than these metrics)");
+            return;
+        }
+
         output.WriteLine(
             $"  Cycle execution        " +
             $"latest {status.Scheduler.LatestCycleExecutionDuration.TotalMilliseconds:F1} ms, " +
-            $"p95 {status.Scheduler.CycleExecution.P95.TotalMilliseconds:F1} ms, " +
-            $"p99 {status.Scheduler.CycleExecution.P99.TotalMilliseconds:F1} ms, " +
+            $"p95 {cycleExecution.P95.TotalMilliseconds:F1} ms, " +
+            $"p99 {cycleExecution.P99.TotalMilliseconds:F1} ms, " +
             $"max {status.Scheduler.MaximumCycleExecutionDuration.TotalMilliseconds:F1} ms");
 
         // Slow cycles are causes; catch-up cycles are the recovery tail one slow cycle leaves
@@ -183,6 +205,9 @@ internal static partial class Program
         output.WriteLine(
             $"  Skipped deadlines      {status.Scheduler.SkippedDeadlines} " +
             "(the loop never skips an iteration)");
+        output.WriteLine($"  Telemetry acquisition  {Describe(status.TelemetryAcquisition)}");
+        output.WriteLine($"  Actuator duration      {Describe(status.ActuatorDuration)}");
+        output.WriteLine($"  Watchdog coalesced     {status.WatchdogCoalescedCount}");
 
         if (!verbose)
         {

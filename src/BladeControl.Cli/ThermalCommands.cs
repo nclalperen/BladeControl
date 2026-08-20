@@ -572,9 +572,11 @@ internal static partial class Program
         output.WriteLine($"  Catch-up cycles                  {status.Scheduler.CatchUpCycleCount}");
         output.WriteLine($"  Missed periods                   {status.Scheduler.MissedDeadlinePeriods}");
         output.WriteLine(
-            $"  Cycle execution p95 / p99        " +
-            $"{status.Scheduler.CycleExecution.P95.TotalMilliseconds:F1} ms / " +
-            $"{status.Scheduler.CycleExecution.P99.TotalMilliseconds:F1} ms");
+            "  Cycle execution p95 / p99        " +
+            (status.Scheduler.CycleExecution is { } cycleExecution
+                ? $"{cycleExecution.P95.TotalMilliseconds:F1} ms / " +
+                    $"{cycleExecution.P99.TotalMilliseconds:F1} ms"
+                : "not reported by this runtime"));
         output.WriteLine(
             $"  Maximum cycle execution          " +
             $"{status.Scheduler.MaximumCycleExecutionDuration.TotalMilliseconds:F1} ms");
