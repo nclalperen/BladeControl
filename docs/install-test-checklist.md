@@ -1,8 +1,16 @@
 # Installer validation checklist
 
-Manual procedure for validating a BladeControl MSI. **Nothing here has been executed** — the
-MSI has been built and its contents inspected read-only, but it has not been installed, and the
-runtime service has not been registered or started.
+Manual procedure for validating a BladeControl MSI.
+
+**Status: executed on the reference machine.** Install, in-place upgrade, uninstall and
+reinstall have all been run against a real Razer Blade 16 (RZ09-0483), with the service
+registered, started, and exercised through live thermal sessions. Firmware was left in fan mode
+Auto after uninstall, and user settings survived it. Results are recorded in
+[engineering-log.md](engineering-log.md).
+
+Two things below remain unexercised: a cold-boot autostart, and a run on a clean machine that
+has never had BladeControl installed. Both are called out in
+[known-limitations.md](known-limitations.md).
 
 ## Where to run this
 

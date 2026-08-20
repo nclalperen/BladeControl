@@ -172,6 +172,9 @@ of Microsoft Corporation. "NVIDIA" is a trademark of NVIDIA Corporation.
 
 ## 5. BladeControl's own licence
 
-**Not yet applied.** See [docs/license-recommendation.md](docs/license-recommendation.md)
-for the analysis this audit feeds and the recommendation. Applying a licence is a project
-decision, deliberately left to a human.
+**GNU General Public License v3.0.** See [LICENSE](LICENSE) for the full text, and
+[docs/license-recommendation.md](docs/license-recommendation.md) for the analysis this audit fed
+and why the copyright holder chose copyleft over the Apache-2.0 that was recommended there.
+
+The licence is conveyed with the binaries as GPL-3.0 requires: the MSI installs `LICENSE.txt`,
+the portable zip carries it, and the installer's licence dialog presents the GPL text.

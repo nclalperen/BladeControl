@@ -265,9 +265,17 @@ curve, hardware ownership state, or runtime configuration is duplicated in UI st
 
 ## Known backend limits
 
-GUI v0.1 intentionally degrades safely around five Runtime Core V1 limits: the IPC
-contract/endpoint is not yet in a shared hardware-free component, only the immutable
-default curve is usable, no approved runtime/service auto-launch path exists, the runtime
-does not expose a version/build ID, and firmware fan reports are not proven physical
-tachometer data. Exact backend requirements and current UI behavior are recorded in
-[GUI backend needs](gui-backend-needs.md).
+Two of the five limits GUI v0.1 was designed to degrade around have since been closed: the
+service is installed `AUTO_START` and the GUI registers its own per-user launch, and the runtime
+reports a version and build identifier over IPC, which the interface displays.
+
+A third is half closed. The pipe endpoint and its security check moved to `BladeControl.Ipc`,
+so the GUI no longer needs a reference to `BladeControl.Service` — the project that is also the
+hardware host. The wire DTOs did not move: they still live in `BladeControl.Runtime`, which the
+GUI still references. That reference is hardware-free and asserted to stay so, but the shared
+contract component the constraint asked for exists only for the endpoint, not the contract.
+
+Two remain, and the interface still degrades around them: only the immutable default curve is
+usable, because the runtime serves `GetThermalCurve` but has no typed save or select; and
+firmware fan reports are not proven physical tachometer data. Exact backend requirements and
+current UI behavior are recorded in [GUI backend needs](gui-backend-needs.md).

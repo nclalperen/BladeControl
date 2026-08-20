@@ -8,6 +8,13 @@ or a second hardware owner.
 
 ## 1. Extract the shared IPC contract and endpoint
 
+> **Status: partially satisfied.** The canonical pipe name and the privileged-owner check now
+> live in `BladeControl.Ipc`, which has no hardware reference, so the GUI no longer references
+> `BladeControl.Service`. The envelopes and DTOs did not move — they remain in
+> `BladeControl.Runtime`, which the GUI still references. The safety property holds (the UI
+> pulls in no hardware or service assembly, and a test asserts it), but the contract itself is
+> still not in a dedicated shared component.
+
 ### Current V1 constraint
 
 - Request/response envelopes, operation names, most payloads, DTOs, protocol version, and
@@ -74,12 +81,29 @@ raw controller definition directly to hardware.
 
 ## 3. Provide an approved runtime/service launch path, if desired
 
+> **Status: satisfied by deployment, not by the GUI.** The MSI installs the runtime as an
+> `AUTO_START` LocalSystem service with SCM restart-on-failure, so it is normally already
+> running when the GUI starts, and the GUI registers its own per-user launch. The constraint
+> below still holds as written: no BladeControl binary exposes service lifecycle as an
+> application operation, and the GUI still does not invoke `sc.exe` or spawn a host. Nothing
+> here needs to change — the need was met by installing the service rather than by teaching
+> the GUI to start one.
+
 ### Current V1 constraint
 
 No BladeControl binary exposes service install, start, stop, delete, or runtime-host
 auto-launch as an application operation. A named-pipe request also cannot start a server
-that is not running. The V1 pipe is restricted to the creating user and, on Windows, the
-matching elevation context.
+that is not running.
+
+> **Superseded.** This section originally added that the pipe was "restricted to the creating
+> user and, on Windows, the matching elevation context". That was true of the console-hosted
+> runtime, where server and client were the same account, and became wrong when the runtime
+> became a LocalSystem service — `PipeOptions.CurrentUserOnly` would have asserted the server
+> runs as the connecting user, which is exactly what is no longer true. The pipe is now an
+> explicit privilege boundary: granted to `INTERACTIVE` rather than `Users` or `Everyone`,
+> with `NETWORK` and `ANONYMOUS LOGON` denied, per-connection locality verification, and a
+> client-side check that the server is genuinely privileged. See
+> `BladeControl.Ipc/RuntimePipeSecurity.cs`.
 
 GUI v0.1 consequently launches in Offline mode, offers a read-only reconnect action, and
 probes conservatively for an already-running Runtime Core. It does not invoke `sc.exe`,
@@ -99,6 +123,12 @@ not give the GUI a generic shell or arbitrary service-control surface.
 Until such a path exists, Offline plus Reconnect is the complete and safe GUI behavior.
 
 ## 4. Expose runtime version and build identity
+
+> **Status: satisfied.** `RuntimeStatusDto` carries `RuntimeBuild`, stamped from
+> `SourceRevisionId` at build time and originating in the server process. Confirmed live: the
+> installed service reported `Build 0.1.0+5b9457779b75`. The process-instance/event-epoch field
+> described below was not added; event-stream restarts are still detected by the cursor moving
+> behind the server's retained sequence.
 
 ### Current V1 constraint
 

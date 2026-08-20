@@ -153,8 +153,8 @@ Stated plainly, because the alternative is implying precision that does not exis
   observations and mutes them, so a successfully stopped session does not read as a live fault.
 - **Only the immutable default thermal curve is usable**, because the runtime does not yet
   expose typed save/select for user curves.
-- **The runtime exposes no version or build identifier** over IPC, so the interface cannot
-  verify it is talking to a matching runtime build.
+- **Custom curves cannot be saved.** The runtime serves `GetThermalCurve` but has no typed
+  save or select operation, so the default curve is the only one available.
 
 Further known backend limits are recorded in [docs/gui-backend-needs.md](docs/gui-backend-needs.md).
 
