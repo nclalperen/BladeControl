@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Diagnostics;
 using BladeControl.Razer;
 using BladeControl.Telemetry;
@@ -26,6 +27,7 @@ public sealed record RuntimeStatus(
     TelemetryHealth? TelemetryHealth,
     SchedulerMetrics Scheduler,
     string SchedulerHealth,
+    string RuntimeBuild,
     RuntimeRazerModeState? LastRazerWatchdogState,
     DateTimeOffset? LastRazerWatchdogObservedAt,
     string? LastFailureReason,
@@ -470,6 +472,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                             _clock.UtcNow),
                     _scheduler.Metrics,
                     DescribeSchedulerHealth(_scheduler.Metrics),
+                    RuntimeBuildIdentifier,
                     _lastWatchdog,
                     _lastWatchdogAt,
                     _lastFailure,
@@ -762,6 +765,21 @@ public sealed class BladeRuntime : IAsyncDisposable
     /// totals are still printed, because "none recently, 13 in this session" is a more useful
     /// sentence than either half alone.</para>
     /// </remarks>
+    /// <summary>
+    /// Which build this runtime is, including the source commit where one was stamped.
+    /// </summary>
+    /// <remarks>
+    /// A running service should be able to say what it is. During live diagnosis "the
+    /// installed runtime predates commit X" had to be deduced by hashing files against a
+    /// publish directory; that is a fact the process can simply report.
+    /// </remarks>
+    internal static string RuntimeBuildIdentifier { get; } =
+        typeof(BladeRuntime).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+        ?? typeof(BladeRuntime).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
     private static string DescribeSchedulerHealth(SchedulerMetrics metrics)
     {
         if (metrics.RecentWindowSize == 0)

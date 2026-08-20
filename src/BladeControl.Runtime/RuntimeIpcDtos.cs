@@ -150,6 +150,7 @@ public sealed record RuntimeStatusDto(
     TelemetryHealthDto? TelemetryHealth,
     SchedulerMetrics Scheduler,
     string SchedulerHealth,
+    string? RuntimeBuild,
     RuntimeRazerModeStateDto? LastRazerWatchdogState,
     DateTimeOffset? LastRazerWatchdogObservedAt,
     string? LastFailureReason,
@@ -205,6 +206,7 @@ internal static class RuntimeIpcDtoMapper
         status.TelemetryHealth is null ? null : ToDto(status.TelemetryHealth),
         status.Scheduler,
         status.SchedulerHealth,
+        status.RuntimeBuild,
         status.LastRazerWatchdogState is null
             ? null
             : ToDto(status.LastRazerWatchdogState),

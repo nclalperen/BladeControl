@@ -26,6 +26,26 @@
     <FileVersion>$(BladeControlVersionPrefix).0</FileVersion>
   </PropertyGroup>
 
+  <!--
+    Stamp the source commit into InformationalVersion, so a running service can say which
+    build it is. During live diagnosis "the installed runtime predates commit X" was a
+    deduction from file hashes; it should be a fact the runtime reports about itself.
+
+    Failure is deliberately silent: a build from an exported tarball with no git metadata
+    still succeeds, it simply carries no revision.
+  -->
+  <Target Name="StampSourceRevision" BeforeTargets="GetAssemblyVersion"
+          Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short=12 HEAD" ConsoleToMSBuild="true"
+          IgnoreExitCode="true" StandardOutputImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_BladeControlGitHead" />
+      <Output TaskParameter="ExitCode" PropertyName="_BladeControlGitExit" />
+    </Exec>
+    <PropertyGroup Condition="'$(_BladeControlGitExit)' == '0'">
+      <SourceRevisionId>$(_BladeControlGitHead.Trim())</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
+
   <!-- Publisher and product metadata surfaced in file properties and Installed Apps. -->
   <PropertyGroup>
     <Product>BladeControl</Product>

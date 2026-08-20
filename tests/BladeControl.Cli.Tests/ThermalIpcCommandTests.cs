@@ -293,6 +293,7 @@ public sealed class ThermalIpcCommandTests
             TimeSpan.Zero,
             DurationStatistics.Empty),
         scheduler?.SlowCycleCount > 0 ? "Degraded" : "Healthy",
+        "test",
         watchdog,
         null,
         null,

@@ -183,6 +183,7 @@ internal static partial class Program
 
         output.WriteLine();
         output.WriteLine("Runtime state");
+        output.WriteLine($"  Build                  {status.RuntimeBuild ?? "not reported"}");
         output.WriteLine($"  State                  {status.State}");
         output.WriteLine($"  Session ID             {status.SessionId?.ToString() ?? "<none>"}");
         output.WriteLine($"  Profile                {status.CurrentProfile ?? "<none>"}");

@@ -142,6 +142,7 @@ public static class RuntimeUiSampleData
         health,
         scheduler ?? Scheduler(),
         schedulerHealth,
+        "0.1.0+sample",
         watchdog,
         watchdog is null ? null : DateTimeOffset.UtcNow,
         lastFailureReason,
