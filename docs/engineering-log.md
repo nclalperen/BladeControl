@@ -956,7 +956,26 @@ inside the installed service, and the installed service was still the previous b
 in-place upgrade kept reporting success while replacing nothing — `msiexec /i` returned 0,
 `REINSTALLMODE=vomus` and even `amus` returned 0, and the binaries on disk did not change.
 
-The uninstall attempt explained it: exit code 1605, "not installed under that product code". Each
-rebuild generates a fresh ProductCode, so every `/i` was installing a new product beside the old
-one rather than upgrading it, and the running service kept loading the original files. The
-earlier "validated in-place upgrade" in this log deserves the same suspicion.
+My first explanation for that was wrong, and is worth recording as wrong. Seeing `/x` return
+1605 — "not installed under that product code" — I concluded that each rebuild generates a fresh
+ProductCode and that every `/i` had been installing a new product beside the old one. Checking
+instead of concluding: there is exactly one BladeControl product installed,
+`{B544406D-BFA2-4D1E-9A2F-D9283AD8CC0B}`, and one uninstall entry. No side-by-side install ever
+happened.
+
+The actual cause was my own flags. `MajorUpgrade AllowSameVersionUpgrades="yes"` is configured
+against a stable UpgradeCode, so a plain `msiexec /i` performs a proper major upgrade — which is
+what finally worked. Adding `REINSTALL=ALL REINSTALLMODE=...` diverts that into the *repair*
+path, and repair honours file-version rules: identical assembly versions, no replacement, exit
+code 0. The `amus` mode that should have forced replacement did not, because repair never got
+the chance to run as an upgrade. The initial 1603 was almost certainly the running service
+holding its files open; later attempts stopped it first.
+
+The 1605 was real but harmless: `/x <path-to-msi>` resolves the ProductCode from that file, and a
+rebuilt MSI does carry a new one. That says nothing about how the installed product got there.
+
+Two lessons, both about the same reflex. A build succeeding is not a deployment, and `thermal
+run` executes inside the installed service however fresh the CLI is. And an exit code of 0 from
+an installer is a statement about the transaction, not about the bytes on disk — the check that
+settled it was reading the deployed assembly and looking for a symbol that only exists in the
+new code.
