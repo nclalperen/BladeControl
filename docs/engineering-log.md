@@ -622,3 +622,33 @@ the risk for a change with no safety consequence.
 What this does **not** show: the zip was unpacked on the machine that already has the MSI
 installed. A dependency the installed product happens to satisfy would not have surfaced. The
 limitation says so rather than claiming a clean-machine result that was never obtained.
+
+## Six documentation claims that had gone stale
+
+`installer/License.rtf` turned out not to be the only document asserting a state that had since
+changed, so the docs were swept for pending and negative claims — "has not been", "not yet",
+"never been", "left to". Six were true when written and false by the time anyone would read
+them:
+
+| Document | Claimed | Actually |
+|---|---|---|
+| `install-test-checklist.md` | "**Nothing here has been executed**" | all of it had been, on the reference machine |
+| `THIRD-PARTY-NOTICES.md` | licence "Not yet applied" | GPL-3.0, applied and conveyed |
+| `README.md` | runtime exposes no build identifier | it does, confirmed live |
+| `gui-v0.1.md` | five open backend limits | two closed, one half closed |
+| `gui-backend-needs.md` §4 | no version/build identity | `RuntimeStatusDto.RuntimeBuild` |
+| `gui-backend-needs.md` §3 | pipe "restricted to the creating user" | an explicit privilege boundary |
+
+The last one was the worst of them. It described the console-hosted runtime, where server and
+client were the same account, and became wrong the moment the runtime became a LocalSystem
+service — `CurrentUserOnly` would assert the server runs as the connecting user, which is
+precisely what stopped being true. A reader trusting that sentence would have concluded the pipe
+was safe for a reason that no longer applied.
+
+My own first pass at the IPC correction was itself overstated: I wrote that the contract and
+endpoint had moved to `BladeControl.Ipc`. Only the endpoint and pipe security did. The DTOs are
+still in `BladeControl.Runtime`, which the GUI still references. Caught by checking the project
+file instead of trusting the tidier claim, and corrected before it was committed.
+
+Documentation goes stale the same way code does, and nothing compiles it. The negative claims
+are the ones to re-read, because they are the ones that quietly become false by being fixed.

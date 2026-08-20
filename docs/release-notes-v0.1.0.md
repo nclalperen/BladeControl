@@ -84,3 +84,36 @@ than none, because it looks like protection.
 ## Licence
 
 GPL-3.0. See [LICENSE](../LICENSE).
+
+The licence is conveyed with the binaries, as GPL-3.0 sections 4 through 6 require: the MSI
+installs `LICENSE.txt`, the portable zip carries it, and the installer's licence dialog presents
+the GPL text rather than a summary.
+
+---
+
+## Open decisions before tagging
+
+Four things are the copyright holder's call, not an engineering task. None of them blocks the
+build; all of them are easier to settle before a tag than after.
+
+**1. `GPL-3.0-only` or `GPL-3.0-or-later`.** The repository says "GPL-3.0" throughout and
+`LICENSE` is the plain GPL-3.0 text, which does not itself decide this. The FSF's own boilerplate
+uses *or-later*, and *or-later* is what lets the project adopt a future GPL without tracking down
+every contributor. *Only* gives you certainty about the exact terms forever. This has to be
+settled before per-file headers are worth adding, because the header states the choice: 175
+source files currently carry no licence header, and adding one is a mechanical pass once the
+variant is chosen.
+
+**2. Contributor licensing.** No CLA or DCO is in place. A DCO (`Signed-off-by`) is the lighter
+option and is what the kernel and most GPL projects use; a CLA additionally lets the holder
+relicense later. Doing nothing means inbound contributions arrive under GPL-3.0 by implication,
+which is workable but leaves relicensing effectively impossible.
+
+**3. Pre-release or full release.** Everything here was validated on exactly one machine, a
+Razer Blade 16 (RZ09-0483). Qualification fails closed on anything else, so other hardware is
+refused rather than mishandled — but "works on one laptop" is what a pre-release tag
+communicates honestly and a `v0.1.0` tag does not.
+
+**4. Cold-boot validation.** The service is installed `AUTO_START` and restarts on failure, but
+a reboot into a working session has never been observed end to end. It needs a reboot of the
+reference machine, which is the owner's to schedule.
