@@ -160,3 +160,102 @@ here rather than left buried:
   body's own time.
 - `RunsWithoutWritesAlwaysReadTheWatchdog` originally asserted zero writes; a settling cycle
   does write once, so it now asserts `reads > writes`, which is the claim the test is about.
+
+---
+
+## 2026-08-20 — Diagnostics could not reach the installed runtime
+
+**Commit:** `db45574` — *Let diagnostics reach a LocalSystem runtime and report absences honestly*
+
+Found while trying to read live metrics off the installed service, not by inspection.
+
+### The CLI could not connect at all
+
+`NamedPipeRuntimeIpcClient` still passed `PipeOptions.CurrentUserOnly`, a leftover from when
+the runtime was user-hosted. Once the runtime became a LocalSystem service, .NET's
+`ValidateRemotePipeUser` rejected every connection with `UnauthorizedAccessException` before a
+request was sent. The GUI client had already been corrected for this; the CLI had not, so the
+defect was invisible to anyone using the GUI.
+
+Fixed the same way: connect without `CurrentUserOnly`, then verify explicitly that the pipe was
+published by a privileged account — which also defeats a pipe squatted by an unprivileged
+process.
+
+### The new component timings never crossed IPC
+
+Telemetry acquisition, actuator duration and the watchdog coalescing count were added to the
+in-process `RuntimeStatus` record but not to `RuntimeStatusDto`. No external consumer could see
+the measurements the previous batch existed to produce. Added to the DTO and its mapping.
+
+### Absence was rendered as measurement
+
+A runtime older than these fields sends none of them, and a plain `long` deserialises to zero.
+The CLI therefore printed `Slow cycles 0` for a runtime that had just reported 281 overruns.
+The block is now withheld with an explicit note. The nullable statistics object is the marker
+that distinguishes "none" from "not sent"; a `long` cannot. A missing block also no longer
+throws — a diagnostic tool that crashes on a field the other end did not send is useless during
+exactly the upgrade window where it is most needed.
+
+### Live baseline captured from the pre-batch RC
+
+Read from the installed (older) service before any upgrade:
+
+```
+State                  Running
+Session                ca8e15e8-7d81-4098-9ad6-afdb8af82a73, Thermal/default
+Zone 1 / Zone 2        Balanced + Manual, agreeing
+Health                 Healthy, no LastFailure
+Completed cycles       5879
+Old-model overruns     281  (~4.8%)
+Last acquisition       348.8 ms and 164.5 ms, two samples ~2 min apart
+```
+
+Those two acquisition samples are the important part: **telemetry acquisition is variable, not
+a constant ~380 ms.** Any threading redesign must rest on a distribution from the new build, not
+on a single snapshot. This is recorded because an earlier analysis leaned on one ~390 ms figure
+and would have justified a redesign that the data does not support.
+
+---
+
+## 2026-08-20 — Physical fan RPM investigation
+
+**Question:** is there any trustworthy source of *actual* fan speed, as opposed to Razer
+`0x0D81`, which returns the commanded target echoed back?
+
+Searched in the agreed order. All read-only; nothing was written to any device.
+
+| Source | Result | Conclusion |
+|---|---|---|
+| LibreHardwareMonitor `Fan` / `Control` / `Flow` sensors | **0 sensors** across motherboard (SO690), CPU, both GPUs and battery | No tachometer exposed |
+| NVML / `nvidia-smi --query-gpu=fan.speed` | **`[N/A]`** | The GPU fan is EC-controlled, not driver-controlled; NVML has no visibility |
+| WMI `Win32_Fan` | Two `Cooling Device` instances, `Status OK`, but `DesiredSpeed` and `VariableSpeed` both **empty** | Presence only, no speed |
+| WMI `MSAcpi_ThermalZoneTemperature` | Access denied (non-elevated) | Not a fan source regardless |
+| Razer HID `0x0D81` | Returns the commanded target | **Unproven** as a tachometer; unchanged |
+
+**Caveat, stated rather than glossed:** the LibreHardwareMonitor probe ran non-elevated. PawnIO
+was installed and the motherboard object enumerated successfully, so this is evidence rather
+than a bare access failure — but an elevated re-run is the honest way to close it completely.
+
+**Outcome:** physical fan RPM is **not available** on this hardware through any read-only
+source examined. The product must continue to present `0x0D81` as *firmware-reported fan state*
+and leave actual RPM unavailable, which is what it already does. This investigation confirms
+the existing design rather than prompting a change.
+
+The alternative — presenting `0x0D81` as RPM because it is numerically plausible — is
+specifically rejected. It equals the commanded target by construction, so it would agree with
+itself no matter what the fans were physically doing, including not spinning at all.
+
+---
+
+## 2026-08-20 — Blocked on elevation
+
+The session account is **not a member of Administrators**, so elevation cannot be obtained even
+via a UAC prompt. The following cannot proceed autonomously:
+
+- stopping or starting `BladeControl.Runtime`
+- installing or upgrading the MSI
+- any elevated re-probe (`MSAcpi_ThermalZoneTemperature`, elevated LibreHardwareMonitor EC scan)
+
+The installed RC predates both commits above and is still running a healthy Dynamic session, so
+nothing is in an unsafe state. Repository work continued; live validation of the new build is
+outstanding.
