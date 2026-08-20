@@ -156,13 +156,13 @@ public sealed class DashboardViewModel : PageViewModel
                     : "Stale";
             }
 
-            return Connection.TelemetryOrigin switch
-            {
-                TelemetryOrigin.ThermalSession => "Live — thermal session sample",
-                TelemetryOrigin.ProviderSample => "Live — provider-only sample",
-                TelemetryOrigin.DiagnosticSnapshot => "Live — diagnostic acquisition",
-                _ => "Live"
-            };
+            // Where a live sample came from is real information, but it is engineering
+            // vocabulary: "provider-only sample" tells a user nothing they can act on, and the
+            // distinction between acquisition routes is a debugging concern. The dashboard
+            // answers is-it-live and how-old; Diagnostics carries the provenance.
+            return age is { } live
+                ? $"Live — {live.TotalSeconds:0} s old"
+                : "Live";
         }
     }
 

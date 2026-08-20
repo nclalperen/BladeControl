@@ -605,6 +605,18 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "GPU PCI ID",
                 Display.Text(capabilities?.SelectedGpu?.PciBusId)),
             new DiagnosticItem(
+                "Telemetry origin",
+                Connection.TelemetryOrigin switch
+                {
+                    TelemetryOrigin.ThermalSession => "Thermal session sample",
+                    TelemetryOrigin.ProviderSample => "Provider-only sample",
+                    TelemetryOrigin.DiagnosticSnapshot => "Diagnostic acquisition",
+                    _ => Display.Unavailable
+                },
+                "Which acquisition path produced the most recent reading. Moved here from the " +
+                "dashboard, where the distinction was engineering vocabulary rather than " +
+                "something a user could act on."),
+            new DiagnosticItem(
                 "LibreHardwareMonitor",
                 Display.Text(capabilities?.LibreHardwareMonitorVersion)),
             new DiagnosticItem(
