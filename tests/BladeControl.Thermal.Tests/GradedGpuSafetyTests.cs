@@ -346,6 +346,7 @@ public sealed class GradedGpuSafetyTests
             maxOperatingSpecification: 0,
             slowdownSpecification: -2,
             shutdownSpecification: -5,
+            hardwareShutdownCelsius: 100,
             out GpuThermalLimits? limits,
             out string? rejection);
 
@@ -372,13 +373,17 @@ public sealed class GradedGpuSafetyTests
             maxOperatingSpecification: 0,
             slowdownSpecification: -2,
             shutdownSpecification: -5,
+            hardwareShutdownCelsius: 100,
             out GpuThermalLimits? limits,
             out string? rejection);
 
         Assert.IsFalse(created);
         Assert.IsNull(limits);
         StringAssert.Contains(rejection!, "77/79/82");
-        StringAssert.Contains(rejection!, "75/77/80");
+        // The anchors that are validated, rather than a single validated triple: the derived
+        // limits are correct for whichever mode is in force, so what gets named is the set of
+        // anchors those limits may legitimately come from.
+        StringAssert.Contains(rejection!, "75 C, 87 C");
     }
 
     /// <summary>
@@ -400,12 +405,71 @@ public sealed class GradedGpuSafetyTests
             maxOperatingSpecification: 0,
             slowdownSpecification: -2,
             shutdownSpecification: -5,
+            hardwareShutdownCelsius: 100,
             out GpuThermalLimits? limits,
             out string? rejection);
 
         Assert.IsFalse(created, deviceName ?? "null");
         Assert.IsNull(limits);
         Assert.IsFalse(string.IsNullOrWhiteSpace(rejection));
+    }
+
+    /// <summary>
+    /// A margin anchored to the wrong reference is refused by the anchor list alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>The hardware-shutdown ceiling is deliberately set high enough here that it cannot
+    /// be what refuses this. A margin measured against the slowdown limit rather than the
+    /// maximum operating temperature yields 77/79/82: correctly ordered, entirely plausible,
+    /// well under 100 C, and two degrees too permissive. Ordering, plausibility and bounds all
+    /// pass it.</para>
+    /// <para>This is the case the whole mechanism exists for, and it is the one that a
+    /// bounds-only design would have let through. Enumerating the anchors is what still catches
+    /// it: 77 is neither 75 nor 87.</para>
+    /// </remarks>
+    [TestMethod]
+    public void AWrongAnchorIsRefusedEvenWhenEveryBoundWouldPassIt()
+    {
+        bool created = GpuThermalLimits.TryFromValidatedSignature(
+            ReferenceGpuName,
+            currentTemperatureCelsius: 44,
+            liveMarginCelsius: 33,
+            maxOperatingSpecification: 0,
+            slowdownSpecification: -2,
+            shutdownSpecification: -5,
+            hardwareShutdownCelsius: 100,
+            out GpuThermalLimits? limits,
+            out string? rejection);
+
+        Assert.IsFalse(created, "77/79/82 is ordered, plausible and under the ceiling.");
+        Assert.IsNull(limits);
+        StringAssert.Contains(rejection!, "77");
+        StringAssert.Contains(rejection!, "75 C, 87 C");
+    }
+
+    /// <summary>Both validated anchors qualify, because either mode may be the one in force.</summary>
+    [DataTestMethod]
+    [DataRow(47.0, 28.0, 75.0)]
+    [DataRow(66.0, 9.0, 75.0)]
+    [DataRow(47.0, 40.0, 87.0)]
+    [DataRow(48.0, 39.0, 87.0)]
+    public void EveryValidatedAnchorQualifies(double core, double margin, double expectedMax)
+    {
+        bool created = GpuThermalLimits.TryFromValidatedSignature(
+            ReferenceGpuName,
+            core,
+            margin,
+            maxOperatingSpecification: 0,
+            slowdownSpecification: -2,
+            shutdownSpecification: -5,
+            hardwareShutdownCelsius: 100,
+            out GpuThermalLimits? limits,
+            out string? rejection);
+
+        Assert.IsTrue(created, rejection);
+        Assert.AreEqual(expectedMax, limits!.MaxOperatingCelsius);
+        Assert.AreEqual(expectedMax + 2, limits.HardwareSlowdownCelsius);
+        Assert.AreEqual(expectedMax + 5, limits.HardwareShutdownCelsius);
     }
 
     /// <summary>Matching is exact: a near-miss on the name is a miss.</summary>
@@ -419,6 +483,7 @@ public sealed class GradedGpuSafetyTests
             0,
             -2,
             -5,
+            100,
             out _,
             out _));
     }
@@ -438,6 +503,7 @@ public sealed class GradedGpuSafetyTests
             maxOperatingSpecification: 0,
             slowdownSpecification: -4,
             shutdownSpecification: -8,
+            hardwareShutdownCelsius: 100,
             out GpuThermalLimits? limits,
             out string? rejection);
 
@@ -449,8 +515,12 @@ public sealed class GradedGpuSafetyTests
         // healthy machine in a different mode lands here and used to be told its hardware had
         // changed under it.
         StringAssert.Contains(rejection!, "do not match its validated signature");
-        StringAssert.Contains(rejection!, "Silent or Custom");
-        StringAssert.Contains(rejection!, "follows the active performance mode");
+        // The offsets are what a device reporting something different has actually changed,
+        // and they are static, so this genuinely is a statement about the device rather than
+        // about which performance mode it happens to be in.
+        StringAssert.Contains(rejection!, "0/-4/-8");
+        StringAssert.Contains(rejection!, "0/-2/-5");
+        StringAssert.Contains(rejection!, "static device properties");
         Assert.IsFalse(
             rejection!.Contains("no longer behaving", StringComparison.Ordinal),
             "A mode difference must not be reported as the device having changed.");
@@ -471,6 +541,7 @@ public sealed class GradedGpuSafetyTests
             0,
             -2,
             -5,
+            hardwareShutdownCelsius: 100,
             out GpuThermalLimits? limits,
             out string? rejection), rejection);
         Assert.AreEqual(75, limits!.MaxOperatingCelsius);
@@ -487,9 +558,17 @@ public sealed class GradedGpuSafetyTests
         ValidatedGpuThermalSignature reference = ValidatedGpuThermalSignatures.Rtx4090Laptop;
 
         Assert.AreEqual(ReferenceGpuName, reference.DeviceName);
-        Assert.AreEqual(75, reference.MaxOperatingCelsius);
-        Assert.AreEqual(77, reference.HardwareSlowdownCelsius);
-        Assert.AreEqual(80, reference.HardwareShutdownCelsius);
+        // The offsets, which are static device properties, and not the derived temperatures.
+        // Pinning the derived triple pinned the anchor with it, and the anchor is the driver's
+        // current thermal target: it follows the performance mode, so the signature refused a
+        // healthy machine for being in a different mode from the one the evidence came from.
+        Assert.AreEqual(0, reference.MaxOperatingSpecification);
+        Assert.AreEqual(-2, reference.SlowdownSpecification);
+        Assert.AreEqual(-5, reference.ShutdownSpecification);
+        CollectionAssert.AreEquivalent(
+            new double[] { 75, 87 },
+            reference.ValidatedAnchorsCelsius.ToArray(),
+            "Both observed anchors: 75 in Silent and Custom, 87 in Balanced.");
         Assert.IsFalse(string.IsNullOrWhiteSpace(reference.Evidence));
         StringAssert.Contains(reference.Evidence, "610.88", "The driver it was validated on.");
         StringAssert.Contains(reference.Evidence, "RZ09-0483", "And the machine it came from.");
@@ -509,6 +588,7 @@ public sealed class GradedGpuSafetyTests
             0,
             -2,
             -5,
+            hardwareShutdownCelsius: 100,
             out GpuThermalLimits? limits,
             out _));
 

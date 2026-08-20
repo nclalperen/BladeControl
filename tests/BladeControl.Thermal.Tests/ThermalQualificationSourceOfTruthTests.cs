@@ -159,6 +159,7 @@ public sealed class ThermalQualificationSourceOfTruthTests
             probe.GpuMax.Celsius!.Value,
             probe.Slowdown.Celsius!.Value,
             probe.Shutdown.Celsius!.Value,
+            probe.LegacyShutdown.Celsius,
             out GpuThermalLimits? fromProbe,
             out _));
 

@@ -908,3 +908,55 @@ had to be recovered with a primitive that does not consult V1's state model.
 
 That is worth carrying into the feature: whatever else changes, returning the fans to firmware
 must not depend on the current state being one the caller already understands.
+
+## Qualifying the anchor instead of the derived limits
+
+Mode preservation removed the qualify-then-switch problem by construction: if ownership never
+changes the performance mode, the mode at qualification time is the operating mode. What
+remained was the allowlist, which still matched a single derived triple and so accepted Silent
+while refusing Balanced.
+
+The fix is to pin what is actually invariant. The T.Limit **offsets** — 0 / -2 / -5 — are static
+device properties, reported identically in every mode, and they are what the original evidence
+established about the interpretation. The anchor is not a device property at all; it is the
+thermal target the driver is enforcing, and it follows the performance mode.
+
+### The bounds-only version was wrong, and the existing tests caught it
+
+The first attempt matched the offsets and then *bounded* the anchor: below the hardware's own
+shutdown temperature, above a plausibility floor. Three tests failed immediately, among them the
+counterexample this whole mechanism exists for — a margin measured against the slowdown limit
+instead of the maximum operating temperature yields 77/79/82, which is correctly ordered,
+entirely plausible, comfortably under 100 C, and two degrees too permissive.
+
+Bounds cannot catch it, because a legitimate mode change and a mis-anchored margin are the same
+shape: both are the anchor moving. So the anchors are enumerated — 75 for Silent and Custom, 87
+for Balanced, both confirmed by switching modes and reading back. 77 is in neither list.
+
+The hardware-shutdown ceiling was kept as well. It is the one genuinely independent bound
+available: whatever the anchor, BladeControl must never act on a threshold above the temperature
+the device says it will not survive.
+
+### Live, on the reference machine
+
+| Mode | Qualified limits |
+|---|---|
+| Balanced | 87 / 89 / 92 |
+| Silent | 75 / 77 / 80 |
+| Custom | 75 / 77 / 80 |
+
+And a full Dynamic session run in Silent: `Silent + Auto` before, **`Silent + Manual` while
+running** with telemetry healthy, `Silent + Auto` after the stop. The machine was never moved to
+Balanced at any point.
+
+### A packaging trap found on the way
+
+The first three attempts to test this live tested nothing: `thermal run` is IPC-only, so it runs
+inside the installed service, and the installed service was still the previous build. Worse, the
+in-place upgrade kept reporting success while replacing nothing — `msiexec /i` returned 0,
+`REINSTALLMODE=vomus` and even `amus` returned 0, and the binaries on disk did not change.
+
+The uninstall attempt explained it: exit code 1605, "not installed under that product code". Each
+rebuild generates a fresh ProductCode, so every `/i` was installing a new product beside the old
+one rather than upgrading it, and the running service kept loading the original files. The
+earlier "validated in-place upgrade" in this log deserves the same suspicion.

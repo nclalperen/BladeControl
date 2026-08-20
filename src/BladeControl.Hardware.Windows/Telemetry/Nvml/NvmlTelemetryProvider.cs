@@ -701,13 +701,21 @@ internal sealed class NvmlTelemetryProvider : IDisposable
             return false;
         }
 
-        // The T.Limit specifications are relative, so the derivation rests entirely on what the
-        // live margin is anchored to, and ordering and plausibility cannot detect a uniformly
-        // shifted anchor. No NVML interface on this driver settles it: the legacy absolute
-        // thresholds report a different quantity (105/97/100 on the reference part) and the
-        // thermal-settings API reports a sensor range (0-127). So the interpretation is
-        // established per GPU signature, by hand, against hardware — matched on device name
-        // plus the exact limits it was observed to produce. Anything else is refused.
+        // The T.Limit specifications are relative, so the derivation rests on what the live
+        // margin is anchored to, and ordering and plausibility cannot detect a uniformly
+        // shifted anchor. The interpretation is therefore established per GPU signature, by
+        // hand, against hardware.
+        //
+        // What that signature pins is the *offsets*, which are static device properties. It
+        // used to pin the derived temperatures instead, which pinned the anchor with them - and
+        // the anchor is not a device property. It is the thermal target the driver is currently
+        // enforcing and it follows the Razer performance mode, so pinning it refused a healthy
+        // machine for being in a different mode from the one the evidence was collected in.
+        //
+        // The anchor is bounded rather than matched. The legacy absolute thresholds report a
+        // different quantity and are not a corroborator, but the shutdown figure among them is
+        // still the temperature the device says it will not survive, and that makes a sound
+        // ceiling: BladeControl must never act on a threshold above it.
         if (!GpuThermalLimits.TryFromValidatedSignature(
                 _device.Identity.Name,
                 currentTemperature,
@@ -715,6 +723,9 @@ internal sealed class NvmlTelemetryProvider : IDisposable
                 probe.GpuMax.Celsius!.Value,
                 probe.Slowdown.Celsius!.Value,
                 probe.Shutdown.Celsius!.Value,
+                probe.LegacyShutdown.Result == NvmlResult.Success
+                    ? probe.LegacyShutdown.Celsius
+                    : null,
                 out limits,
                 out string? rejection))
         {

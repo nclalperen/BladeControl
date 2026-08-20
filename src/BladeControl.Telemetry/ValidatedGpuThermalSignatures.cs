@@ -1,37 +1,53 @@
 namespace BladeControl.Telemetry;
 
+/// <summary>The T.Limit specifications a GPU reports: static, relative offsets.</summary>
+public readonly record struct GpuThermalSpecifications(
+    double MaxOperating,
+    double Slowdown,
+    double Shutdown);
+
 /// <summary>
-/// A GPU thermal signature: an NVML device identity paired with the absolute limits that the
-/// T.Limit derivation was observed to produce for it.
+/// A GPU thermal signature: an NVML device identity, the static T.Limit offsets it reports, and
+/// every anchor those offsets have been observed to be measured from.
 /// </summary>
 /// <param name="DeviceName">Exact NVML device name, matched ordinally.</param>
-/// <param name="MaxOperatingCelsius">Observed maximum operating temperature.</param>
-/// <param name="HardwareSlowdownCelsius">Observed hardware slowdown temperature.</param>
-/// <param name="HardwareShutdownCelsius">Observed hardware shutdown temperature.</param>
+/// <param name="MaxOperatingSpecification">The GPU-max T.Limit offset. Static.</param>
+/// <param name="SlowdownSpecification">The slowdown T.Limit offset. Static.</param>
+/// <param name="ShutdownSpecification">The shutdown T.Limit offset. Static.</param>
 /// <param name="Evidence">Where and how the signature was established, for the record.</param>
-/// <param name="ValidatedInPerformanceMode">
-/// The Razer performance mode the evidence was collected in. This is not cosmetic: the anchor
-/// the derivation rests on is the driver's current thermal target, and that target follows the
-/// performance mode. A signature is only the signature of the mode it was measured in, and
-/// saying which one turns an unexplainable refusal into an explicable one.
+/// <param name="ValidatedAnchorsCelsius">
+/// Every anchor this part has been observed to report, each confirmed against hardware.
+/// <para>A bound cannot stand in for this. The anchor moves for two reasons that look identical
+/// from inside the derivation: a legitimate performance-mode change (75 in Silent and Custom,
+/// 87 in Balanced) and a margin measured against the wrong reference. The second is the failure
+/// this mechanism exists to catch, and nothing about its shape gives it away.</para>
+/// <para>So the anchors are enumerated. One that has been seen and checked qualifies; anything
+/// else fails closed, including a mode or driver policy that may be perfectly legitimate but
+/// has not been looked at yet.</para>
 /// </param>
 public sealed record ValidatedGpuThermalSignature(
     string DeviceName,
-    double MaxOperatingCelsius,
-    double HardwareSlowdownCelsius,
-    double HardwareShutdownCelsius,
-    string Evidence,
-    string ValidatedInPerformanceMode);
+    double MaxOperatingSpecification,
+    double SlowdownSpecification,
+    double ShutdownSpecification,
+    IReadOnlyList<double> ValidatedAnchorsCelsius,
+    string Evidence);
 
 /// <summary>
 /// The GPU thermal signatures for which the NVML T.Limit interpretation has been checked
 /// against real hardware.
 /// </summary>
 /// <remarks>
-/// <para><b>What this actually gates on.</b> Two things, both exact: the NVML device name, and
-/// the three absolute limits the derivation produces from that device's T.Limit data. Nothing
-/// else. It does not identify the laptop, the chassis, or the firmware — there is no SMBIOS or
-/// WMI check here and no machine-model requirement.</para>
+/// <para><b>What this actually gates on.</b> Three things: the NVML device name, matched
+/// exactly; the static T.Limit offsets that device reports, matched exactly; and the anchor
+/// those offsets are measured from, which must be one that has been observed and checked on
+/// that part. Nothing else. It does not identify the laptop, the chassis, or the firmware —
+/// there is no SMBIOS or WMI check here and no machine-model requirement.</para>
+/// <para>It gated on the <i>derived</i> limits until the anchor was found to move. Pinning the
+/// derived triple pinned the anchor along with it, and the anchor is not a device property: it
+/// is the thermal target the driver is currently enforcing, and it follows the Razer
+/// performance mode. That refused a healthy machine for being in a different mode from the one
+/// the evidence happened to be collected in.</para>
 /// <para><b>What it therefore validates.</b> The <i>interpretation of the T.Limit data</i>, not
 /// a whole machine. The evidence was collected on a Razer Blade 16 (RZ09-0483), but what was
 /// established there is how this GPU's relative T.Limit values convert to absolute
@@ -84,8 +100,8 @@ public static class ValidatedGpuThermalSignatures
     /// with static specifications GPU_MAX 0, SLOWDOWN -2, SHUTDOWN -5 throughout, matching
     /// nvidia-smi in the same time window.
     ///
-    /// <para><b>This signature does not currently qualify, and the reason is now known.</b>
-    /// The anchor is a function of the Razer performance mode. Measured on the same machine,
+    /// <para><b>The anchor is a function of the Razer performance mode.</b>
+    /// Measured on the same machine,
     /// same GPU UUID, same driver, same specifications, switching modes and reading back:</para>
     /// <code>
     /// Balanced                  core 47 + margin 40 = 87   ->  87 / 89 / 92
@@ -98,31 +114,35 @@ public static class ValidatedGpuThermalSignatures
     /// temperature within a mode, nor elapsed time: ten idle samples over ninety seconds gave
     /// 87 with no variation, and the four points above gave 75 across a 22 C spread.</para>
     ///
-    /// <para>So the numbers here are real, and they are the signature of <i>Silent or Custom</i>.
-    /// BladeControl performs thermal control exclusively in Balanced + Manual, where the anchor
-    /// is 87. The evidence above was collected while the machine happened to be in a mode the
-    /// runtime never operates in, and nvidia-smi corroborated it because it reports the same
-    /// driver-side target and was read in the same mode.</para>
+    /// <para>Both are real. 75 is the signature of Silent and Custom; 87 is the signature of
+    /// Balanced. The four original points were collected while the machine happened to be in one
+    /// of the first two, and nvidia-smi agreed because it reports the same driver-side target
+    /// read in the same mode - two views of one number rather than two witnesses.</para>
     ///
-    /// <para>The deeper problem is not the number. An exact-match allowlist pins a value that
-    /// the driver is entitled to change, and qualification reads it at start-preflight, which
-    /// may run before the runtime has entered the mode it will operate in. Left as is, a
-    /// machine in Silent qualifies against 75 and then operates at an 87 target - conservative,
-    /// so not dangerous, but not what was qualified. The constant is deliberately unchanged
-    /// pending that design decision; see docs/release-notes-v0.1.0.md.</para>
+    /// <para>Both are listed, because a session runs in whichever mode the user chose and
+    /// preserves it, so either anchor may legitimately be the one in force. Enumerating them
+    /// keeps the property that matters: a margin measured against the wrong reference yields
+    /// 77, which is in neither list and is still refused.</para>
     /// </remarks>
     public static ValidatedGpuThermalSignature Rtx4090Laptop { get; } = new(
         "NVIDIA GeForce RTX 4090 Laptop GPU",
-        MaxOperatingCelsius: 75,
-        HardwareSlowdownCelsius: 77,
-        HardwareShutdownCelsius: 80,
+
+        // The offsets, not the derived temperatures. These are what every reading on this part
+        // has reported, in every performance mode, and they are what the evidence below
+        // actually establishes about the T.Limit interpretation.
+        MaxOperatingSpecification: 0,
+        SlowdownSpecification: -2,
+        ShutdownSpecification: -5,
+
+        // Every anchor observed on this part, each confirmed by switching the performance
+        // mode and reading it back: 75 in Silent and Custom, 87 in Balanced. Both were checked
+        // against nvidia-smi in the same window, and both hold across a range of core
+        // temperatures with the margin tracking temperature exactly.
+        ValidatedAnchorsCelsius: [75, 87],
         Evidence:
             "T.Limit anchor confirmed at four operating points against nvidia-smi on a " +
-            "Razer Blade 16 RZ09-0483, NVIDIA driver 610.88",
-        // Established after the fact by switching modes and reading the anchor back. Both
-        // Silent and Custom (CPU low, GPU low) produce this anchor; which of the two the
-        // original session ran in was not recorded, and the evidence cannot distinguish them.
-        ValidatedInPerformanceMode: "Silent or Custom");
+            "Razer Blade 16 RZ09-0483, NVIDIA driver 610.88; offsets 0/-2/-5 unchanged " +
+            "across Balanced, Silent and Custom");
 
     public static IReadOnlyList<ValidatedGpuThermalSignature> All { get; } = [Rtx4090Laptop];
 
@@ -142,7 +162,9 @@ public static class ValidatedGpuThermalSignatures
     /// </remarks>
     public static bool TryMatch(
         string? deviceName,
+        GpuThermalSpecifications? specifications,
         GpuThermalLimits derived,
+        double? hardwareShutdownCelsius,
         out ValidatedGpuThermalSignature? signature,
         out string? rejection)
     {
@@ -169,27 +191,86 @@ public static class ValidatedGpuThermalSignatures
             return false;
         }
 
-        if (derived.MaxOperatingCelsius != candidate.MaxOperatingCelsius ||
-            derived.HardwareSlowdownCelsius != candidate.HardwareSlowdownCelsius ||
-            derived.HardwareShutdownCelsius != candidate.HardwareShutdownCelsius)
+        // What the evidence actually established is the *interpretation* of this GPU's T.Limit
+        // data: that the specifications are relative offsets from a live anchor, and which
+        // offsets this part reports. Those offsets are static device properties - 0 / -2 / -5
+        // on every reading ever taken here, in every performance mode.
+        //
+        // The anchor is not a device property. It is the thermal target the driver is
+        // currently enforcing, and it legitimately follows the Razer performance mode: 87 in
+        // Balanced, 75 in Silent and Custom, same GPU, same driver, same offsets. Pinning the
+        // derived triple pinned the anchor, so it refused a healthy machine for being in a
+        // different mode from the one the evidence happened to be collected in.
+        //
+        // So the offsets are matched exactly, and the anchor is bounded instead.
+        if (specifications is not { } specs ||
+            specs.MaxOperating != candidate.MaxOperatingSpecification ||
+            specs.Slowdown != candidate.SlowdownSpecification ||
+            specs.Shutdown != candidate.ShutdownSpecification)
         {
-            // This message used to end "The device is no longer behaving as it did when its
-            // T.Limit data was interpreted." That is usually false. The anchor the derivation
-            // rests on is the driver's current thermal target, and it follows the Razer
-            // performance mode - Balanced reads one value, Silent and Custom another, on the
-            // same GPU, driver and specifications. A perfectly healthy machine sitting in a
-            // different mode from the one the signature was measured in lands here, and was
-            // being told its hardware had changed. Name the real reason instead.
+            rejection =
+                $"GPU \"{deviceName}\" reported T.Limit specifications " +
+                (specifications is { } observed
+                    ? $"({observed.MaxOperating:F0}/{observed.Slowdown:F0}/" +
+                        $"{observed.Shutdown:F0} C)"
+                    : "(none)") +
+                $" that do not match its validated signature " +
+                $"({candidate.MaxOperatingSpecification:F0}/" +
+                $"{candidate.SlowdownSpecification:F0}/" +
+                $"{candidate.ShutdownSpecification:F0} C). These offsets are static device " +
+                "properties, so a difference means the T.Limit interpretation established for " +
+                "this part no longer describes it. No SET was sent.";
+            return false;
+        }
+
+        // The safety-critical bound. An anchor that reads too low yields limits that are too
+        // low, which makes the ladder act early - conservative, and not dangerous. An anchor
+        // that reads too high yields limits above what the hardware will tolerate, and that is
+        // the direction that matters, so the derived thresholds are held under the GPU's own
+        // stated shutdown temperature.
+        if (hardwareShutdownCelsius is { } hardwareShutdown &&
+            derived.HardwareShutdownCelsius > hardwareShutdown)
+        {
             rejection =
                 $"GPU \"{deviceName}\" derived thermal limits " +
                 $"({derived.MaxOperatingCelsius:F0}/{derived.HardwareSlowdownCelsius:F0}/" +
-                $"{derived.HardwareShutdownCelsius:F0} C) do not match its validated signature " +
-                $"({candidate.MaxOperatingCelsius:F0}/{candidate.HardwareSlowdownCelsius:F0}/" +
-                $"{candidate.HardwareShutdownCelsius:F0} C), which was validated in " +
-                $"{candidate.ValidatedInPerformanceMode} performance mode. The derived value is " +
-                "the driver's current thermal target and follows the active performance mode, " +
-                "so a different mode is the likely cause rather than a change in the device. " +
-                "Thermal ownership is refused either way: these limits were not qualified.";
+                $"{derived.HardwareShutdownCelsius:F0} C) whose shutdown limit is above the " +
+                $"{hardwareShutdown:F0} C the device itself reports as its shutdown " +
+                "temperature. BladeControl will not act on a threshold the hardware would not " +
+                "survive. No SET was sent.";
+            return false;
+        }
+
+        // The anchor itself must be one that has been observed and checked on this part.
+        //
+        // Bounds cannot do this job. A margin measured against the slowdown limit rather than
+        // the maximum operating temperature produces 77/79/82 — correctly ordered, entirely
+        // plausible, comfortably under the hardware shutdown temperature, and two degrees too
+        // permissive. It is indistinguishable by shape from a legitimate anchor, which is
+        // exactly why these are enumerated rather than bounded.
+        //
+        // A rejection here is usually not a fault in the device. The anchor is the thermal
+        // target the driver is currently enforcing, and it follows the Razer performance mode:
+        // 87 in Balanced, 75 in Silent and Custom, on the same GPU with the same offsets. An
+        // unfamiliar value may be a mode nobody has checked yet rather than anything wrong, and
+        // the message says so instead of announcing that the hardware has changed.
+        double anchor = derived.MaxOperatingCelsius + candidate.MaxOperatingSpecification;
+        if (!candidate.ValidatedAnchorsCelsius.Any(
+                validated => Math.Abs(validated - anchor) < 0.5))
+        {
+            rejection =
+                $"GPU \"{deviceName}\" derived thermal limits " +
+                $"({derived.MaxOperatingCelsius:F0}/{derived.HardwareSlowdownCelsius:F0}/" +
+                $"{derived.HardwareShutdownCelsius:F0} C) from a thermal anchor of " +
+                $"{anchor:F0} C, which is not " +
+                "one of the anchors validated for this part (" +
+                string.Join(
+                    ", ",
+                    candidate.ValidatedAnchorsCelsius.Select(value => $"{value:F0} C")) +
+                "). The anchor is the thermal target the driver is currently enforcing and it " +
+                "varies with performance mode, so an unrecognised value may be a mode that has " +
+                "not been checked yet, or a margin measured against the wrong reference — and " +
+                "the two are indistinguishable from the derivation alone. No SET was sent.";
             return false;
         }
 

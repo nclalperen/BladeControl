@@ -324,6 +324,7 @@ public sealed record GpuThermalLimits
         double maxOperatingSpecification,
         double slowdownSpecification,
         double shutdownSpecification,
+        double? hardwareShutdownCelsius,
         out GpuThermalLimits? limits,
         out string? rejection)
     {
@@ -342,7 +343,12 @@ public sealed record GpuThermalLimits
 
         if (!ValidatedGpuThermalSignatures.TryMatch(
                 deviceName,
+                new GpuThermalSpecifications(
+                    maxOperatingSpecification,
+                    slowdownSpecification,
+                    shutdownSpecification),
                 derived!,
+                hardwareShutdownCelsius,
                 out ValidatedGpuThermalSignature? _,
                 out rejection))
         {

@@ -334,7 +334,10 @@ public sealed class NvmlTelemetryProviderTests
             provider.TryDiscoverThermalLimits(out GpuThermalLimits? limits, out string diagnostic));
         Assert.IsNull(limits);
         StringAssert.Contains(diagnostic, "77/79/82", "The derived values must be named.");
-        StringAssert.Contains(diagnostic, "75/77/80", "So must the validated ones.");
+        StringAssert.Contains(
+            diagnostic,
+            "80 C",
+            "And the hardware shutdown temperature it exceeded.");
     }
 
     /// <summary>
