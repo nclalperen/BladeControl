@@ -199,7 +199,7 @@ public sealed class ThermalSelfTestTests
             return Result(_current);
         }
 
-        public ThermalControlOperationResult ReturnToBalancedAuto()
+        public ThermalControlOperationResult ReturnToFirmwareAuto()
         {
             Operations.Add("Auto");
             WriteCount++;

@@ -312,8 +312,10 @@ public sealed class ThermalRuntimeController
         State = ThermalControllerStateKind.Ready;
         ThermalControlOperationResult entry = _control.EnterManualBaseline(
             new FanRpm(ThermalCurve.MinimumDynamicRpm));
-        AddProtocolTrace(entry.Exchanges, "Enter Balanced + Manual and set 3000 RPM baseline");
-        if (!entry.Succeeded || entry.FinalState?.IsBalancedManual != true)
+        AddProtocolTrace(
+            entry.Exchanges,
+            "Enter Manual in the current performance mode and set 3000 RPM baseline");
+        if (!entry.Succeeded || entry.FinalState?.IsOwnedManual != true)
         {
             State = entry.AutoActive
                 ? ThermalControllerStateKind.EmergencyStopped
@@ -426,7 +428,7 @@ public sealed class ThermalRuntimeController
         if (State == ThermalControllerStateKind.Manual)
         {
             ReturnToAutoOnce("Normal stop: firmware handoff before performance restoration.");
-            if (FinalState?.IsBalancedAuto == true)
+            if (FinalState?.IsKnownAuto == true)
             {
                 RestoreOriginalPerformanceOnce();
             }
@@ -507,7 +509,7 @@ public sealed class ThermalRuntimeController
         _engine.MarkEmergencyStopped();
         ReturnToAutoOnce($"Emergency firmware handoff: {reason}");
         State = ThermalControllerStateKind.EmergencyStopped;
-        if (FinalState?.IsBalancedAuto == true)
+        if (FinalState?.IsKnownAuto == true)
         {
             RestoreOriginalPerformanceOnce();
         }
@@ -521,7 +523,7 @@ public sealed class ThermalRuntimeController
         }
 
         _autoAttempted = true;
-        ThermalControlOperationResult auto = _control.ReturnToBalancedAuto();
+        ThermalControlOperationResult auto = _control.ReturnToFirmwareAuto();
         AddProtocolTrace(auto.Exchanges, reason);
         FinalState = auto.FinalState;
         if (!auto.Succeeded || !auto.AutoActive)

@@ -352,7 +352,7 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
         };
     }
 
-    public ThermalControlOperationResult ReturnToBalancedAuto()
+    public ThermalControlOperationResult ReturnToFirmwareAuto()
     {
         Operations.Add("Auto");
         AutoAttempts++;
@@ -361,8 +361,12 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
             return Result(false, _state, "injected Auto failure");
         }
 
+        // Preserves the performance mode, as the real path now does: handing the fans back to
+        // firmware is not an occasion to change the user's mode. A fake that forced Balanced
+        // here would let every recovery test pass whether or not the code under test preserved
+        // anything.
         _state = Machine(
-            RazerPerformanceMode.Balanced,
+            _state.Zone1PerformanceMode,
             RazerFanMode.Auto,
             _state.CpuLevel,
             _state.GpuLevel,

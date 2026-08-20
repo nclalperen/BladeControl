@@ -52,13 +52,24 @@ public sealed record ThermalMachineState(
 
     public bool IsAuto => ZonesAgree && Zone1FanMode == RazerFanMode.Auto;
 
-    public bool IsBalancedManual => ZonesAgree &&
-        Zone1PerformanceMode == RazerPerformanceMode.Balanced &&
-        Zone1FanMode == RazerFanMode.Manual;
+    /// <summary>Both zones agree and hold Manual, in a performance mode we can name.</summary>
+    /// <remarks>
+    /// A session runs in the mode the user chose, so ownership is about the fan mode. The
+    /// performance mode still has to be one this build models — losing track of it would mean
+    /// being unable to write it back when handing the fans over.
+    /// </remarks>
+    public bool IsOwnedManual => ZonesAgree &&
+        Zone1FanMode == RazerFanMode.Manual &&
+        Zone1PerformanceMode.IsKnown;
 
-    public bool IsBalancedAuto => ZonesAgree &&
-        Zone1PerformanceMode == RazerPerformanceMode.Balanced &&
-        Zone1FanMode == RazerFanMode.Auto;
+    /// <summary>Both zones agree and hold Auto, in a performance mode we can name.</summary>
+    public bool IsKnownAuto => IsAuto && Zone1PerformanceMode.IsKnown;
+
+    public bool IsBalancedManual => IsOwnedManual &&
+        Zone1PerformanceMode == RazerPerformanceMode.Balanced;
+
+    public bool IsBalancedAuto => IsAuto &&
+        Zone1PerformanceMode == RazerPerformanceMode.Balanced;
 
     /// <summary>The subset of this capture that restoration actually depends on.</summary>
     public ThermalRestorationFingerprint RestorationFingerprint => new(
@@ -144,7 +155,7 @@ public interface IThermalControlDevice
 
     ThermalControlOperationResult SetBothFans(FanRpm target);
 
-    ThermalControlOperationResult ReturnToBalancedAuto();
+    ThermalControlOperationResult ReturnToFirmwareAuto();
 
     ThermalControlOperationResult RestorePerformance(ThermalMachineState originalState);
 }
@@ -203,7 +214,7 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
             result.OwnershipAfterWrite);
     }
 
-    public ThermalControlOperationResult ReturnToBalancedAuto() =>
+    public ThermalControlOperationResult ReturnToFirmwareAuto() =>
         ApplyFanProfile(FanControlProfile.Auto);
 
     public ThermalControlOperationResult RestorePerformance(ThermalMachineState originalState)
@@ -253,7 +264,7 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
     /// <para>That fan-mode half was a second ownership gate sitting in front of the real one,
     /// evaluated against the six-GET capture rather than the fresh two-GET observation. Fan
     /// ownership is decided in exactly one place now, and it is not here. Restoring the fan
-    /// mode is a separate step: the stop path calls ReturnToBalancedAuto before
+    /// mode is a separate step: the stop path calls ReturnToFirmwareAuto before
     /// RestorePerformance, so the captured fan mode is never consulted for restoration.</para>
     /// </remarks>
     /// <returns>
@@ -357,7 +368,7 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
             result.Succeeded,
             result.Plan.Operations.Count > 0,
             result.AutoRecovery is not null,
-            final?.IsBalancedAuto == true,
+            final?.IsKnownAuto == true,
             result.Verification.Message,
             final is null ? null : Convert(final),
             exchanges);

@@ -162,6 +162,16 @@ public sealed class FanControlState
             ? Zone1Mode.PerformanceMode
             : null;
 
+    /// <summary>Firmware owns the fans, in a performance mode we can name.</summary>
+    /// <remarks>
+    /// This is the success condition for handing the fans back. It used to be
+    /// <see cref="IsBalancedAuto"/>, which was equivalent only while every session ran in
+    /// Balanced. Now that the mode is preserved, a session recovering from Silent lands in
+    /// Silent + Auto — firmware owns the fans, exactly as intended — and testing for Balanced
+    /// would have reported that successful handoff as a failed one.
+    /// </remarks>
+    public bool IsKnownAuto => IsAuto && Zone1Mode.PerformanceMode.IsKnown;
+
     public bool IsBalancedManual => IsManual &&
         Zone1Mode.PerformanceMode == RazerPerformanceMode.Balanced;
 

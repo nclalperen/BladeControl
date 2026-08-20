@@ -305,7 +305,7 @@ public sealed class ThermalRuntimeTests
             return Result(true, _current, anyWrite: true);
         }
 
-        public ThermalControlOperationResult ReturnToBalancedAuto()
+        public ThermalControlOperationResult ReturnToFirmwareAuto()
         {
             Operations.Add("Auto");
             WriteOperations++;

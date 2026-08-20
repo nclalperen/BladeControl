@@ -68,6 +68,44 @@ public sealed class CrashRecoveryDiagnosticsTests
             status.LastRazerWatchdogState!.Zone1FanMode);
     }
 
+    /// <summary>
+    /// A session orphaned in Silent or Custom is recovered, not treated as an unsafe state.
+    /// </summary>
+    /// <remarks>
+    /// Recovery used to test for Balanced + Manual specifically, which was equivalent only
+    /// while every session forced Balanced. Now that a session runs in the mode the user chose,
+    /// a crash in Silent strands the fans exactly as thoroughly, and testing for Balanced would
+    /// have walked straight past it and faulted with "not a safe known Auto state" instead of
+    /// handing the fans back.
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow((byte)0x04)]
+    [DataRow((byte)0x05)]
+    public async Task SessionOrphanedOutsideBalancedIsStillRecovered(byte modeValue)
+    {
+        var mode = new RazerPerformanceMode(modeValue);
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        rig.Hardware.SetMode(mode, RazerFanMode.Manual);
+        await using BladeRuntime runtime = rig.CreateRuntime();
+
+        Assert.IsTrue(runtime.InitializeHost(), "Orphaned Manual must be recoverable.");
+        Assert.AreEqual(1, rig.Hardware.AutoAttempts);
+
+        RuntimeStatus status = runtime.GetStatus();
+        Assert.IsNotNull(status.LastRazerWatchdogState);
+        Assert.AreEqual(
+            RazerFanMode.Auto,
+            status.LastRazerWatchdogState!.Zone1FanMode,
+            "Firmware must own the fans after recovery.");
+        Assert.IsTrue(status.LastRazerWatchdogState.IsKnownAuto);
+
+        // Recovering a stranded session is not an occasion to change the user's mode.
+        Assert.AreEqual(
+            mode,
+            status.LastRazerWatchdogState.Zone1PerformanceMode,
+            "Recovery must hand the fans back without moving the machine to Balanced.");
+    }
+
     /// <summary>A host that started from a safe state does not write to the hardware.</summary>
     [TestMethod]
     public async Task StartupFromAutoAttemptsNoRecovery()

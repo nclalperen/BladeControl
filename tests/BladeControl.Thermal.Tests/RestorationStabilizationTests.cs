@@ -533,7 +533,7 @@ public sealed class RestorationStabilizationTests
             return Result(RazerFanMode.Manual);
         }
 
-        public ThermalControlOperationResult ReturnToBalancedAuto()
+        public ThermalControlOperationResult ReturnToFirmwareAuto()
         {
             Operations.Add("Auto");
             WriteOperations++;

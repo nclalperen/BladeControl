@@ -202,7 +202,11 @@ public sealed class BladeRuntime : IAsyncDisposable
             return true;
         }
 
-        if (!startupState.IsBalancedManual)
+        // A crashed session strands the fans in whatever mode it was running in, which is now
+        // the mode the user chose rather than always Balanced. Checking for Balanced + Manual
+        // specifically would have walked straight past a session orphaned in Silent and called
+        // it an unsafe startup state instead of recovering it.
+        if (!startupState.IsOwnedManual)
         {
             Fault($"Startup firmware state is not a safe known Auto state: {startupState}.");
             return false;
@@ -211,11 +215,12 @@ public sealed class BladeRuntime : IAsyncDisposable
         AddEvent((sequence, timestamp) => new RecoveryAttemptEvent(
             sequence,
             timestamp,
-            "Potentially orphaned Balanced + Manual mode detected; attempting one Balanced + Auto recovery."));
+            $"Potentially orphaned {startupState.Zone1PerformanceMode} + Manual mode detected; " +
+            "attempting one recovery to firmware Auto."));
         ThermalControlOperationResult recovery;
         try
         {
-            recovery = _hardware.ReturnToBalancedAuto();
+            recovery = _hardware.ReturnToFirmwareAuto();
         }
         catch (Exception exception)
         {
@@ -229,7 +234,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                 []);
         }
 
-        bool succeeded = recovery.Succeeded && recovery.FinalState?.IsBalancedAuto == true;
+        bool succeeded = recovery.Succeeded && recovery.FinalState?.IsKnownAuto == true;
 
         // Adopt the recovery's own readback as the watchdog observation. Until this was
         // added, _lastWatchdog kept the pre-recovery Balanced + Manual reading taken a few
@@ -878,7 +883,10 @@ public sealed class BladeRuntime : IAsyncDisposable
             return EmergencyHandoff($"Razer watchdog read failed: {exception.Message}");
         }
 
-        if (mode.IsBalancedManual)
+        // Ownership is the fan mode. The watchdog used to accept only Balanced + Manual, so a
+        // session legitimately running in Silent would have read as ownership lost on its very
+        // first watchdog tick.
+        if (mode.IsOwnedManual)
         {
             return true;
         }
@@ -1148,9 +1156,9 @@ public sealed class BladeRuntime : IAsyncDisposable
             _state = RuntimeState.Stopping;
         }
 
-        ThermalControlOperationResult auto = _hardware.ReturnToBalancedAuto();
+        ThermalControlOperationResult auto = _hardware.ReturnToFirmwareAuto();
         ThermalControlOperationResult? restore = null;
-        if (auto.Succeeded && auto.FinalState?.IsBalancedAuto == true)
+        if (auto.Succeeded && auto.FinalState?.IsKnownAuto == true)
         {
             restore = _hardware.RestorePerformance(original);
         }

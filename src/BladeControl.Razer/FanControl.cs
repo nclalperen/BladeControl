@@ -474,7 +474,7 @@ public sealed partial class RazerClient
         }
 
         FanControlState? finalState = TryReadFanControlState();
-        bool succeeded = finalState?.IsBalancedAuto == true;
+        bool succeeded = finalState?.IsKnownAuto == true;
         return new FanAutoRecoveryResult(
             succeeded,
             operations,
@@ -488,7 +488,7 @@ public sealed partial class RazerClient
     private FanAutoRecoveryResult AssessFailedAutoTransition(FanApplyAttempt attempt)
     {
         FanControlState? finalState = attempt.FinalState ?? TryReadFanControlState();
-        bool succeeded = finalState?.IsBalancedAuto == true;
+        bool succeeded = finalState?.IsKnownAuto == true;
         return new FanAutoRecoveryResult(
             succeeded,
             attempt.Operations,

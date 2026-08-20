@@ -26,9 +26,19 @@ public sealed record RazerOwnershipObservation(
     public bool ZonesAgree =>
         Zone1PerformanceMode == Zone2PerformanceMode && Zone1FanMode == Zone2FanMode;
 
-    public bool IsBalancedManual => ZonesAgree &&
-        Zone1PerformanceMode == RazerPerformanceMode.Balanced &&
-        Zone1FanMode == RazerFanMode.Manual;
+    /// <summary>Both zones agree and hold Manual, in whatever performance mode.</summary>
+    /// <remarks>
+    /// Ownership is about the fan mode. A session runs in the performance mode the user chose
+    /// and preserves it, so a machine held in Silent + Manual is owned exactly as much as one
+    /// in Balanced + Manual. The mode still has to be one this build can name, because losing
+    /// track of it would mean not being able to write it back.
+    /// </remarks>
+    public bool IsOwnedManual => ZonesAgree &&
+        Zone1FanMode == RazerFanMode.Manual &&
+        Zone1PerformanceMode.IsKnown;
+
+    public bool IsBalancedManual => IsOwnedManual &&
+        Zone1PerformanceMode == RazerPerformanceMode.Balanced;
 
     public bool IsAuto => ZonesAgree && Zone1FanMode == RazerFanMode.Auto;
 
@@ -109,7 +119,7 @@ public sealed partial class RazerClient
     /// overruns.</para>
     /// <para>The sequence is now exactly what is validated:</para>
     /// <code>
-    /// 0x0D82 Z1, Z2   precondition: ownership still Balanced + Manual, zones agree
+    /// 0x0D82 Z1, Z2   precondition: ownership still Manual, zones agree, mode known
     /// 0x0D01 Z1, Z2   the write, echo-validated as before
     /// 0x0D81 Z1, Z2   verification: firmware-reported fan state equals the commanded target
     /// 0x0D82 Z1, Z2   verification: ownership still held, zones still agree
@@ -137,11 +147,12 @@ public sealed partial class RazerClient
         // --- Precondition: ownership only ---------------------------------------------------
         RazerOwnershipObservation before = ReadOwnershipObservation();
         exchanges.AddRange(before.Exchanges);
-        if (!before.IsBalancedManual)
+        if (!before.IsOwnedManual)
         {
             throw new FanControlStateException(
-                "A dynamic thermal target requires verified Balanced + Manual state in both " +
-                $"zones; firmware reported {before.Describe()}. No SET was sent.");
+                "A dynamic thermal target requires verified Manual fan mode in both zones, " +
+                $"in a known performance mode; firmware reported {before.Describe()}. " +
+                "No SET was sent.");
         }
 
         // --- The write ------------------------------------------------------------------------
@@ -179,12 +190,25 @@ public sealed partial class RazerClient
             return Recover(exchanges, $"Thermal target readback failed: {exception.Message}");
         }
 
-        if (!after.IsBalancedManual)
+        if (!after.IsOwnedManual)
         {
             return Recover(
                 exchanges,
                 "Fan ownership was lost during the target write; firmware reported " +
                 $"{after.Describe()}.");
+        }
+
+        // The mode is now the user's rather than a constant, so it has to be compared rather
+        // than assumed. Checking IsBalancedManual at both ends used to pin the mode as a side
+        // effect of pinning Balanced; with the mode preserved, that side effect is gone and
+        // something changing the performance mode mid-write would otherwise pass unnoticed.
+        if (after.Zone1PerformanceMode != before.Zone1PerformanceMode ||
+            after.Zone2PerformanceMode != before.Zone2PerformanceMode)
+        {
+            return Recover(
+                exchanges,
+                "The performance mode changed during the target write; firmware reported " +
+                $"{before.Describe()} before and {after.Describe()} after.");
         }
 
         if (fanState.Zone1FirmwareReportedRpm != target.Value ||
@@ -227,7 +251,7 @@ public sealed partial class RazerClient
             false,
             true,
             true,
-            recovery.FinalState?.IsBalancedAuto == true,
+            recovery.FinalState?.IsKnownAuto == true,
             message,
             null,
             recovery.FinalState,

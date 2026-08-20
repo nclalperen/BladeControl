@@ -14,16 +14,22 @@ public sealed record RuntimeRazerModeState(
         Zone1PerformanceMode == Zone2PerformanceMode &&
         Zone1FanMode == Zone2FanMode;
 
-    public bool IsBalancedManual => ZonesAgree &&
-        Zone1PerformanceMode == RazerPerformanceMode.Balanced &&
-        Zone1FanMode == RazerFanMode.Manual;
+    /// <summary>Both zones agree and hold Manual, in a performance mode we can name.</summary>
+    /// <remarks>
+    /// This is what an orphaned session looks like: fans held in Manual with nothing driving
+    /// them. It is not specific to Balanced, because a session runs in whatever mode the user
+    /// chose and leaves it there — a crash in Silent strands the fans exactly as thoroughly.
+    /// </remarks>
+    public bool IsOwnedManual => ZonesAgree &&
+        Zone1FanMode == RazerFanMode.Manual &&
+        Zone1PerformanceMode.IsKnown;
+
+    public bool IsBalancedManual => IsOwnedManual &&
+        Zone1PerformanceMode == RazerPerformanceMode.Balanced;
 
     public bool IsAuto => ZonesAgree && Zone1FanMode == RazerFanMode.Auto;
 
-    public bool IsKnownAuto => IsAuto &&
-        (Zone1PerformanceMode == RazerPerformanceMode.Balanced ||
-         Zone1PerformanceMode == RazerPerformanceMode.Custom ||
-         Zone1PerformanceMode == RazerPerformanceMode.Silent);
+    public bool IsKnownAuto => IsAuto && Zone1PerformanceMode.IsKnown;
 
     public override string ToString() =>
         $"Zone 1 {Zone1PerformanceMode} + {Zone1FanMode}; " +
@@ -85,8 +91,8 @@ public sealed class RazerRuntimeHardwareController : IRuntimeHardwareController
     public ThermalControlOperationResult SetBothFans(FanRpm target) =>
         _thermal.SetBothFans(target);
 
-    public ThermalControlOperationResult ReturnToBalancedAuto() =>
-        _thermal.ReturnToBalancedAuto();
+    public ThermalControlOperationResult ReturnToFirmwareAuto() =>
+        _thermal.ReturnToFirmwareAuto();
 
     public ThermalControlOperationResult RestorePerformance(ThermalMachineState originalState) =>
         _thermal.RestorePerformance(originalState);

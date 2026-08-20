@@ -425,7 +425,7 @@ public sealed class FreshStartQualificationTests
             return Success(RazerPerformanceMode.Balanced, RazerFanMode.Manual);
         }
 
-        public ThermalControlOperationResult ReturnToBalancedAuto()
+        public ThermalControlOperationResult ReturnToFirmwareAuto()
         {
             Operations.Add("Auto");
             WriteOperations++;
