@@ -60,10 +60,18 @@ public static class TelemetryHealthEvaluator
     /// GPU temperature at or above which closed-loop control refuses to <i>start</i>.
     /// </summary>
     /// <remarks>
-    /// Entry gate only, and deliberately conservative: on the reference part this is the
-    /// hardware shutdown temperature, so a machine already there has no business starting a
-    /// new thermal session. Once running, the graded ladder built from device-discovered
-    /// limits governs instead — see <see cref="ClassifyGpuThermalSeverity"/>.
+    /// <para>Entry gate only, and deliberately conservative. A machine already this hot has no
+    /// business starting a new thermal session. Once running, the graded ladder built from
+    /// device-discovered limits governs instead — see
+    /// <see cref="ClassifyGpuThermalSeverity"/>.</para>
+    /// <para><b>This is a fixed bar and does not track the device.</b> It was originally
+    /// justified as "the hardware shutdown temperature on the reference part", which turned out
+    /// to be a claim about one performance mode rather than about the device: the reference
+    /// RTX 4090 Laptop GPU derives a shutdown limit of 80 C in Silent and 92 C in Balanced, on
+    /// the same driver and the same T.Limit specifications. The number here is deliberately the
+    /// lower of those and is not to be "corrected" upwards to match whatever the device happens
+    /// to report — raising it would loosen an entry gate on the strength of a value the driver
+    /// is free to change. See <c>ValidatedGpuThermalSignatures</c>.</para>
     /// </remarks>
     public const double GpuEmergencyTemperatureCelsius = 80;
 
@@ -159,10 +167,12 @@ public static class TelemetryHealthEvaluator
     /// Presence, plausibility and freshness of the GPU reading, with no opinion about heat.
     /// </summary>
     /// <remarks>
-    /// The fixed 80 C GPU emergency it replaces on this path was, on the reference RTX 4090
-    /// Laptop GPU, the temperature at which the hardware shuts itself down. Treating that as
-    /// the software handoff meant no cooling response and no margin. The running loop now uses
-    /// device-discovered limits; the preflight gate below keeps its conservative fixed bar.
+    /// The fixed 80 C GPU emergency this replaces on the running path was a shutdown
+    /// temperature — of the reference GPU in Silent mode, as it later turned out; in Balanced
+    /// the same part derives 92 C. Either way, treating a hardware shutdown limit as the
+    /// software handoff point meant no cooling response and no margin. The running loop now
+    /// uses device-discovered limits; the preflight gate keeps its conservative fixed bar,
+    /// which is a policy choice and not a reading of the device.
     /// </remarks>
     public static TelemetryHealth EvaluateGpuTemperatureIntegrity(
         TelemetryMetric<double> metric,

@@ -201,6 +201,39 @@ public sealed class ThermalQualificationSourceOfTruthTests
         StringAssert.Contains(diagnostic, "validated");
     }
 
+    /// <summary>
+    /// The GPU preflight bar is a fixed policy choice, not a reading of the device.
+    /// </summary>
+    /// <remarks>
+    /// It was once justified as the reference part's hardware shutdown temperature. That turned
+    /// out to be a statement about one performance mode: the same GPU, same driver and same
+    /// T.Limit specifications derives a shutdown limit of 80 C in Silent and 92 C in Balanced.
+    /// Anyone comparing the constant against a live Balanced reading will find it 12 C low and
+    /// may be tempted to "align" it. Raising it would loosen an entry gate to match a value the
+    /// driver is entitled to change, so the intent is pinned here rather than left to a comment.
+    /// </remarks>
+    [TestMethod]
+    public void GpuPreflightBarStaysAtTheConservativeFixedValue()
+    {
+        Assert.AreEqual(
+            80d,
+            TelemetryHealthEvaluator.GpuEmergencyTemperatureCelsius,
+            "The GPU entry gate is deliberately the lower of the mode-dependent shutdown "
+                + "limits. Read the remarks on the constant before changing this.");
+
+        // And it must stay an entry gate: the running loop's health check has no opinion
+        // about heat, so this bar can never itself trigger a live handoff.
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        TelemetryMetric<double> hot = TelemetryMetric<double>.Available(
+            95d,
+            now,
+            TelemetrySources.GpuTemperature);
+
+        Assert.IsTrue(
+            TelemetryHealthEvaluator.EvaluateGpuTemperatureIntegrity(hot, now).IsHealthy,
+            "A hot but valid GPU reading is not a telemetry fault.");
+    }
+
     private static GpuThermalLimits Reference()
     {
         _ = GpuThermalLimits.TryCreate(
