@@ -235,11 +235,51 @@
         <Setter Property="BorderThickness" Value="1" />
     </Style>
 
+    <!--
+        The closed ComboBox is deliberately light-on-dark: a pale field with dark text, so an
+        editable control reads as editable against the dark surface.
+
+        ComboBoxItem must be styled to match. Without it the popup falls back to system
+        defaults, which in a dark theme renders near-black text on a near-black list - the
+        items are present, selectable and effectively invisible. Styling the closed box alone
+        is the easy half; the popup is where the text actually has to be read.
+    -->
     <Style TargetType="ComboBox">
         <Setter Property="Foreground" Value="#101411" />
         <Setter Property="Background" Value="{StaticResource TextSecondaryBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
         <Setter Property="Padding" Value="8,5" />
+    </Style>
+
+    <Style TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="#101411" />
+        <Setter Property="Background" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="ItemBorder"
+                            Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter TextOptions.TextFormattingMode="Display" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ItemBorder" Property="Background" Value="#FFFFFF" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter Property="Foreground" Value="#101411" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="ItemBorder" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="Slider">

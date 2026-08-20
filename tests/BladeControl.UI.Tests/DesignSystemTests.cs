@@ -41,6 +41,46 @@ public sealed class DesignSystemTests
         "CompactCardGapMargin", "CompactSectionGapMargin", "CompactEyebrowMargin"
     ];
 
+    /// <summary>
+    /// Every interactive control the theme styles must also style the surface a user reads
+    /// text off, not only the one they click.
+    /// </summary>
+    /// <remarks>
+    /// ComboBox styled the closed field but not ComboBoxItem, so the popup fell back to system
+    /// defaults: in a dark theme that renders near-black text on a near-black list. The items
+    /// were present, selectable, and effectively invisible. Styling the closed control is the
+    /// easy half; the popup is where the text actually has to be read.
+    /// </remarks>
+    [TestMethod]
+    public void ComboBoxPopupItemsAreStyledAndNotLeftToSystemDefaults() => OnStaThread(() =>
+    {
+        ResourceDictionary theme = LoadTheme();
+
+        var itemStyle = theme[typeof(ComboBoxItem)] as Style;
+        Assert.IsNotNull(
+            itemStyle,
+            "ComboBoxItem must be styled, or the dropdown inherits unreadable system colours.");
+
+        Setter? foreground = itemStyle!.Setters.OfType<Setter>()
+            .FirstOrDefault(setter => setter.Property == Control.ForegroundProperty);
+        Setter? background = itemStyle.Setters.OfType<Setter>()
+            .FirstOrDefault(setter => setter.Property == Control.BackgroundProperty);
+
+        Assert.IsNotNull(foreground, "Popup items need an explicit foreground.");
+        Assert.IsNotNull(background, "Popup items need an explicit background.");
+
+        var closed = theme[typeof(ComboBox)] as Style;
+        Setter? closedForeground = closed!.Setters.OfType<Setter>()
+            .FirstOrDefault(setter => setter.Property == Control.ForegroundProperty);
+
+        // Compare the colour, not the brush: the two setters parse to separate SolidColorBrush
+        // instances, so reference equality would fail even when they render identically.
+        Assert.AreEqual(
+            ((SolidColorBrush)closedForeground!.Value).Color,
+            ((SolidColorBrush)foreground!.Value).Color,
+            "The popup must read the same way as the field it drops out of.");
+    });
+
     [TestMethod]
     public void ThemeDefinesEveryTokenThePagesBindTo() => OnStaThread(() =>
     {
