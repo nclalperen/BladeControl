@@ -112,9 +112,15 @@ leaves the real defect in place. Two things are wrong independently of the numbe
 
 1. An exact-match allowlist pins a value the driver is entitled to change. The anchor is a
    thermal *target*, not a device identity.
-2. Qualification reads it at start-preflight, which can run before the runtime has entered the
-   mode it will operate in — so a machine in Silent qualifies against 75 and then operates
-   against 87. Conservative, so not dangerous, but not what was qualified.
+2. Qualification reads it at start-preflight, which runs before the runtime has entered the
+   mode it will operate in. Confirmed from the start path: `QualifyThermalOwnership()` is called
+   before the state moves to `Starting` and before any mode transition, nothing requires the
+   machine to already be in Balanced, and nothing re-reads the limits afterwards. A machine in
+   Silent therefore qualifies against 75, switches to Balanced, and runs a ladder built on
+   limits that no longer apply. The direction is conservative — it escalates about 12 C early,
+   over-cooling rather than under-cooling, with firmware protection untouched — so it is a
+   correctness defect and not a hazard. It is the mirror image of today's visible refusal: one
+   bug with two faces, and an exact-match allowlist cannot tell them apart.
 
 Today's refusal is the safe direction of that same bug. Options, recommended order:
 

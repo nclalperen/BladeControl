@@ -788,3 +788,36 @@ found no match, and refused. Nothing was written.
 The constant is deliberately still unchanged. The fix worth making is to qualify against the
 mode the runtime will actually run in, and to stop treating a driver-managed target as a fixed
 identity — and that is a design decision, recorded in the release notes.
+
+## The qualify-then-switch ordering, confirmed reachable
+
+The previous entry said qualification "can run before the runtime has entered the mode it will
+operate in". That was stated as a possibility; it is now confirmed from the start path.
+
+`BladeRuntime.StartThermalControl` calls `QualifyThermalOwnership()` before it sets
+`RuntimeState.Starting` and before any mode transition. Nothing in the preconditions requires
+the machine to already be in Balanced — the checks ahead of qualification are runtime state, the
+emergency latch, and a standalone Manual profile. The switch to Balanced + Manual happens
+afterwards, during ownership. Nothing re-reads the GPU limits after it; the post-gate freshness
+check that does exist covers performance modes, not thermal limits.
+
+So the sequence on a machine sitting in Silent is:
+
+1. Qualification derives 75/77/80 from the Silent anchor and **matches the stored signature**.
+2. The runtime takes ownership and switches the machine to Balanced.
+3. The driver's thermal target is now 87, but the GPU ladder was built from the 75-based limits
+   captured in step 1, and is never rebuilt.
+
+**The direction is conservative.** A ladder built on 75 escalates roughly 12 C earlier than one
+built on 87, so it over-cools rather than under-cools. Firmware slowdown and shutdown are
+untouched throughout. This is a correctness defect, not a hazard, and it is recorded as such.
+
+It is also the mirror image of today's visible failure. In Balanced the derivation gives 87, no
+signature matches, and the machine is refused — the safe direction. In Silent it matches a
+signature for a mode it is about to leave — the wrong-but-conservative direction. One bug, two
+faces, and the exact-match allowlist cannot distinguish them because it is matching a value the
+driver is entitled to change.
+
+Not implemented here. Re-qualifying after ownership would be strictly additive — more checking,
+never less — but it is a change to the start path and the ownership gate, and the outcome it
+prevents is conservative rather than dangerous. It belongs with the decision it is evidence for.
