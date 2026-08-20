@@ -160,8 +160,17 @@ internal static partial class Program
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(output);
-        bool stopped = status.State.Equals(nameof(RuntimeState.Stopped), StringComparison.Ordinal);
-        string sessionPrefix = stopped ? "Last session" : "Current session";
+        // Only a Running session produces current readings. Every other state — Stopped,
+        // Faulted, EmergencyHandoff — is showing what was last observed, however long ago.
+        //
+        // Testing for Stopped alone was actively misleading after an emergency handoff: the
+        // runtime had returned the fans to firmware Auto, and the report still announced
+        // "Current watchdog observation: Balanced + Manual", which reads as BladeControl
+        // still owning the fans. The most important moment to be truthful about ownership is
+        // the moment ownership has just changed.
+        bool live = status.State.Equals(nameof(RuntimeState.Running), StringComparison.Ordinal);
+        string sessionPrefix = live ? "Current session" : "Last session";
+        bool stopped = !live;
 
         output.WriteLine();
         output.WriteLine("Runtime state");

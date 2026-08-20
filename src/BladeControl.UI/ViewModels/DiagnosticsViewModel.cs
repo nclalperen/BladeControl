@@ -429,7 +429,10 @@ public sealed class DiagnosticsViewModel : PageViewModel
     private void RebuildGroups()
     {
         RuntimeStatusDto? status = Connection.Status;
-        bool stopped = string.Equals(status?.State, "Stopped", StringComparison.Ordinal);
+        // Only a Running session produces current readings. Stopped, Faulted and
+        // EmergencyHandoff are all showing the last thing observed, and an emergency handoff
+        // is precisely when a stale "Balanced + Manual" would misrepresent who owns the fans.
+        bool stopped = !string.Equals(status?.State, "Running", StringComparison.Ordinal);
         Razer.Title = stopped ? "Razer · Last watchdog observation" : "Razer";
         Telemetry.Title = stopped ? "Telemetry · last session values" : "Telemetry";
         Scheduler.Title = stopped ? "Last session scheduler" : "Scheduler";

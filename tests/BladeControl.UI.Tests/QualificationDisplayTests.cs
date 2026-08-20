@@ -106,6 +106,49 @@ public sealed class QualificationDisplayTests
     }
 
     /// <summary>
+    /// After an emergency handoff the fans belong to firmware, so a last-seen Manual
+    /// observation must not be presented as current.
+    /// </summary>
+    /// <remarks>
+    /// Found live. A session ended in a legitimate emergency handoff at 100 C, and the report
+    /// still announced "Current watchdog observation: Balanced + Manual" — which reads as
+    /// BladeControl still owning the fans at exactly the moment it had given them back. The
+    /// historical labelling tested only for Stopped.
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow("EmergencyHandoff")]
+    [DataRow("Faulted")]
+    [DataRow("Stopped")]
+    public async Task NonRunningStatesPresentObservationsAsHistorical(string state)
+    {
+        var client = new FakeRuntimeUiClient { Status = RuntimeUiSampleData.Status(state: state) };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var diagnostics = new DiagnosticsViewModel(connection, CancellationToken.None);
+        diagnostics.Activate();
+
+        StringAssert.Contains(diagnostics.Razer.Title, "Last watchdog observation");
+        DiagnosticItem fan = diagnostics.Razer.Items.Single(
+            item => item.Label.StartsWith("Firmware-reported fan state", StringComparison.Ordinal));
+        StringAssert.Contains(fan.Detail!, "Historical");
+    }
+
+    /// <summary>A running session is the only state that reports current readings.</summary>
+    [TestMethod]
+    public async Task RunningStatePresentsObservationsAsCurrent()
+    {
+        var client = new FakeRuntimeUiClient { Status = RuntimeUiSampleData.Status(state: "Running") };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var diagnostics = new DiagnosticsViewModel(connection, CancellationToken.None);
+        diagnostics.Activate();
+
+        Assert.IsFalse(
+            diagnostics.Razer.Title.Contains("Last", StringComparison.Ordinal),
+            "A live session is not history.");
+    }
+
+    /// <summary>
     /// A firmware fan value read minutes ago must not read as the current RPM while stopped.
     /// </summary>
     [TestMethod]
