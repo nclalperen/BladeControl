@@ -727,3 +727,64 @@ independent corroborator was available, and it was reasonable on the evidence th
 says the quantity it pins is not the kind of quantity an exact-match allowlist can pin. That is
 a design decision for the copyright holder, recorded in the release notes rather than resolved
 here.
+
+## The anchor is the Razer performance mode
+
+The previous entry left it open which of 75/77/80 and 87/89/92 reflected the machine's normal
+state, and said the conditions under which the signature was captured were not recorded. They
+are now, because the cause turned out to be trivially testable: switch the performance mode and
+read the anchor back.
+
+| Razer performance mode | Core | Margin | Anchor | Derived limits |
+|---|---|---|---|---|
+| Balanced (as found) | 46 | 41 | **87** | 87 / 89 / 92 |
+| Silent | 47 | 28 | **75** | 75 / 77 / 80 |
+| Silent, 8 s later | 47 | 28 | **75** | 75 / 77 / 80 |
+| Custom, CPU low + GPU low | 47 | 28 | **75** | 75 / 77 / 80 |
+| Balanced (returned) | 48 | 39 | **87** | 87 / 89 / 92 |
+
+Same machine, same GPU UUID, same driver 610.88, same specifications (0 / -2 / -5) throughout.
+The anchor follows the mode deterministically, in both directions.
+
+Everything else was ruled out:
+
+- **Fan mode does not affect it.** Measured at 87 with the fan mode read back as `Manual`, not
+  merely commanded — the first attempt echoed the pre-apply state, which would have made the
+  claim unsupported, so it was repeated with an explicit readback.
+- **Temperature does not affect it within a mode.** Ten idle samples over ninety seconds gave
+  anchor 87 with no variation, margin tracking temperature 1:1. The original four data points
+  gave 75 across a 22 C spread (44 to 66 C).
+- **Time does not affect it.**
+
+### What this means for the signature
+
+The recorded 75/77/80 is real and correctly measured. It is the signature of **Silent or
+Custom**. The collection session simply ran with the machine in one of those modes, and
+nvidia-smi corroborated it because it reports the same driver-side target and was read in the
+same mode — two views of one number, not two independent witnesses.
+
+BladeControl performs thermal control **exclusively in Balanced + Manual**. So the signature it
+pinned belongs to a mode the runtime never operates in, and the mode it does operate in gives
+87/89/92. That is the entire refusal.
+
+### The design problem is bigger than the constant
+
+Correcting 75 to 87 would make the reference machine work and would leave the real defect in
+place. Two things are wrong independently of the number:
+
+1. **An exact-match allowlist pins a value the driver is entitled to change.** The anchor is a
+   thermal *target*, not a device constant. Any policy that moves it — a mode, possibly a
+   battery state, possibly a driver update — breaks qualification on hardware that is behaving
+   perfectly.
+2. **Qualification reads it at start-preflight, which can run before the runtime has entered the
+   mode it will operate in.** A machine sitting in Silent qualifies against 75, then the runtime
+   takes ownership by switching to Balanced, and now operates against an 87 target having
+   qualified against 75. That direction is conservative — it would act early, not late — so it
+   is not dangerous. It is still not what was qualified.
+
+Today's failure is the safe direction of the same bug: the machine was in Balanced, read 87,
+found no match, and refused. Nothing was written.
+
+The constant is deliberately still unchanged. The fix worth making is to qualify against the
+mode the runtime will actually run in, and to stop treating a driver-managed target as a fixed
+identity — and that is a design decision, recorded in the release notes.

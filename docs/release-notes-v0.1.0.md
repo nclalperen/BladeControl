@@ -98,21 +98,36 @@ derivation now yields 87/89/92 C against a pinned signature of 75/77/80 C, so th
 is refused and Dynamic will not start. Fan control, performance modes and every fixed-target
 path are unaffected.
 
-The finding underneath it is that `temperature + margin` is not a device constant but the
-thermal target the driver is currently enforcing, which varies with power and performance
-policy. An exact-match allowlist cannot pin a value that is allowed to change. The constant was
-deliberately not edited — two readings are not grounds for moving a safety threshold — so the
-choice is yours:
+**The cause is established.** The anchor is a function of the Razer performance mode —
+Balanced gives 87, Silent and Custom give 75 — reproducible in both directions on the same GPU,
+driver and specifications. Fan mode, temperature and elapsed time have no effect.
 
-- *Re-pin* to 87/89/92 after establishing which state is normal, and record the conditions this
-  time. Fastest, but pins the same kind of value again.
-- *Qualify differently*: treat the derived value as the driver's current target and sanity-check
-  it against the legacy absolute thresholds (105/97/100) rather than against a stored triple.
-  This is the change the finding actually argues for, and it is a design change, not a constant.
-- *Ship with Dynamic refusing on this machine*, which is honest and safe but makes the headline
-  feature unavailable.
+BladeControl performs thermal control exclusively in Balanced + Manual, so the pinned 75/77/80
+is the signature of a mode the runtime never operates in. The original measurement was correct;
+it was simply taken in Silent or Custom, and nvidia-smi agreed because it reports the same
+driver-side target read in the same mode.
 
-Raw probe data is in [engineering-log.md](engineering-log.md).
+The constant was deliberately not edited, because changing 75 to 87 fixes this machine and
+leaves the real defect in place. Two things are wrong independently of the number:
+
+1. An exact-match allowlist pins a value the driver is entitled to change. The anchor is a
+   thermal *target*, not a device identity.
+2. Qualification reads it at start-preflight, which can run before the runtime has entered the
+   mode it will operate in — so a machine in Silent qualifies against 75 and then operates
+   against 87. Conservative, so not dangerous, but not what was qualified.
+
+Today's refusal is the safe direction of that same bug. Options, recommended order:
+
+- **Qualify in the operating mode.** Establish thermal limits after the runtime has taken
+  Balanced + Manual ownership rather than before, and sanity-check the derived target against
+  the legacy absolute thresholds (105/97/100) instead of a stored triple. This fixes the defect
+  rather than the symptom. It touches the ownership gate, so it wants your sign-off.
+- **Re-pin to 87/89/92** as an interim, documenting that the signature is mode-scoped. Restores
+  Dynamic on this machine today; leaves both problems above.
+- **Ship with Dynamic refusing**, which is honest and safe but makes the headline feature
+  unavailable on the only validated machine.
+
+Full experiment and raw data in [engineering-log.md](engineering-log.md).
 
 The remaining four are the copyright holder's call, not an engineering task. None of them blocks
 the build; all of them are easier to settle before a tag than after.

@@ -76,6 +76,33 @@ public static class ValidatedGpuThermalSignatures
     /// </code>
     /// with static specifications GPU_MAX 0, SLOWDOWN -2, SHUTDOWN -5 throughout, matching
     /// nvidia-smi in the same time window.
+    ///
+    /// <para><b>This signature does not currently qualify, and the reason is now known.</b>
+    /// The anchor is a function of the Razer performance mode. Measured on the same machine,
+    /// same GPU UUID, same driver, same specifications, switching modes and reading back:</para>
+    /// <code>
+    /// Balanced                  core 47 + margin 40 = 87   ->  87 / 89 / 92
+    /// Silent                    core 47 + margin 28 = 75   ->  75 / 77 / 80
+    /// Custom (CPU low, GPU low) core 47 + margin 28 = 75   ->  75 / 77 / 80
+    /// Balanced (returned)       core 48 + margin 39 = 87   ->  87 / 89 / 92
+    /// </code>
+    /// <para>The anchor follows the mode deterministically in both directions. Fan mode does
+    /// not affect it - confirmed at 87 with the fan mode read back as Manual. Neither does
+    /// temperature within a mode, nor elapsed time: ten idle samples over ninety seconds gave
+    /// 87 with no variation, and the four points above gave 75 across a 22 C spread.</para>
+    ///
+    /// <para>So the numbers here are real, and they are the signature of <i>Silent or Custom</i>.
+    /// BladeControl performs thermal control exclusively in Balanced + Manual, where the anchor
+    /// is 87. The evidence above was collected while the machine happened to be in a mode the
+    /// runtime never operates in, and nvidia-smi corroborated it because it reports the same
+    /// driver-side target and was read in the same mode.</para>
+    ///
+    /// <para>The deeper problem is not the number. An exact-match allowlist pins a value that
+    /// the driver is entitled to change, and qualification reads it at start-preflight, which
+    /// may run before the runtime has entered the mode it will operate in. Left as is, a
+    /// machine in Silent qualifies against 75 and then operates at an 87 target - conservative,
+    /// so not dangerous, but not what was qualified. The constant is deliberately unchanged
+    /// pending that design decision; see docs/release-notes-v0.1.0.md.</para>
     /// </remarks>
     public static ValidatedGpuThermalSignature Rtx4090Laptop { get; } = new(
         "NVIDIA GeForce RTX 4090 Laptop GPU",

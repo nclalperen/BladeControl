@@ -111,15 +111,26 @@ The GPU thermal limit derivation (`temperature + margin - specification`) curren
 ownership qualification fails closed and Dynamic will not start. No SET is sent; firmware
 protection is unaffected; fan and performance control are unaffected.
 
-The cause is that `temperature + margin` is not a device constant. It is the thermal target the
-driver is currently enforcing, and it varies with power and performance policy. Within a session
-it is exact - ten idle samples gave anchor 87 with no variation, margin tracking temperature 1:1
-- but it differs between sessions, and the allowlist matches it exactly.
+**The cause is established.** The anchor (`temperature + margin`) is a function of the Razer
+performance mode:
 
-Which of the two triples reflects the machine's normal state is **not established**, and the
-constant has deliberately not been changed on the strength of two readings. See
-[engineering-log.md](engineering-log.md) for the raw probe data and
-[release-notes-v0.1.0.md](release-notes-v0.1.0.md) for the decision this needs.
+| Mode | Anchor | Derived limits |
+|---|---|---|
+| Balanced | 87 | 87 / 89 / 92 |
+| Silent | 75 | 75 / 77 / 80 |
+| Custom (CPU low, GPU low) | 75 | 75 / 77 / 80 |
+
+Reproducible in both directions on the same GPU, driver and specifications. Fan mode does not
+affect it (verified at 87 with fan mode read back as Manual), nor does temperature within a
+mode, nor elapsed time.
+
+BladeControl performs thermal control exclusively in **Balanced + Manual**, where the anchor is
+87. The pinned 75/77/80 is the signature of Silent or Custom — modes the runtime never operates
+in. The constant is deliberately still unchanged, because correcting it would leave the actual
+defect in place: an exact-match allowlist pins a value the driver is entitled to change, and
+qualification reads it before the runtime has entered its operating mode. See
+[engineering-log.md](engineering-log.md) and
+[release-notes-v0.1.0.md](release-notes-v0.1.0.md).
 
 ---
 
