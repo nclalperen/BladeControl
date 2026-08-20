@@ -230,6 +230,25 @@ public sealed class BladeRuntime : IAsyncDisposable
         }
 
         bool succeeded = recovery.Succeeded && recovery.FinalState?.IsBalancedAuto == true;
+
+        // Adopt the recovery's own readback as the watchdog observation. Until this was
+        // added, _lastWatchdog kept the pre-recovery Balanced + Manual reading taken a few
+        // exchanges earlier, and every diagnostic reported it: a machine the runtime had just
+        // returned to firmware Auto was described as still held in Manual, which reads as the
+        // recovery never having happened. The fresher observation existed all along and was
+        // being discarded. Adopted whatever the outcome — a failed recovery's final state is
+        // equally the most recent thing known about the hardware.
+        if (recovery.FinalState is { } recovered)
+        {
+            _lastWatchdog = new RuntimeRazerModeState(
+                recovered.Zone1PerformanceMode,
+                recovered.Zone1FanMode,
+                recovered.Zone2PerformanceMode,
+                recovered.Zone2FanMode,
+                recovered.Exchanges);
+            _lastWatchdogAt = _clock.UtcNow;
+        }
+
         string message = succeeded
             ? "ORPHANED MANUAL MODE RECOVERED"
             : $"ORPHANED MANUAL MODE RECOVERY FAILED: {recovery.Message}";

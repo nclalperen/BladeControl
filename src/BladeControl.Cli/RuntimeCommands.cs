@@ -241,7 +241,43 @@ internal static partial class Program
         }
 
         output.WriteLine();
+        PrintSchedulerStatistics(status, sessionPrefix, output);
 
+        if (!verbose)
+        {
+            return;
+        }
+
+        // Deliberately outside PrintSchedulerStatistics. These fields describe the runtime's
+        // whole lifetime, not one session's scheduler, and they used to be rendered inside
+        // that section — behind two early returns that fire when no session has run. A
+        // process that crashed, was restarted by the SCM, and recovered orphaned Manual mode
+        // has run no session by definition, so the one moment "Last failure" decides whether
+        // the machine is safe was the one moment it was hidden. Scheduler history and runtime
+        // diagnostics are different subjects; the absence of the first says nothing about the
+        // second.
+        output.WriteLine();
+        output.WriteLine(stopped ? "Last session diagnostics" : "Current session diagnostics");
+        output.WriteLine($"  Total events           {status.TotalEventCount}");
+        output.WriteLine(
+            $"  Retained decisions     {status.RetainedThermalDecisionCount}");
+        output.WriteLine($"  Retained trace entries {status.RetainedThermalTraceCount}");
+        output.WriteLine($"  Last failure           {status.LastFailureReason ?? "<none>"}");
+        output.WriteLine($"  Emergency status       {status.EmergencyStatus ?? "<none>"}");
+    }
+
+    /// <summary>
+    /// Renders the scheduler block, which is present only once a session has produced cycles.
+    /// </summary>
+    /// <remarks>
+    /// Returning early here ends the scheduler block only. Nothing that describes the runtime
+    /// itself may be rendered from inside this method.
+    /// </remarks>
+    private static void PrintSchedulerStatistics(
+        RuntimeStatusDto status,
+        string sessionPrefix,
+        TextWriter output)
+    {
         // A runtime that has never run a session has no scheduler history, and a table of
         // zeros under a "Healthy" heading is absence dressed as measurement — the same defect
         // as rendering an unreported metric as zero. Say there is nothing yet instead.
@@ -292,20 +328,6 @@ internal static partial class Program
         output.WriteLine($"  Telemetry acquisition  {Describe(status.TelemetryAcquisition)}");
         output.WriteLine($"  Actuator duration      {Describe(status.ActuatorDuration)}");
         output.WriteLine($"  Watchdog coalesced     {status.WatchdogCoalescedCount}");
-
-        if (!verbose)
-        {
-            return;
-        }
-
-        output.WriteLine();
-        output.WriteLine(stopped ? "Last session diagnostics" : "Current session diagnostics");
-        output.WriteLine($"  Total events           {status.TotalEventCount}");
-        output.WriteLine(
-            $"  Retained decisions     {status.RetainedThermalDecisionCount}");
-        output.WriteLine($"  Retained trace entries {status.RetainedThermalTraceCount}");
-        output.WriteLine($"  Last failure           {status.LastFailureReason ?? "<none>"}");
-        output.WriteLine($"  Emergency status       {status.EmergencyStatus ?? "<none>"}");
     }
 
     private static T ReadRuntimeData<T>(RuntimeIpcResponse response)

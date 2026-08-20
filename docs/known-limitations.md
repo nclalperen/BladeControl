@@ -96,9 +96,39 @@ single snapshot.
 - Only a **Running** session reports current readings. Stopped, Faulted and EmergencyHandoff all
   present the last thing observed, labelled as history.
 - A metric an older runtime did not send is shown as *not reported*, never as zero.
-- The scheduler statistics for a session that never ran are all zeros. They are labelled as last
-  session, but a fresh service start still shows an empty table rather than saying there is no
-  history yet.
+- A runtime that has not yet run a session says so ("No session has run since the runtime
+  started") instead of printing a table of zeros under a "Healthy" heading.
+- Runtime diagnostics — total events, last failure, emergency status — are reported
+  independently of scheduler history. They describe the process lifetime, not one session, and
+  a crashed-and-restarted runtime has the former without the latter.
+
+---
+
+## Crash recovery leaves a window where nothing owns the fans
+
+A hard-killed runtime — `TerminateProcess`, a power event, a service crash — runs no managed
+cleanup, so the fans stay at the last speed the session commanded, in Balanced + Manual, with
+nothing driving them. The Service Control Manager restarts the service, and host initialisation
+performs a one-time recovery back to firmware Auto before it will serve anything.
+
+Measured on the reference machine by killing the service process mid-session:
+
+| Step | Observed |
+|---|---|
+| Service process killed | fans held at last commanded speed, Manual |
+| SCM restart | **~25 s** (configured `RESTART -- Delay = 20000 ms`) |
+| Firmware state after restart | **Balanced + Auto** — recovery succeeded |
+
+So the exposure is roughly **20–25 seconds during which BladeControl does not own cooling**.
+The direction of that failure matters: the fans are stuck at a *commanded* speed, which under
+a rising load is under-cooled relative to what the curve would have asked for, and under a
+falling load is over-cooled. Firmware slowdown and hardware shutdown remain in force for the
+whole window and are never disabled, so the machine is protected by the same thresholds that
+protect it with BladeControl uninstalled.
+
+If the recovery itself fails, the runtime faults and refuses to serve rather than pretending it
+owns hardware it does not; the fans then remain in Manual until a person intervenes. This is
+reported — `Last failure` names it — and is deliberately not retried in a loop.
 
 ---
 
@@ -118,7 +148,10 @@ single snapshot.
 
 ## Not yet done
 
-- Uninstall and reinstall lifecycle have not been exercised in this cycle.
-- Settings persistence across upgrade has not been verified.
-- The OSS licence is not chosen. The third-party audit that should inform it is complete for
-  PawnIO provenance but the licence decision itself is deliberately left open.
+- The GPU thermal ladders have never been exercised live. The GPU stayed at or below 48 °C
+  throughout every session run here, and manufacturing a thermal emergency to reach them is
+  deliberately out of scope. The CPU ladders have been exercised; the GPU ones are tested only
+  against synthetic samples.
+- Behaviour across a reboot has not been exercised: the service is `AUTO_START`, but a cold boot
+  into a session has not been observed end to end.
+- The portable zip has not been validated on a machine without the MSI installed.

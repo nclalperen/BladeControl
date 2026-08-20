@@ -507,3 +507,51 @@ Diagnostics rather than being deleted.
 additions in this session each broke the same three test fixtures, silently and only at compile
 time. It works, but the shape invites exactly the kind of positional mistake that would be
 invisible if two adjacent parameters shared a type. Worth a named-argument or builder pass.
+
+## Crash recovery, and two defects it exposed
+
+The orphaned-Manual recovery path had never been run against a real crash. It is the only thing
+between a killed process and fans held at a fixed speed indefinitely, so it was tested directly:
+a session was started, the service process was killed with `Stop-Process -Force`, and the
+machine was left to the Service Control Manager.
+
+It worked. The SCM restarted the service after ~25 s, and the firmware came back **Balanced +
+Auto**. That is the designed behaviour, observed for the first time.
+
+Two defects surfaced in what the runtime *said* about it.
+
+### The recovery reported the state it had just replaced
+
+`InitializeHost` recorded the startup read — Balanced + Manual — as the watchdog observation,
+then recovered to Auto and discarded `recovery.FinalState`, a readback taken a few exchanges
+later. Every diagnostic afterwards reported Manual. A machine the runtime had already fixed was
+described as still being held in Manual, which reads as the recovery never having run. The
+fresher observation existed the whole time and was being thrown away. It is now adopted —
+whatever the outcome, since a failed recovery's final state is equally the most recent thing
+known about the hardware, and in that case it correctly reports Manual.
+
+### The one moment "Last failure" mattered was the one moment it was hidden
+
+`Total events`, `Last failure` and `Emergency status` were rendered from inside the scheduler
+section, behind its two early returns. Those returns are right in themselves — a table of zeros
+under a "Healthy" heading is absence dressed as measurement — but they were ending the whole
+report, not just their own block.
+
+A process that crashed, was restarted, and *failed* to recover orphaned Manual mode has by
+definition run no session. It is Faulted, `LastFailureReason` names the failed recovery, and
+`runtime status --verbose` suppressed exactly that line. Confirmed live: the first crash test's
+verbose output ended at "No session has run since the runtime started."
+
+The scheduler block is now its own method, so its early returns end the scheduler block and
+nothing else. Scheduler history and runtime diagnostics are different subjects; the absence of
+the first says nothing about the second.
+
+This is the same shape as everything else in this log: a condition modelled as the wrong kind of
+thing. Runtime-lifetime diagnostics were nested inside per-session scheduler rendering, so "no
+session ran" was allowed to mean "nothing to report about the runtime."
+
+### What was not done
+
+The recovery was validated live once, on an idle machine, and the reporting fixes are pinned by
+unit tests rather than by a second crash. Re-killing the service to re-read a corrected string
+is not worth another uncontrolled window; the fixes are behavioural and covered.
