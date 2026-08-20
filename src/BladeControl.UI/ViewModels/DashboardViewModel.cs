@@ -259,6 +259,11 @@ public sealed class DashboardViewModel : PageViewModel
                 return $"Runtime failure: {Status.LastFailureReason}";
             }
 
+            // A refused start is deliberately not an alert. It is already reported by the
+            // operation that was refused, in that operation's own status message, and the
+            // runtime is Stopped and healthy. Raising a second banner for it duplicated the
+            // text and called a safe refusal a failure.
+
             if (string.Equals(Status.State, "EmergencyHandoff", StringComparison.Ordinal))
             {
                 // Say what happened, that the machine is safe, and what to do — in that order.

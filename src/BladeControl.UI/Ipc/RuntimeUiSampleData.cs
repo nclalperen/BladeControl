@@ -146,6 +146,7 @@ public static class RuntimeUiSampleData
         watchdog,
         watchdog is null ? null : DateTimeOffset.UtcNow,
         lastFailureReason,
+        null,
         emergencyStatus,
         TimeSpan.FromMilliseconds(38),
         DurationStatistics.Empty,

@@ -31,6 +31,7 @@ public sealed record RuntimeStatus(
     RuntimeRazerModeState? LastRazerWatchdogState,
     DateTimeOffset? LastRazerWatchdogObservedAt,
     string? LastFailureReason,
+    string? LastStartRejectionReason,
     string? EmergencyStatus,
     TimeSpan LastTelemetryAcquisitionDuration,
     DurationStatistics TelemetryAcquisition,
@@ -93,6 +94,9 @@ public sealed class BladeRuntime : IAsyncDisposable
     /// read.
     /// </remarks>
     private DateTimeOffset? _lastWatchdogAt;
+
+    /// <summary>Why the last start attempt was refused, as distinct from a fault.</summary>
+    private string? _lastRejection;
     private Guid? _sessionId;
     private DateTimeOffset? _startTimestamp;
     private TimeSpan _nextWatchdog;
@@ -286,6 +290,7 @@ public sealed class BladeRuntime : IAsyncDisposable
             lock (_sync)
             {
                 _state = RuntimeState.Starting;
+                _lastRejection = null;
                 _sessionId = Guid.NewGuid();
                 _startTimestamp = _clock.UtcNow;
                 _lastFailure = null;
@@ -476,6 +481,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                     _lastWatchdog,
                     _lastWatchdogAt,
                     _lastFailure,
+                    _lastRejection,
                     _emergencyStatus,
                     _telemetryAdapter.LastAcquisitionDuration,
                     DurationStatistics.From(_acquisitionWindow),
@@ -1070,11 +1076,23 @@ public sealed class BladeRuntime : IAsyncDisposable
     /// and a later attempt may succeed without restarting anything. The reason is kept so the
     /// interface can explain why the last attempt did not take.
     /// </remarks>
+    /// <summary>
+    /// Refuses a start whose prerequisites were not met, without treating it as a fault.
+    /// </summary>
+    /// <remarks>
+    /// The reason is recorded separately from <c>_lastFailure</c>. Writing a refusal into the
+    /// failure slot made every consumer describe it as one: the interface rendered "Runtime
+    /// failure: ..." beside the operation's own rejection message, so a machine that had simply
+    /// declined to start — correctly, safely, with no write sent — reported a failure twice.
+    /// Nothing is broken when a prerequisite is not met, and the runtime already draws that
+    /// distinction; it was being erased one layer up.
+    /// </remarks>
     private void RejectStart(string message)
     {
         lock (_sync)
         {
-            _lastFailure = message;
+            _lastRejection = message;
+            _lastFailure = null;
             _state = RuntimeState.Stopped;
             _sessionId = null;
             _startTimestamp = null;

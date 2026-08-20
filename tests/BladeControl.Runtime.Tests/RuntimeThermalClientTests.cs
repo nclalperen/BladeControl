@@ -511,6 +511,7 @@ public sealed class RuntimeThermalClientTests
         null,
         failure,
         null,
+        null,
         TimeSpan.Zero,
         null,
         null,

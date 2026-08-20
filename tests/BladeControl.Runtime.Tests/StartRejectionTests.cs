@@ -208,9 +208,19 @@ public sealed class StartRejectionTests
 
         RuntimeStatus status = runtime.GetStatus();
         Assert.AreEqual(RuntimeState.Stopped, status.State);
-        Assert.IsNotNull(status.LastFailureReason, "The reason must survive for the interface.");
-        StringAssert.Contains(status.LastFailureReason, "rejected");
-        StringAssert.Contains(status.LastFailureReason, "No SET was sent.");
+
+        // The reason survives, in the field that says what it is. It used to be written into
+        // LastFailureReason, which made every consumer describe a safe refusal as a failure —
+        // the interface rendered "Runtime failure: ..." beside the operation's own rejection
+        // message, reporting one refusal twice and calling it broken.
+        Assert.IsNotNull(
+            status.LastStartRejectionReason,
+            "The reason must survive for the interface.");
+        StringAssert.Contains(status.LastStartRejectionReason, "rejected");
+        StringAssert.Contains(status.LastStartRejectionReason, "No SET was sent.");
+        Assert.IsNull(
+            status.LastFailureReason,
+            "A prerequisite that was not met is not a fault, and must not be recorded as one.");
     }
 
     /// <summary>
@@ -282,8 +292,9 @@ public sealed class StartRejectionTests
         Assert.AreEqual(RuntimeState.Stopped, runtime.State, "Stopped, not Faulted.");
 
         RuntimeStatus status = runtime.GetStatus();
-        StringAssert.Contains(status.LastFailureReason, "rejected");
-        StringAssert.Contains(status.LastFailureReason, "No SET was sent.");
+        StringAssert.Contains(status.LastStartRejectionReason, "rejected");
+        StringAssert.Contains(status.LastStartRejectionReason, "No SET was sent.");
+        Assert.IsNull(status.LastFailureReason, "Still not a fault.");
 
         // The machine is put back into a coherent state and the user tries again — no service
         // restart in between.

@@ -298,6 +298,7 @@ public sealed class ThermalIpcCommandTests
         null,
         null,
         null,
+        null,
         TimeSpan.Zero,
         null,
         null,
