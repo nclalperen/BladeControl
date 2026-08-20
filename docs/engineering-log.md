@@ -595,3 +595,30 @@ Verified at the binary level: the built MSI's `File` table contains `LICENSE.txt
 `CHANGELOG.md` carried two claims that had gone stale the same way — that no licence had been
 applied, and that the installed product had never been exercised on hardware. Both were true
 when written and false by the time they were read. Corrected rather than deleted.
+
+## Portable package, validated as far as it honestly can be
+
+`pack.ps1` produced all three artifacts. The portable zip now carries `LICENSE.txt` alongside
+`THIRD-PARTY-NOTICES.md` and `README-PORTABLE.md`, and the MSI's `File` table was checked
+directly rather than inferred: `LICENSE.txt` is present among its 484 files.
+
+Both portable executables were exercised from the extracted tree:
+
+| Check | Result |
+|---|---|
+| `BladeControl.UI.exe` | launched and stayed up - the WPF payload is complete |
+| `BladeControl.Service.exe` with no arguments | refused with usage text, as designed |
+| `BladeControl.Service.exe console` | opened both hardware sessions, then **refused at the ownership gate** |
+
+The refusal is the interesting result twice over. It confirms the gate prevents a second
+controller, and it confirms the portable payload resolves HidSharp and LibreHardwareMonitor,
+since the host reached hardware initialisation before being turned away.
+
+It also exposed the ordering: hardware is opened before ownership is established. Recorded in
+`docs/known-limitations.md` and deliberately not fixed in this cycle - the lease is acquired
+inside `InitializeHost`, which is also the crash-recovery path, and reordering it is not worth
+the risk for a change with no safety consequence.
+
+What this does **not** show: the zip was unpacked on the machine that already has the MSI
+installed. A dependency the installed product happens to satisfy would not have surfaced. The
+limitation says so rather than claiming a clean-machine result that was never obtained.

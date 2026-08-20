@@ -132,6 +132,26 @@ reported — `Last failure` names it — and is deliberately not retried in a lo
 
 ---
 
+## A second runtime opens hardware before it learns it is not allowed to run
+
+`RuntimeWindowsHost` opens the Razer HID session and the telemetry session first, and acquires
+the ownership lease afterwards, inside `InitializeHost`. Starting a second host while one is
+already running therefore opens a read-only HID handle and initialises LibreHardwareMonitor
+before the gate refuses it and the process exits.
+
+This is a layering flaw, not a safety hole. The refused host performs no writes, the gate still
+serialises all control, and the refusal message is accurate and actionable ("Stop the
+'BladeControl Runtime' service before running a console host"). Observed directly: the portable
+runtime, started while the installed service was live, got as far as both hardware sessions and
+then exited at the gate.
+
+Acquiring the lease before touching hardware is the better order. It is deliberately not being
+changed here, because it means moving lease acquisition out of `InitializeHost` - the same path
+that performs orphaned-Manual crash recovery - and that is not a change worth making late in a
+release cycle for a layering improvement with no safety consequence.
+
+---
+
 ## Operational
 
 - **PawnIO is required and is not bundled.** It is an external dependency, installed separately,
@@ -154,4 +174,6 @@ reported — `Last failure` names it — and is deliberately not retried in a lo
   against synthetic samples.
 - Behaviour across a reboot has not been exercised: the service is `AUTO_START`, but a cold boot
   into a session has not been observed end to end.
-- The portable zip has not been validated on a machine without the MSI installed.
+- The portable zip has been unpacked and both executables launched, but only on a machine that
+  already had the MSI installed. It has not been run on a clean machine, so nothing here proves
+  it is free of a dependency the installed product happened to satisfy.
