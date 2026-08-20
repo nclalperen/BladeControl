@@ -652,3 +652,78 @@ file instead of trusting the tidier claim, and corrected before it was committed
 
 Documentation goes stale the same way code does, and nothing compiles it. The negative claims
 are the ones to re-read, because they are the ones that quietly become false by being fixed.
+
+## The GPU thermal anchor moved, and the gate caught it
+
+Deploying the release MSI and starting a session produced a refusal:
+
+> Fresh thermal ownership qualification failed: GPU thermal limits could not be established
+> ... derived thermal limits (87/89/92 C) do not match its validated signature (75/77/80 C).
+> The device is no longer behaving as it did when its T.Limit data was interpreted. No SET
+> was sent.
+
+This is the first reproduction of the "GPU thermal limits unavailable" behaviour seen on an
+older release candidate and never reproduced since. It is worth being precise about what it
+shows, because the safety design worked and the underlying assumption did not.
+
+### The raw numbers
+
+The read-only probe, correlated with `nvidia-smi`:
+
+| Quantity | Value |
+|---|---|
+| Core temperature | 48 C |
+| `nvmlDeviceGetMarginTemperature` | **39 C** |
+| T.Limit specifications (193 / 194 / 196) | -5 / -2 / 0 C |
+| Derived anchor (`temperature + margin`) | **87 C** |
+| Derived limits (`anchor - specification`) | 87 / 89 / 92 C |
+| Legacy absolute thresholds | GPU_MAX 105, SLOWDOWN 97, SHUTDOWN 100 C |
+
+The pinned signature of 75/77/80 requires an anchor of 75, which at 48 C means a margin of 27.
+The same machine now reports 39. Nothing else changed: same GPU UUID, same driver (610.88),
+same specifications.
+
+### The anchor is stable within a session and not across them
+
+Ten samples over ninety seconds at idle:
+
+```
+temp 47  margin 40  anchor 87   P8, 210 MHz, 10.3 W   (x10, no variation)
+```
+
+Margin tracks temperature exactly - 47+40 and 48+39 both give 87 - so the derivation's
+moment-to-moment invariant holds. What moved is the anchor itself, between one session and
+another.
+
+### What that means
+
+`temperature + margin` is **not a device constant**. It is the thermal target the driver is
+currently enforcing, and that target legitimately varies with power and performance policy.
+The derivation was built on the assumption that it is fixed, and it is not.
+
+This has a direct consequence for the validated-signature allowlist: pinning an exact triple
+matches a value that is allowed to change, so Dynamic is refused whenever the current target
+differs from the one that was pinned. That is happening now, reproducibly, on the reference
+machine.
+
+Two observations, offered as observations and not as conclusions:
+
+- 87 C is a plausible maximum operating temperature for this part, and 75 C is low for it.
+- The conditions under which 75/77/80 was captured were not recorded, so which of the two
+  reflects the machine's normal state is not established. Current state is AC power, Balanced
+  Windows power plan, Balanced Razer performance mode, GPU idle at P8.
+
+### What was deliberately not done
+
+The constant was **not** changed. Not to 87/89/92, not to accept both, not to widen the match.
+Two readings and a recollection of a published specification are not grounds for editing a
+safety threshold, and the standing constraints are explicit that unknown thermal state fails
+closed and that observed margin semantics must not be generalised. The gate refusing to act on
+limits it cannot vouch for is the system working, not the system broken - it sent no SET, and
+firmware protection was never disabled.
+
+What this does change is the standing of the allowlist as a design. It was adopted because no
+independent corroborator was available, and it was reasonable on the evidence then. This finding
+says the quantity it pins is not the kind of quantity an exact-match allowlist can pin. That is
+a design decision for the copyright holder, recorded in the release notes rather than resolved
+here.

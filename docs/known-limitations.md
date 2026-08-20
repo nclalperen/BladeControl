@@ -104,6 +104,25 @@ single snapshot.
 
 ---
 
+## Dynamic thermal control is currently refused on the reference machine
+
+The GPU thermal limit derivation (`temperature + margin - specification`) currently yields
+**87/89/92 C**, which does not match the validated signature of **75/77/80 C**, so thermal
+ownership qualification fails closed and Dynamic will not start. No SET is sent; firmware
+protection is unaffected; fan and performance control are unaffected.
+
+The cause is that `temperature + margin` is not a device constant. It is the thermal target the
+driver is currently enforcing, and it varies with power and performance policy. Within a session
+it is exact - ten idle samples gave anchor 87 with no variation, margin tracking temperature 1:1
+- but it differs between sessions, and the allowlist matches it exactly.
+
+Which of the two triples reflects the machine's normal state is **not established**, and the
+constant has deliberately not been changed on the strength of two readings. See
+[engineering-log.md](engineering-log.md) for the raw probe data and
+[release-notes-v0.1.0.md](release-notes-v0.1.0.md) for the decision this needs.
+
+---
+
 ## Crash recovery leaves a window where nothing owns the fans
 
 A hard-killed runtime — `TerminateProcess`, a power event, a service crash — runs no managed

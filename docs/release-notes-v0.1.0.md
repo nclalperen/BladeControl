@@ -93,8 +93,29 @@ the GPL text rather than a summary.
 
 ## Open decisions before tagging
 
-Four things are the copyright holder's call, not an engineering task. None of them blocks the
-build; all of them are easier to settle before a tag than after.
+**0. The GPU thermal signature — this one blocks Dynamic.** On the reference machine the
+derivation now yields 87/89/92 C against a pinned signature of 75/77/80 C, so thermal ownership
+is refused and Dynamic will not start. Fan control, performance modes and every fixed-target
+path are unaffected.
+
+The finding underneath it is that `temperature + margin` is not a device constant but the
+thermal target the driver is currently enforcing, which varies with power and performance
+policy. An exact-match allowlist cannot pin a value that is allowed to change. The constant was
+deliberately not edited — two readings are not grounds for moving a safety threshold — so the
+choice is yours:
+
+- *Re-pin* to 87/89/92 after establishing which state is normal, and record the conditions this
+  time. Fastest, but pins the same kind of value again.
+- *Qualify differently*: treat the derived value as the driver's current target and sanity-check
+  it against the legacy absolute thresholds (105/97/100) rather than against a stored triple.
+  This is the change the finding actually argues for, and it is a design change, not a constant.
+- *Ship with Dynamic refusing on this machine*, which is honest and safe but makes the headline
+  feature unavailable.
+
+Raw probe data is in [engineering-log.md](engineering-log.md).
+
+The remaining four are the copyright holder's call, not an engineering task. None of them blocks
+the build; all of them are easier to settle before a tag than after.
 
 **1. `GPL-3.0-only` or `GPL-3.0-or-later`.** The repository says "GPL-3.0" throughout and
 `LICENSE` is the plain GPL-3.0 text, which does not itself decide this. The FSF's own boilerplate
