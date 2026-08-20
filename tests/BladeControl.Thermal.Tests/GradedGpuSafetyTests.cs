@@ -443,7 +443,17 @@ public sealed class GradedGpuSafetyTests
 
         Assert.IsFalse(created);
         Assert.IsNull(limits);
-        StringAssert.Contains(rejection!, "no longer behaving");
+
+        // The refusal must name both triples and the mode the signature belongs to. It must
+        // not claim the device changed: the anchor follows the Razer performance mode, so a
+        // healthy machine in a different mode lands here and used to be told its hardware had
+        // changed under it.
+        StringAssert.Contains(rejection!, "do not match its validated signature");
+        StringAssert.Contains(rejection!, "Silent or Custom");
+        StringAssert.Contains(rejection!, "follows the active performance mode");
+        Assert.IsFalse(
+            rejection!.Contains("no longer behaving", StringComparison.Ordinal),
+            "A mode difference must not be reported as the device having changed.");
     }
 
     /// <summary>Every live anchor observation on the reference part resolves identically.</summary>

@@ -9,12 +9,19 @@ namespace BladeControl.Telemetry;
 /// <param name="HardwareSlowdownCelsius">Observed hardware slowdown temperature.</param>
 /// <param name="HardwareShutdownCelsius">Observed hardware shutdown temperature.</param>
 /// <param name="Evidence">Where and how the signature was established, for the record.</param>
+/// <param name="ValidatedInPerformanceMode">
+/// The Razer performance mode the evidence was collected in. This is not cosmetic: the anchor
+/// the derivation rests on is the driver's current thermal target, and that target follows the
+/// performance mode. A signature is only the signature of the mode it was measured in, and
+/// saying which one turns an unexplainable refusal into an explicable one.
+/// </param>
 public sealed record ValidatedGpuThermalSignature(
     string DeviceName,
     double MaxOperatingCelsius,
     double HardwareSlowdownCelsius,
     double HardwareShutdownCelsius,
-    string Evidence);
+    string Evidence,
+    string ValidatedInPerformanceMode);
 
 /// <summary>
 /// The GPU thermal signatures for which the NVML T.Limit interpretation has been checked
@@ -111,7 +118,11 @@ public static class ValidatedGpuThermalSignatures
         HardwareShutdownCelsius: 80,
         Evidence:
             "T.Limit anchor confirmed at four operating points against nvidia-smi on a " +
-            "Razer Blade 16 RZ09-0483, NVIDIA driver 610.88");
+            "Razer Blade 16 RZ09-0483, NVIDIA driver 610.88",
+        // Established after the fact by switching modes and reading the anchor back. Both
+        // Silent and Custom (CPU low, GPU low) produce this anchor; which of the two the
+        // original session ran in was not recorded, and the evidence cannot distinguish them.
+        ValidatedInPerformanceMode: "Silent or Custom");
 
     public static IReadOnlyList<ValidatedGpuThermalSignature> All { get; } = [Rtx4090Laptop];
 
@@ -162,13 +173,23 @@ public static class ValidatedGpuThermalSignatures
             derived.HardwareSlowdownCelsius != candidate.HardwareSlowdownCelsius ||
             derived.HardwareShutdownCelsius != candidate.HardwareShutdownCelsius)
         {
+            // This message used to end "The device is no longer behaving as it did when its
+            // T.Limit data was interpreted." That is usually false. The anchor the derivation
+            // rests on is the driver's current thermal target, and it follows the Razer
+            // performance mode - Balanced reads one value, Silent and Custom another, on the
+            // same GPU, driver and specifications. A perfectly healthy machine sitting in a
+            // different mode from the one the signature was measured in lands here, and was
+            // being told its hardware had changed. Name the real reason instead.
             rejection =
                 $"GPU \"{deviceName}\" derived thermal limits " +
                 $"({derived.MaxOperatingCelsius:F0}/{derived.HardwareSlowdownCelsius:F0}/" +
                 $"{derived.HardwareShutdownCelsius:F0} C) do not match its validated signature " +
                 $"({candidate.MaxOperatingCelsius:F0}/{candidate.HardwareSlowdownCelsius:F0}/" +
-                $"{candidate.HardwareShutdownCelsius:F0} C). The device is no longer behaving " +
-                "as it did when its T.Limit data was interpreted.";
+                $"{candidate.HardwareShutdownCelsius:F0} C), which was validated in " +
+                $"{candidate.ValidatedInPerformanceMode} performance mode. The derived value is " +
+                "the driver's current thermal target and follows the active performance mode, " +
+                "so a different mode is the likely cause rather than a change in the device. " +
+                "Thermal ownership is refused either way: these limits were not qualified.";
             return false;
         }
 
