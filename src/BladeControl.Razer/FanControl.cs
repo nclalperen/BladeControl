@@ -42,12 +42,14 @@ public sealed partial class RazerClient
         }
 
         FanAutoRecoveryResult? autoRecovery = null;
-        bool manualSafetyApplies = initialState.IsBalancedManual ||
+        bool manualSafetyApplies = initialState.IsManual ||
             attempt.ManualMayHaveBeenEntered;
         if (manualSafetyApplies)
         {
+            // Recover into the mode the plan was operating in, so a failed write in Silent
+            // hands the fans back to firmware without also moving the machine to Balanced.
             autoRecovery = profile.IsFixed
-                ? AttemptEmergencyAuto()
+                ? AttemptEmergencyAuto(initialState.OwnershipPerformanceMode)
                 : AssessFailedAutoTransition(attempt);
         }
 
@@ -175,13 +177,13 @@ public sealed partial class RazerClient
     {
         FanControlPlan plan = BuildFanControlPlan(initialState, profile);
         var operations = new List<FanControlOperationResult>(plan.Operations.Count);
-        bool manualMayHaveBeenEntered = initialState.IsBalancedManual;
+        bool manualMayHaveBeenEntered = initialState.IsManual;
 
         foreach (FanControlOperation operation in plan.Operations)
         {
             if (operation.Kind is
-                FanControlOperationKind.SetBalancedManualZone1 or
-                FanControlOperationKind.SetBalancedManualZone2)
+                FanControlOperationKind.SetManualZone1 or
+                FanControlOperationKind.SetManualZone2)
             {
                 manualMayHaveBeenEntered = true;
             }
@@ -256,26 +258,43 @@ public sealed partial class RazerClient
         FanControlProfile profile)
     {
         var operations = new List<FanControlOperation>(capacity: 4);
+
+        // The mode the machine is already in is the mode the plan writes. Taking fan ownership
+        // is a statement about the fans, not about the user's performance preference, and this
+        // used to move them to Balanced regardless of what they had chosen.
+        //
+        // Balanced is the fallback only when there is no single current mode to preserve: the
+        // zones disagree, or the controller reported a mode byte this build does not model.
+        // Writing back a mode we cannot name is not an option, and Balanced is the one mode
+        // every path here has always been able to reach.
+        RazerPerformanceMode mode =
+            currentState.OwnershipPerformanceMode ?? RazerPerformanceMode.Balanced;
+
         if (!profile.IsFixed)
         {
-            if (!currentState.IsBalancedAuto)
+            if (!currentState.IsAuto || currentState.OwnershipPerformanceMode is null)
             {
                 operations.Add(new FanControlOperation(
-                    FanControlOperationKind.SetBalancedAutoZone1));
+                    FanControlOperationKind.SetAutoZone1,
+                    performanceMode: mode));
                 operations.Add(new FanControlOperation(
-                    FanControlOperationKind.SetBalancedAutoZone2));
+                    FanControlOperationKind.SetAutoZone2,
+                    performanceMode: mode));
             }
 
             return new FanControlPlan(operations);
         }
 
-        bool enteringManual = !currentState.IsBalancedManual;
+        bool enteringManual = !currentState.IsManual ||
+            currentState.OwnershipPerformanceMode != mode;
         if (enteringManual)
         {
             operations.Add(new FanControlOperation(
-                FanControlOperationKind.SetBalancedManualZone1));
+                FanControlOperationKind.SetManualZone1,
+                performanceMode: mode));
             operations.Add(new FanControlOperation(
-                FanControlOperationKind.SetBalancedManualZone2));
+                FanControlOperationKind.SetManualZone2,
+                performanceMode: mode));
         }
 
         FanRpm fan1Target = profile.Fan1Rpm!.Value;
@@ -305,29 +324,29 @@ public sealed partial class RazerClient
     {
         return operation.Kind switch
         {
-            FanControlOperationKind.SetBalancedManualZone1 =>
+            FanControlOperationKind.SetManualZone1 =>
                 WritePerformanceAndFanMode(
                     RazerZone.Zone1,
-                    RazerPerformanceMode.Balanced,
+                    operation.PerformanceMode!.Value,
                     RazerFanMode.Manual),
-            FanControlOperationKind.SetBalancedManualZone2 =>
+            FanControlOperationKind.SetManualZone2 =>
                 WritePerformanceAndFanMode(
                     RazerZone.Zone2,
-                    RazerPerformanceMode.Balanced,
+                    operation.PerformanceMode!.Value,
                     RazerFanMode.Manual),
             FanControlOperationKind.SetFan1Rpm =>
                 WriteFanRpm(RazerZone.Zone1, operation.Rpm!.Value),
             FanControlOperationKind.SetFan2Rpm =>
                 WriteFanRpm(RazerZone.Zone2, operation.Rpm!.Value),
-            FanControlOperationKind.SetBalancedAutoZone1 =>
+            FanControlOperationKind.SetAutoZone1 =>
                 WritePerformanceAndFanMode(
                     RazerZone.Zone1,
-                    RazerPerformanceMode.Balanced,
+                    operation.PerformanceMode!.Value,
                     RazerFanMode.Auto),
-            FanControlOperationKind.SetBalancedAutoZone2 =>
+            FanControlOperationKind.SetAutoZone2 =>
                 WritePerformanceAndFanMode(
                     RazerZone.Zone2,
-                    RazerPerformanceMode.Balanced,
+                    operation.PerformanceMode!.Value,
                     RazerFanMode.Auto),
             _ => throw new InvalidOperationException(
                 $"Unsupported fan operation {operation.Kind}.")
@@ -411,13 +430,20 @@ public sealed partial class RazerClient
             $"received {fan2.FirmwareReportedRpm}. No SET was repeated.");
     }
 
-    private FanAutoRecoveryResult AttemptEmergencyAuto()
+    /// <summary>Hands the fans back to firmware after a failed write.</summary>
+    /// <param name="mode">
+    /// The performance mode to write alongside Auto. Callers pass the mode they were operating
+    /// in, so a failure in Silent does not silently move the machine to Balanced. Balanced is
+    /// the default only for callers that have no mode to preserve.
+    /// </param>
+    private FanAutoRecoveryResult AttemptEmergencyAuto(RazerPerformanceMode? mode = null)
     {
+        RazerPerformanceMode target = mode ?? RazerPerformanceMode.Balanced;
         var operations = new List<FanControlOperationResult>(capacity: 2);
         FanControlOperation[] recoveryPlan =
         [
-            new(FanControlOperationKind.SetBalancedAutoZone1),
-            new(FanControlOperationKind.SetBalancedAutoZone2)
+            new(FanControlOperationKind.SetAutoZone1, performanceMode: target),
+            new(FanControlOperationKind.SetAutoZone2, performanceMode: target)
         ];
 
         foreach (FanControlOperation operation in recoveryPlan)
@@ -477,10 +503,16 @@ public sealed partial class RazerClient
     {
         var operationResults = new List<FanControlOperationResult>(capacity: 2);
         var exchanges = new List<RazerExchangeTrace>(capacity: 8);
+        // Balanced explicitly: the self-test asserts against the Balanced + Manual baseline
+        // and is not a test of mode preservation.
         FanControlOperation[] operations =
         [
-            new(FanControlOperationKind.SetBalancedManualZone1),
-            new(FanControlOperationKind.SetBalancedManualZone2)
+            new(
+                FanControlOperationKind.SetManualZone1,
+                performanceMode: RazerPerformanceMode.Balanced),
+            new(
+                FanControlOperationKind.SetManualZone2,
+                performanceMode: RazerPerformanceMode.Balanced)
         ];
         bool manualMayHaveBeenEntered = false;
 
@@ -635,19 +667,22 @@ public sealed partial class RazerClient
                 "Fan verification mismatch: performance or fan mode differs between zones.");
         }
 
-        bool modeMatches = profile.IsFixed
-            ? state.IsBalancedManual
-            : state.IsBalancedAuto;
+        // Verification is about the fan mode. The performance mode is whatever the user had,
+        // and is asserted to be unchanged by the zone-agreement check above plus the plan
+        // writing the mode it read — not by demanding it be Balanced.
+        bool modeMatches = profile.IsFixed ? state.IsManual : state.IsAuto;
+        string observedMode = state.Zone1Mode.PerformanceMode.ToString();
         return modeMatches
             ? new FanControlVerification(
                 true,
                 profile.IsFixed
-                    ? "Balanced + Manual verified; RPM targets verified."
-                    : "Balanced + Auto verified; firmware fan control is active.")
+                    ? $"{observedMode} + Manual verified; RPM targets verified."
+                    : $"{observedMode} + Auto verified; firmware fan control is active.")
             : new FanControlVerification(
                 false,
-                $"Fan verification mismatch: expected " +
-                (profile.IsFixed ? "Balanced + Manual." : "Balanced + Auto."));
+                $"Fan verification mismatch: expected fan mode " +
+                (profile.IsFixed ? "Manual" : "Auto") +
+                $", observed {observedMode} + {state.Zone1Mode.FanMode}.");
     }
 
     private static void ValidateFanProfile(FanControlProfile profile)
@@ -675,13 +710,24 @@ public sealed partial class RazerClient
 
         RazerPerformanceMode performance = state.Zone1Mode.PerformanceMode;
         RazerFanMode fanMode = state.Zone1Mode.FanMode;
-        bool knownAuto = fanMode == RazerFanMode.Auto &&
-            (performance == RazerPerformanceMode.Balanced ||
-             performance == RazerPerformanceMode.Custom ||
-             performance == RazerPerformanceMode.Silent);
-        bool knownManual = fanMode == RazerFanMode.Manual &&
-            performance == RazerPerformanceMode.Balanced;
-        if (!knownAuto && !knownManual)
+
+        // Manual used to be accepted only alongside Balanced here, mirroring the packet
+        // validator. That made the path back to firmware conditional on already being
+        // somewhere this code recognised: a machine left in Silent + Manual could not be
+        // handed back to Auto, because the refusal fired before the plan was even built. It
+        // was observed exactly once, and it is the wrong direction to fail in — declining to
+        // stop owning the fans is worse than declining to start.
+        //
+        // What actually has to hold is that the mode is one we can name, so the plan can write
+        // it back. An unknown mode byte is still refused.
+        if (!performance.IsKnown)
+        {
+            throw new FanControlStateException(
+                $"Current performance mode {performance} is not one Fan Control models, so it " +
+                "cannot be preserved. No SET command was sent.");
+        }
+
+        if (fanMode != RazerFanMode.Auto && fanMode != RazerFanMode.Manual)
         {
             throw new FanControlStateException(
                 $"Current combination {performance} + {fanMode} is not safe for " +

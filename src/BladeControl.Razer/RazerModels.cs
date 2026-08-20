@@ -29,6 +29,15 @@ public readonly struct RazerPerformanceMode : IEquatable<RazerPerformanceMode>
 
     internal byte Value => _value;
 
+    /// <summary>True when this is a performance mode this build models.</summary>
+    /// <remarks>
+    /// The controller can report a byte outside the modelled set. Callers that preserve the
+    /// user's performance mode need to distinguish "the machine is in Silent" from "the machine
+    /// reported something this build does not recognise", because the second is not a mode that
+    /// can be written back.
+    /// </remarks>
+    public bool IsKnown => _value is 0x00 or 0x04 or 0x05;
+
     public override string ToString()
     {
         return _value switch

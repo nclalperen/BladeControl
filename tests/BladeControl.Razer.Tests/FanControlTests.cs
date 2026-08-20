@@ -184,10 +184,13 @@ public sealed class FanControlTests
             FanControlProfile.Fixed(new FanRpm(3000), new FanRpm(3500)));
 
         Assert.IsTrue(result.Succeeded);
+
+        // Mode byte 0x04 is Custom, the mode the machine was already in. It used to be 0x00,
+        // because ownership wrote Balanced whatever the user had selected.
         AssertWriteSequence(
             transport,
-            (0x02, 0x01, 0x00, 0x01),
-            (0x02, 0x02, 0x00, 0x01),
+            (0x02, 0x01, 0x04, 0x01),
+            (0x02, 0x02, 0x04, 0x01),
             (0x01, 0x01, 0x1E, 0x00),
             (0x01, 0x02, 0x23, 0x00));
     }
@@ -208,8 +211,17 @@ public sealed class FanControlTests
             (0x02, 0x02, 0x00, 0x00));
     }
 
+    /// <summary>
+    /// A machine already in Custom + Auto needs no write at all.
+    /// </summary>
+    /// <remarks>
+    /// This asserted the opposite: that applying Auto from Custom + Auto explicitly wrote
+    /// Balanced + Auto. Firmware already owned the fans, so the only thing those two writes
+    /// achieved was moving the user out of Custom. With the mode preserved there is nothing
+    /// left to do, and the plan is empty.
+    /// </remarks>
     [TestMethod]
-    public void CustomAutoToFanAutoExplicitlyAppliesBalancedAuto()
+    public void CustomAutoToFanAutoNeedsNoWrite()
     {
         using var transport = CreateAutoTransport(RazerPerformanceMode.Custom);
         var client = new RazerClient(transport);
@@ -218,12 +230,9 @@ public sealed class FanControlTests
             FanControlProfile.Auto);
 
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual(RazerPerformanceMode.Balanced, transport.Zone1Mode);
-        Assert.AreEqual(RazerPerformanceMode.Balanced, transport.Zone2Mode);
-        AssertWriteSequence(
-            transport,
-            (0x02, 0x01, 0x00, 0x00),
-            (0x02, 0x02, 0x00, 0x00));
+        Assert.AreEqual(RazerPerformanceMode.Custom, transport.Zone1Mode);
+        Assert.AreEqual(RazerPerformanceMode.Custom, transport.Zone2Mode);
+        Assert.AreEqual(0, transport.WriteCount, "Firmware already owned the fans.");
     }
 
     [TestMethod]
@@ -306,7 +315,7 @@ public sealed class FanControlTests
             FanControlProfile.Fixed(new FanRpm(3000), new FanRpm(3000)));
 
         Assert.IsFalse(result.Succeeded);
-        Assert.AreEqual(FanControlOperationKind.SetBalancedManualZone1,
+        Assert.AreEqual(FanControlOperationKind.SetManualZone1,
             result.FailedOperation!.Operation.Kind);
         Assert.AreEqual(0, transport.WriteRequests.Count(IsManualZone2));
         Assert.AreEqual(0, transport.WriteRequests.Count(IsFanRpmSet));
@@ -323,7 +332,7 @@ public sealed class FanControlTests
             FanControlProfile.Fixed(new FanRpm(3000), new FanRpm(3000)));
 
         Assert.IsFalse(result.Succeeded);
-        Assert.AreEqual(FanControlOperationKind.SetBalancedManualZone2,
+        Assert.AreEqual(FanControlOperationKind.SetManualZone2,
             result.FailedOperation!.Operation.Kind);
         Assert.AreEqual(0, transport.WriteRequests.Count(IsFanRpmSet));
     }
@@ -466,7 +475,8 @@ public sealed class FanControlTests
     [TestMethod]
     public void UnsafeCurrentModeCombinationStopsBeforeSet()
     {
-        using var transport = CreateAutoTransport(RazerPerformanceMode.Custom);
+        // An unknown mode byte cannot be written back, so it is still refused before any SET.
+        using var transport = CreateAutoTransport(new RazerPerformanceMode(0x02));
         transport.Zone1FanMode = RazerFanMode.Manual;
         transport.Zone2FanMode = RazerFanMode.Manual;
         var client = new RazerClient(transport);
@@ -476,12 +486,96 @@ public sealed class FanControlTests
         Assert.AreEqual(0, transport.WriteCount);
     }
 
+    /// <summary>
+    /// A machine left in Manual outside Balanced can always be handed back to firmware.
+    /// </summary>
+    /// <remarks>
+    /// This combination used to be refused before any SET, which meant the refusal fired on the
+    /// way <i>out</i> as well as in: a machine sitting in Silent + Manual could not be returned
+    /// to Auto. It was hit for real, and it is the wrong direction to fail in — declining to
+    /// stop owning the fans is worse than declining to start.
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow((byte)0x04)]
+    [DataRow((byte)0x05)]
+    public void ManualOutsideBalancedCanAlwaysReturnToAuto(byte modeValue)
+    {
+        var mode = new RazerPerformanceMode(modeValue);
+        using var transport = CreateAutoTransport(mode);
+        transport.Zone1FanMode = RazerFanMode.Manual;
+        transport.Zone2FanMode = RazerFanMode.Manual;
+        var client = new RazerClient(transport);
+
+        FanControlApplyResult result = client.ApplyFanControlProfile(FanControlProfile.Auto);
+
+        Assert.IsTrue(result.Succeeded, result.Verification.Message);
+        Assert.IsTrue(result.FinalState!.IsAuto);
+        Assert.AreEqual(
+            mode,
+            result.FinalState.Zone1Mode.PerformanceMode,
+            "Handing the fans back must not also change the mode.");
+    }
+
     private static RazerClient CreateClient(
         StatefulPerformanceTransport transport,
         RecordingFanObservationDelay delay) => new(
             transport,
             new SequentialTransactionIdSource(),
             delay);
+
+    /// <summary>
+    /// Taking fan ownership keeps the performance mode the machine was already in.
+    /// </summary>
+    /// <remarks>
+    /// The plan used to write Balanced + Manual unconditionally, so starting a session moved a
+    /// machine out of Silent or Custom without being asked to. Fan ownership is a statement
+    /// about the fans; the performance mode is the user's choice.
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow((byte)0x00)]
+    [DataRow((byte)0x04)]
+    [DataRow((byte)0x05)]
+    public void TakingFanOwnershipPreservesThePerformanceMode(byte modeValue)
+    {
+        RazerPerformanceMode mode = modeValue switch
+        {
+            0x04 => RazerPerformanceMode.Custom,
+            0x05 => RazerPerformanceMode.Silent,
+            _ => RazerPerformanceMode.Balanced
+        };
+        using var transport = CreateAutoTransport(mode);
+        var client = new RazerClient(transport);
+
+        FanControlApplyResult result = client.ApplyFanControlProfile(
+            FanControlProfile.Fixed(new FanRpm(3000), new FanRpm(3000)));
+
+        Assert.IsTrue(result.Succeeded, result.Verification.Message);
+        Assert.IsTrue(result.FinalState!.IsManual);
+        Assert.AreEqual(
+            mode,
+            result.FinalState.Zone1Mode.PerformanceMode,
+            "Ownership must not change the performance mode.");
+        Assert.AreEqual(mode, result.FinalState.Zone2Mode.PerformanceMode);
+    }
+
+    /// <summary>Returning the fans to firmware likewise keeps the mode.</summary>
+    [TestMethod]
+    public void ReturningToAutoPreservesThePerformanceMode()
+    {
+        using var transport = CreateAutoTransport(RazerPerformanceMode.Silent);
+        var client = new RazerClient(transport);
+        client.ApplyFanControlProfile(
+            FanControlProfile.Fixed(new FanRpm(3000), new FanRpm(3000)));
+
+        FanControlApplyResult auto = client.ApplyFanControlProfile(FanControlProfile.Auto);
+
+        Assert.IsTrue(auto.Succeeded, auto.Verification.Message);
+        Assert.IsTrue(auto.FinalState!.IsAuto);
+        Assert.AreEqual(
+            RazerPerformanceMode.Silent,
+            auto.FinalState.Zone1Mode.PerformanceMode,
+            "Handing the fans back must not move the machine to Balanced.");
+    }
 
     private static StatefulPerformanceTransport CreateAutoTransport(
         RazerPerformanceMode mode) => new(

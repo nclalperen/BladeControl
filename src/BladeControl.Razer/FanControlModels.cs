@@ -137,49 +137,89 @@ public sealed class FanControlState
 
     public bool ZonesAgree => PerformanceState.ZonesAgree;
 
-    public bool IsBalancedManual => ZonesAgree &&
-        Zone1Mode.PerformanceMode == RazerPerformanceMode.Balanced &&
-        Zone1Mode.FanMode == RazerFanMode.Manual;
+    /// <summary>Both zones agree and hold Manual, in whatever performance mode.</summary>
+    /// <remarks>
+    /// Fan ownership is about the fan mode. The performance mode is the user's choice and is
+    /// preserved, so it is not part of what makes a state owned — a machine held in
+    /// Silent + Manual is exactly as owned as one in Balanced + Manual.
+    /// </remarks>
+    public bool IsManual => ZonesAgree && Zone1Mode.FanMode == RazerFanMode.Manual;
 
-    public bool IsBalancedAuto => ZonesAgree &&
-        Zone1Mode.PerformanceMode == RazerPerformanceMode.Balanced &&
-        Zone1Mode.FanMode == RazerFanMode.Auto;
+    /// <summary>Both zones agree and hold Auto, in whatever performance mode.</summary>
+    public bool IsAuto => ZonesAgree && Zone1Mode.FanMode == RazerFanMode.Auto;
+
+    /// <summary>
+    /// The performance mode ownership should be taken in, or null when there is not one.
+    /// </summary>
+    /// <remarks>
+    /// The mode the machine is already in, because taking fan ownership must not change the
+    /// user's performance choice. Null when the zones disagree or the reported mode is not one
+    /// this build knows: in either case there is no single current mode to preserve, and the
+    /// caller has to decide what to do rather than being handed a guess.
+    /// </remarks>
+    public RazerPerformanceMode? OwnershipPerformanceMode =>
+        ZonesAgree && Zone1Mode.PerformanceMode.IsKnown
+            ? Zone1Mode.PerformanceMode
+            : null;
+
+    public bool IsBalancedManual => IsManual &&
+        Zone1Mode.PerformanceMode == RazerPerformanceMode.Balanced;
+
+    public bool IsBalancedAuto => IsAuto &&
+        Zone1Mode.PerformanceMode == RazerPerformanceMode.Balanced;
 }
 
+/// <summary>
+/// The write a fan-control plan performs. The performance mode travels on the operation.
+/// </summary>
+/// <remarks>
+/// These were <c>SetBalancedManualZone1</c> and friends, with Balanced baked into the name and
+/// into the write. Taking fan ownership therefore moved the machine to Balanced whatever the
+/// user had selected. The mode is now carried on the operation so ownership can be taken in the
+/// mode the machine is already in.
+/// </remarks>
 public enum FanControlOperationKind
 {
-    SetBalancedManualZone1,
-    SetBalancedManualZone2,
+    SetManualZone1,
+    SetManualZone2,
     SetFan1Rpm,
     SetFan2Rpm,
-    SetBalancedAutoZone1,
-    SetBalancedAutoZone2
+    SetAutoZone1,
+    SetAutoZone2
 }
 
 public sealed class FanControlOperation
 {
-    internal FanControlOperation(FanControlOperationKind kind, FanRpm? rpm = null)
+    internal FanControlOperation(
+        FanControlOperationKind kind,
+        FanRpm? rpm = null,
+        RazerPerformanceMode? performanceMode = null)
     {
         Kind = kind;
         Rpm = rpm;
+        PerformanceMode = performanceMode;
     }
 
     public FanControlOperationKind Kind { get; }
 
     public FanRpm? Rpm { get; }
 
+    /// <summary>The performance mode this operation writes alongside the fan mode.</summary>
+    /// <remarks>Null for the fan-RPM operations, which do not touch the mode pair.</remarks>
+    public RazerPerformanceMode? PerformanceMode { get; }
+
     public string Description => Kind switch
     {
-        FanControlOperationKind.SetBalancedManualZone1 =>
-            "SET Zone 1 Balanced + Manual",
-        FanControlOperationKind.SetBalancedManualZone2 =>
-            "SET Zone 2 Balanced + Manual",
+        FanControlOperationKind.SetManualZone1 =>
+            $"SET Zone 1 {PerformanceMode} + Manual",
+        FanControlOperationKind.SetManualZone2 =>
+            $"SET Zone 2 {PerformanceMode} + Manual",
         FanControlOperationKind.SetFan1Rpm => $"SET Fan 1 {Rpm}",
         FanControlOperationKind.SetFan2Rpm => $"SET Fan 2 {Rpm}",
-        FanControlOperationKind.SetBalancedAutoZone1 =>
-            "SET Zone 1 Balanced + Auto",
-        FanControlOperationKind.SetBalancedAutoZone2 =>
-            "SET Zone 2 Balanced + Auto",
+        FanControlOperationKind.SetAutoZone1 =>
+            $"SET Zone 1 {PerformanceMode} + Auto",
+        FanControlOperationKind.SetAutoZone2 =>
+            $"SET Zone 2 {PerformanceMode} + Auto",
         _ => Kind.ToString()
     };
 }
