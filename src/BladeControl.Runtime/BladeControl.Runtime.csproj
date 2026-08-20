@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      The IPC DTO mapper is internal, and its correctness is exactly what needs a test: the
+      status record has runs of same-typed neighbours where a transposition compiles and
+      passes every behavioural test.
+    -->
+    <InternalsVisibleTo Include="BladeControl.Runtime.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\BladeControl.Razer\BladeControl.Razer.csproj" />
     <ProjectReference Include="..\BladeControl.Telemetry\BladeControl.Telemetry.csproj" />
     <ProjectReference Include="..\BladeControl.Thermal\BladeControl.Thermal.csproj" />

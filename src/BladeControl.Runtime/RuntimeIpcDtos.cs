@@ -193,36 +193,43 @@ internal static class RuntimeIpcDtoMapper
     }
 
     private static RuntimeStatusDto ToDto(RuntimeStatus status, bool includeEvents) => new(
-        status.State.ToString(),
-        status.SessionId,
-        status.StartTimestamp,
-        status.CurrentProfile,
-        status.CapturedOriginalPerformanceState is null
+        // Named arguments throughout, deliberately. This record has grown past twenty
+        // parameters and now contains runs of same-typed neighbours - three adjacent nullable
+        // strings (failure, rejection, emergency), two adjacent statistics, two longs, two
+        // ints. A transposition inside any of those runs compiles cleanly, passes every test,
+        // and surfaces as a diagnostic that quietly reports the wrong thing: a refusal shown as
+        // a fault, actuator timings labelled as acquisition. Naming them makes that class of
+        // mistake impossible to make silently.
+        State: status.State.ToString(),
+        SessionId: status.SessionId,
+        StartTimestamp: status.StartTimestamp,
+        CurrentProfile: status.CurrentProfile,
+        CapturedOriginalPerformanceState: status.CapturedOriginalPerformanceState is null
             ? null
             : ToDto(status.CapturedOriginalPerformanceState),
-        status.CurrentEffectiveFanTargetRpm,
-        status.LatestAuthoritativeTelemetry is null
+        CurrentEffectiveFanTargetRpm: status.CurrentEffectiveFanTargetRpm,
+        LatestAuthoritativeTelemetry: status.LatestAuthoritativeTelemetry is null
             ? null
             : ToDto(status.LatestAuthoritativeTelemetry),
-        status.TelemetryHealth is null ? null : ToDto(status.TelemetryHealth),
-        status.Scheduler,
-        status.SchedulerHealth,
-        status.RuntimeBuild,
-        status.LastRazerWatchdogState is null
+        TelemetryHealth: status.TelemetryHealth is null ? null : ToDto(status.TelemetryHealth),
+        Scheduler: status.Scheduler,
+        SchedulerHealth: status.SchedulerHealth,
+        RuntimeBuild: status.RuntimeBuild,
+        LastRazerWatchdogState: status.LastRazerWatchdogState is null
             ? null
             : ToDto(status.LastRazerWatchdogState),
-        status.LastRazerWatchdogObservedAt,
-        status.LastFailureReason,
-        status.LastStartRejectionReason,
-        status.EmergencyStatus,
-        status.LastTelemetryAcquisitionDuration,
-        status.TelemetryAcquisition,
-        status.ActuatorDuration,
-        status.WatchdogCoalescedCount,
-        status.TotalEventCount,
-        status.RetainedThermalDecisionCount,
-        status.RetainedThermalTraceCount,
-        includeEvents
+        LastRazerWatchdogObservedAt: status.LastRazerWatchdogObservedAt,
+        LastFailureReason: status.LastFailureReason,
+        LastStartRejectionReason: status.LastStartRejectionReason,
+        EmergencyStatus: status.EmergencyStatus,
+        LastTelemetryAcquisitionDuration: status.LastTelemetryAcquisitionDuration,
+        TelemetryAcquisition: status.TelemetryAcquisition,
+        ActuatorDuration: status.ActuatorDuration,
+        WatchdogCoalescedCount: status.WatchdogCoalescedCount,
+        TotalEventCount: status.TotalEventCount,
+        RetainedThermalDecisionCount: status.RetainedThermalDecisionCount,
+        RetainedThermalTraceCount: status.RetainedThermalTraceCount,
+        RecentEvents: includeEvents
             ? status.RecentEvents.Select(item => ToDto(item, includeProtocolHex: false)).ToArray()
             : []);
 
