@@ -232,9 +232,10 @@ Searched in the agreed order. All read-only; nothing was written to any device.
 | WMI `MSAcpi_ThermalZoneTemperature` | Access denied (non-elevated) | Not a fan source regardless |
 | Razer HID `0x0D81` | Returns the commanded target | **Unproven** as a tachometer; unchanged |
 
-**Caveat, stated rather than glossed:** the LibreHardwareMonitor probe ran non-elevated. PawnIO
-was installed and the motherboard object enumerated successfully, so this is evidence rather
-than a bare access failure — but an elevated re-run is the honest way to close it completely.
+**Caveat closed.** The LibreHardwareMonitor probe was first run non-elevated and later repeated
+with full Administrator rights. Both runs enumerated the same hardware — motherboard SO690, the
+i9-13950HX, both GPUs, the battery — and both found **zero** Fan, Control or Flow sensors. The
+absence is a property of the hardware, not of the privilege level.
 
 **Outcome:** physical fan RPM is **not available** on this hardware through any read-only
 source examined. The product must continue to present `0x0D81` as *firmware-reported fan state*
@@ -259,3 +260,74 @@ via a UAC prompt. The following cannot proceed autonomously:
 The installed RC predates both commits above and is still running a healthy Dynamic session, so
 nothing is in an unsafe state. Repository work continued; live validation of the new build is
 outstanding.
+
+
+---
+
+## 2026-08-20 — Elevated live validation
+
+Session elevated to `BUILTIN\Administrators`, unblocking service control, the installer and
+elevated probes.
+
+### Service stop path — verified on hardware
+
+The first live confirmation that shutdown hands the fans back rather than abandoning them in
+Manual:
+
+```
+Stop-Service         completed in 1052 ms, no hang
+Fan mode             Auto      firmware owns cooling
+Performance          Custom    captured original state restored
+Reported fan 1 / 2   4500 RPM  firmware Auto's own value, not a stale Manual target
+```
+
+### Event log
+
+The only `BladeControl Runtime` entries are Warnings reading *"Transient IPC connection fault;
+continuing to serve the channel."* No Error-level events, no SCM failure, no service crash.
+
+Those warnings correlate exactly with CLI processes that crashed mid-exchange during this
+session, which makes them live evidence that the accept-loop resilience added earlier works: a
+client vanishing mid-request no longer costs the runtime its hardware.
+
+### The WER entries were the CLI, not the service
+
+`BladeControl.Cli.exe` filed two Windows Error Reporting crashes. Both causes were already
+fixed, but the failure mode was closed separately in `2d7b842`: a diagnostic tool that appears
+in the event log as a faulting application, immediately beside the events it exists to help
+interpret, obstructs the diagnosis. `Main` now reports and exits non-zero.
+
+### Elevated telemetry doctor — fully qualified
+
+```
+Razer HID                    available
+NVML                         available
+GPU thermal limits           75 / 77 / 80 C, validated thermal signature
+PawnIO                       available 2.2.0.0, Running, Authenticode Valid
+PawnIO CPU provenance safety safe
+CPU Package temp             available
+Thermal ownership qualification (authoritative)
+  Verdict            QUALIFIED
+```
+
+Two open items close here:
+
+1. **CPU Package temperature was unavailable in an earlier non-elevated harness.** That was an
+   elevation artefact, not a product defect — it reads correctly with Administrator rights.
+2. **The unexplained "GPU thermal limits unavailable" from an earlier RC's doctor run.** Under
+   elevation on the current build, discovery succeeds and reports the validated 75/77/80
+   signature. The production path is confirmed working under the conditions the user actually
+   runs it. The earlier report is not reproducible on this build and was never reproduced in
+   ten consecutive non-elevated attempts either; it is recorded as unexplained rather than
+   quietly dropped, and the doctor now prints the discovery reason inline so a recurrence
+   explains itself.
+
+### Old-RC final baseline before upgrade
+
+```
+Completed cycles     6895
+Old-model overruns   309  (~4.5%)
+Last acquisition     223.4 ms
+```
+
+Three acquisition samples across the session: 348.8, 164.5, 223.4 ms. Variable, as stated.
