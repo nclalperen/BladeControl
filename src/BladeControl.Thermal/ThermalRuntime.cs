@@ -109,6 +109,18 @@ public sealed class ThermalRuntimeController
 
     public ThermalMachineState? FinalState { get; private set; }
 
+    /// <summary>
+    /// The zone modes observed by the most recent successful fan write, or null when the last
+    /// cycle wrote nothing.
+    /// </summary>
+    /// <remarks>
+    /// Offered so a caller with its own ownership question can weigh this observation's age
+    /// against its own deadline instead of issuing a second, near-identical 0x0D82 pair. It is
+    /// an observation, not a conclusion: it carries when it was read, and says nothing about
+    /// whether that is recent enough for any particular purpose.
+    /// </remarks>
+    public RazerOwnershipObservation? LastOwnershipObservation { get; private set; }
+
     public IReadOnlyList<ThermalDecision> Decisions => _decisions.ToArray();
 
     public IReadOnlyList<ThermalTraceEntry> Trace => _trace.ToArray();
@@ -330,6 +342,7 @@ public sealed class ThermalRuntimeController
 
         TelemetrySnapshot? snapshot = null;
         ThermalDecision decision;
+        LastOwnershipObservation = null;
         try
         {
             snapshot = CollectTelemetry();
@@ -364,6 +377,9 @@ public sealed class ThermalRuntimeController
 
         if (!decision.ShouldWrite)
         {
+            // No write, no fresh observation. Leaving the previous one in place would let a
+            // reading from an earlier cycle answer a later question.
+            LastOwnershipObservation = null;
             return decision;
         }
 
@@ -396,7 +412,11 @@ public sealed class ThermalRuntimeController
             return decision;
         }
 
-        FinalState = apply.FinalState;
+        // The scoped write reads ownership, not a whole machine state, so the last fully read
+        // state stands. Every consumer of FinalState — stop, emergency handoff, restoration
+        // comparison — is fed by a path that does read one.
+        FinalState = apply.FinalState ?? FinalState;
+        LastOwnershipObservation = apply.Ownership;
         _engine.RecordSuccessfulWrite(decision);
         return decision;
     }

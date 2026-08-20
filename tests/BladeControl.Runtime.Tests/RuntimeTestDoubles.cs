@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BladeControl.Razer;
 using BladeControl.Runtime;
 using BladeControl.Telemetry;
@@ -317,6 +318,15 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
         return Result(true, _state);
     }
 
+    /// <summary>
+    /// How old the post-write ownership observation claims to be. Zero models the real case,
+    /// where the read happened microseconds ago.
+    /// </summary>
+    internal TimeSpan OwnershipObservationAge { get; set; } = TimeSpan.Zero;
+
+    /// <summary>Replaces what the write reports observing, to model firmware moving.</summary>
+    internal RazerOwnershipObservation? OwnershipObservationOverride { get; set; }
+
     public ThermalControlOperationResult SetBothFans(FanRpm target)
     {
         Operations.Add($"Set {target.Value}");
@@ -326,7 +336,20 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
             FirmwareReportedFan1Rpm = target.Value,
             FirmwareReportedFan2Rpm = target.Value
         };
-        return Result(true, _state);
+
+        // A real scoped write reads ownership last and reports no full machine state.
+        return Result(true, _state) with
+        {
+            FinalState = null,
+            Ownership = OwnershipObservationOverride ?? new RazerOwnershipObservation(
+                _state.Zone1PerformanceMode,
+                _state.Zone1FanMode,
+                _state.Zone2PerformanceMode,
+                _state.Zone2FanMode,
+                Stopwatch.GetTimestamp() -
+                    (long)(OwnershipObservationAge.TotalSeconds * Stopwatch.Frequency),
+                [])
+        };
     }
 
     public ThermalControlOperationResult ReturnToBalancedAuto()

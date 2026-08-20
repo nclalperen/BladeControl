@@ -114,6 +114,11 @@ public sealed record ThermalFanModeObservation(
         $"zone 2 {Zone2PerformanceMode} / {Zone2FanMode}";
 }
 
+/// <param name="Ownership">
+/// The zone modes read after the write, when the operation took a scoped ownership
+/// observation. Carries its own completion timestamp, so a caller can decide whether it is
+/// fresh enough to answer a question of its own rather than issuing another read.
+/// </param>
 public sealed record ThermalControlOperationResult(
     bool Succeeded,
     bool AnyWriteAttempted,
@@ -121,7 +126,8 @@ public sealed record ThermalControlOperationResult(
     bool AutoActive,
     string Message,
     ThermalMachineState? FinalState,
-    IReadOnlyList<RazerExchangeTrace> Exchanges);
+    IReadOnlyList<RazerExchangeTrace> Exchanges,
+    RazerOwnershipObservation? Ownership = null);
 
 public interface IThermalControlDevice
 {
@@ -179,8 +185,23 @@ public sealed class RazerThermalControlDevice : IThermalControlDevice
         return ApplyFanProfile(FanControlProfile.Fixed(baseline, baseline));
     }
 
-    public ThermalControlOperationResult SetBothFans(FanRpm target) =>
-        ConvertFanApply(_client.ApplyThermalFanTarget(target));
+    public ThermalControlOperationResult SetBothFans(FanRpm target)
+    {
+        ThermalFanTargetResult result = _client.ApplyThermalFanTarget(target);
+        return new ThermalControlOperationResult(
+            result.Succeeded,
+            result.AnyWriteAttempted,
+            result.AutoRecoveryAttempted,
+            result.AutoActive,
+            result.Message,
+
+            // A successful scoped write reports no full machine state, because it deliberately
+            // did not read one. The caller keeps the last state it actually read rather than
+            // being handed a synthesized one; a recovery still returns the complete picture.
+            result.RecoveredState is null ? null : Convert(result.RecoveredState),
+            result.Exchanges,
+            result.OwnershipAfterWrite);
+    }
 
     public ThermalControlOperationResult ReturnToBalancedAuto() =>
         ApplyFanProfile(FanControlProfile.Auto);

@@ -311,12 +311,15 @@ public sealed class RuntimeLifecycleTests
 
         internal FakeRuntimeHardware Hardware { get; }
 
-        internal BladeRuntime CreateRuntime(int eventCapacity = 2048) => new(
+        internal BladeRuntime CreateRuntime(
+            int eventCapacity = 2048,
+            TimeSpan? watchdogInterval = null) => new(
             Telemetry,
             Telemetry,
             Hardware,
             _gate,
             Clock,
+            watchdogInterval: watchdogInterval,
             eventCapacity: eventCapacity);
     }
 }

@@ -163,12 +163,26 @@ internal static partial class Program
         output.WriteLine($"  Completed cycles       {status.Scheduler.CompletedCycles}");
         output.WriteLine(
             $"  Latest start-to-start  " +
-            $"{status.Scheduler.ActualStartToStart.TotalMilliseconds:F1} ms");
-        output.WriteLine($"  Overruns               {status.Scheduler.OverrunCount}");
+            $"{status.Scheduler.LatestStartToStart.TotalMilliseconds:F1} ms");
         output.WriteLine(
-            $"  Maximum overrun        " +
-            $"{status.Scheduler.MaximumOverrun.TotalMilliseconds:F1} ms");
-        output.WriteLine($"  Skipped deadlines      {status.Scheduler.SkippedDeadlines}");
+            $"  Cycle execution        " +
+            $"latest {status.Scheduler.LatestCycleExecutionDuration.TotalMilliseconds:F1} ms, " +
+            $"p95 {status.Scheduler.CycleExecution.P95.TotalMilliseconds:F1} ms, " +
+            $"p99 {status.Scheduler.CycleExecution.P99.TotalMilliseconds:F1} ms, " +
+            $"max {status.Scheduler.MaximumCycleExecutionDuration.TotalMilliseconds:F1} ms");
+
+        // Slow cycles are causes; catch-up cycles are the recovery tail one slow cycle leaves
+        // behind. Reported separately because a single counter made a handful of events look
+        // like a hundred faults.
+        output.WriteLine($"  Slow cycles            {status.Scheduler.SlowCycleCount}");
+        output.WriteLine($"  Catch-up cycles        {status.Scheduler.CatchUpCycleCount}");
+        output.WriteLine($"  Missed periods         {status.Scheduler.MissedDeadlinePeriods}");
+        output.WriteLine(
+            $"  Maximum lateness       " +
+            $"{status.Scheduler.MaximumDeadlineLateness.TotalMilliseconds:F1} ms");
+        output.WriteLine(
+            $"  Skipped deadlines      {status.Scheduler.SkippedDeadlines} " +
+            "(the loop never skips an iteration)");
 
         if (!verbose)
         {

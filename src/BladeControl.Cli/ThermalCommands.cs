@@ -568,10 +568,16 @@ internal static partial class Program
         output.WriteLine(
             $"  Last telemetry acquisition       " +
             $"{status.LastTelemetryAcquisitionDuration.TotalMilliseconds:F1} ms");
-        output.WriteLine($"  Overrun count                    {status.Scheduler.OverrunCount}");
+        output.WriteLine($"  Slow cycles                      {status.Scheduler.SlowCycleCount}");
+        output.WriteLine($"  Catch-up cycles                  {status.Scheduler.CatchUpCycleCount}");
+        output.WriteLine($"  Missed periods                   {status.Scheduler.MissedDeadlinePeriods}");
         output.WriteLine(
-            $"  Maximum overrun                  " +
-            $"{status.Scheduler.MaximumOverrun.TotalMilliseconds:F1} ms");
+            $"  Cycle execution p95 / p99        " +
+            $"{status.Scheduler.CycleExecution.P95.TotalMilliseconds:F1} ms / " +
+            $"{status.Scheduler.CycleExecution.P99.TotalMilliseconds:F1} ms");
+        output.WriteLine(
+            $"  Maximum cycle execution          " +
+            $"{status.Scheduler.MaximumCycleExecutionDuration.TotalMilliseconds:F1} ms");
         output.WriteLine($"  Skipped deadlines                {status.Scheduler.SkippedDeadlines}");
         output.WriteLine($"  Safe Auto handoff                {shutdownState}");
         output.WriteLine($"  Original performance restoration {shutdownState}");

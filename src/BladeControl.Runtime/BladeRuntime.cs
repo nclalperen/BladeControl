@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BladeControl.Razer;
 using BladeControl.Telemetry;
 using BladeControl.Thermal;
@@ -29,6 +30,9 @@ public sealed record RuntimeStatus(
     string? LastFailureReason,
     string? EmergencyStatus,
     TimeSpan LastTelemetryAcquisitionDuration,
+    DurationStatistics TelemetryAcquisition,
+    DurationStatistics ActuatorDuration,
+    long WatchdogCoalescedCount,
     long TotalEventCount,
     int RetainedThermalDecisionCount,
     int RetainedThermalTraceCount,
@@ -56,6 +60,18 @@ public sealed class BladeRuntime : IAsyncDisposable
     private readonly IRuntimeClock _clock;
     private readonly ThermalProfile _profile;
     private readonly TimeSpan _watchdogInterval;
+    private readonly TimeSpan _controlPeriod;
+
+    /// <summary>
+    /// Rolling windows for the two costs that actually compete for the control period.
+    /// </summary>
+    /// <remarks>
+    /// Recording is O(1) into a pre-allocated ring; percentiles are computed only when a
+    /// diagnostics request reads them, never on the 500 ms path.
+    /// </remarks>
+    private readonly RollingDurationWindow _acquisitionWindow = new();
+    private readonly RollingDurationWindow _actuatorWindow = new();
+    private long _watchdogCoalescedCount;
     private readonly BoundedRuntimeEventLog _events;
     private readonly ControlTelemetryAdapter _telemetryAdapter;
     private IRuntimeOwnershipLease? _hostLease;
@@ -111,6 +127,7 @@ public sealed class BladeRuntime : IAsyncDisposable
         _scheduler = new DeadlineScheduler(
             _clock,
             controlPeriod ?? DefaultControlPeriod);
+        _controlPeriod = controlPeriod ?? DefaultControlPeriod;
         _scheduler.CycleOverrun += OnSchedulerOverrun;
         _hardware.ExchangeCompleted += OnExchangeCompleted;
     }
@@ -439,13 +456,14 @@ public sealed class BladeRuntime : IAsyncDisposable
                             _telemetryAdapter.Latest.ToDiagnosticSnapshot(),
                             _clock.UtcNow),
                     _scheduler.Metrics,
-                    _scheduler.Metrics.OverrunCount == 0
-                        ? "Healthy"
-                        : $"Degraded: {_scheduler.Metrics.OverrunCount} deadline overruns.",
+                    DescribeSchedulerHealth(_scheduler.Metrics),
                     _lastWatchdog,
                     _lastFailure,
                     _emergencyStatus,
                     _telemetryAdapter.LastAcquisitionDuration,
+                    DurationStatistics.From(_acquisitionWindow),
+                    DurationStatistics.From(_actuatorWindow),
+                    _watchdogCoalescedCount,
                     _events.TotalCount,
                     _controller?.Decisions.Count ?? 0,
                     _controller?.Trace.Count ?? 0,
@@ -620,7 +638,15 @@ public sealed class BladeRuntime : IAsyncDisposable
                 return false;
             }
 
+            long cycleStarted = Stopwatch.GetTimestamp();
             ThermalDecision decision = _controller.RunCycle();
+            _acquisitionWindow.Record(_telemetryAdapter.LastAcquisitionDuration);
+
+            // The actuator's share is whatever the cycle spent that acquisition did not. On a
+            // cycle with no write that is the decision alone; on a write cycle it is the eight
+            // HID exchanges, which is the number worth watching.
+            TimeSpan cycleSoFar = Stopwatch.GetElapsedTime(cycleStarted);
+            _actuatorWindow.Record(Positive(cycleSoFar - _telemetryAdapter.LastAcquisitionDuration));
             AddEvent((sequence, timestamp) => new ThermalDecisionEvent(
                 sequence,
                 timestamp,
@@ -666,11 +692,14 @@ public sealed class BladeRuntime : IAsyncDisposable
 
             if (_clock.MonotonicNow >= _nextWatchdog)
             {
-                if (!RunWatchdog())
+                if (!RunWatchdog(_controller.LastOwnershipObservation))
                 {
                     return false;
                 }
 
+                // The due point advances in absolute steps, exactly as before. Coalescing
+                // changes which read answers the deadline, never when the next one falls due,
+                // so a satisfied watchdog cannot push its own schedule forward.
                 do
                 {
                     _nextWatchdog += _watchdogInterval;
@@ -686,12 +715,77 @@ public sealed class BladeRuntime : IAsyncDisposable
         }
     }
 
-    private bool RunWatchdog()
+    /// <summary>
+    /// How recent a fan-write observation must be to answer a watchdog deadline.
+    /// </summary>
+    /// <remarks>
+    /// One control period. An observation from this cycle's own write is microseconds old; one
+    /// from any earlier cycle is at least a period old and is refused. The bound is therefore
+    /// tight enough that only a same-cycle read can satisfy the deadline, while staying stated
+    /// in time rather than in cycle bookkeeping that could drift out of step.
+    /// </remarks>
+    /// <summary>
+    /// Health stated in terms of causes, with the recovery tail reported separately.
+    /// </summary>
+    /// <remarks>
+    /// This used to read "Degraded: N deadline overruns" from a single counter that incremented
+    /// for both a slow cycle and every late cycle that followed it. One slow cycle could
+    /// therefore report as four or five faults, which is how 791 cycles came to show 136
+    /// "overruns" from far fewer actual events.
+    /// </remarks>
+    private static TimeSpan Positive(TimeSpan value) =>
+        value > TimeSpan.Zero ? value : TimeSpan.Zero;
+
+    private static string DescribeSchedulerHealth(SchedulerMetrics metrics) =>
+        metrics.SlowCycleCount == 0
+            ? metrics.CatchUpCycleCount == 0
+                ? "Healthy"
+                : $"Healthy: {metrics.CatchUpCycleCount} late starts, no slow cycles."
+            : $"Degraded: {metrics.SlowCycleCount} slow cycles " +
+                $"(max {metrics.MaximumCycleExecutionDuration.TotalMilliseconds:F0} ms), " +
+                $"{metrics.CatchUpCycleCount} catch-up cycles, " +
+                $"{metrics.MissedDeadlinePeriods} missed periods.";
+
+    private TimeSpan WatchdogObservationFreshness => _controlPeriod;
+
+    /// <summary>
+    /// Checks that firmware still reports BladeControl owning the fans.
+    /// </summary>
+    /// <param name="freshObservation">
+    /// The zone modes read by a fan write during this cycle, if any. Used instead of a new
+    /// read when it is recent enough for this deadline.
+    /// </param>
+    /// <remarks>
+    /// <para>A fan write verifies ownership as its last act, reading exactly the 0x0D82 pair
+    /// this check needs. Issuing another one microseconds later costs two more HID exchanges
+    /// on the cycle that is already the most expensive.</para>
+    /// <para>What is <i>not</i> permitted: inferring ownership from the write having succeeded,
+    /// reusing the pre-write observation, or accepting anything whose measured age exceeds
+    /// <see cref="WatchdogObservationFreshness"/>. The observation carries the timestamp of its
+    /// own second 0x0D82 response, so its age is measured, not assumed. Anything that does not
+    /// qualify falls through to a normal read.</para>
+    /// </remarks>
+    private bool RunWatchdog(RazerOwnershipObservation? freshObservation)
     {
         RuntimeRazerModeState mode;
         try
         {
-            mode = _hardware.ReadModeState();
+            if (freshObservation is { } observed &&
+                observed.Age <= WatchdogObservationFreshness)
+            {
+                mode = new RuntimeRazerModeState(
+                    observed.Zone1PerformanceMode,
+                    observed.Zone1FanMode,
+                    observed.Zone2PerformanceMode,
+                    observed.Zone2FanMode,
+                    observed.Exchanges);
+                _watchdogCoalescedCount++;
+            }
+            else
+            {
+                mode = _hardware.ReadModeState();
+            }
+
             _lastWatchdog = mode;
             AddEvent((sequence, timestamp) => new RazerWatchdogCheckEvent(
                 sequence,

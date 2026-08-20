@@ -113,7 +113,7 @@ public sealed class FastPathAndSoakTests
         Assert.AreEqual(
             TimeSpan.FromMilliseconds((cycles - 1) * 500),
             rig.Clock.MonotonicNow);
-        Assert.AreEqual(0, status.Scheduler.OverrunCount);
+        Assert.AreEqual(0, status.Scheduler.SlowCycleCount);
         Assert.IsTrue(status.RecentEvents.Count <= 256);
         Assert.IsTrue(status.RetainedThermalDecisionCount <= 4096);
         Assert.IsTrue(status.RetainedThermalTraceCount <= 4096);
@@ -123,7 +123,7 @@ public sealed class FastPathAndSoakTests
         Console.WriteLine(
             $"cycles={status.Scheduler.CompletedCycles}; " +
             $"virtualElapsed={rig.Clock.MonotonicNow}; " +
-            $"overruns={status.Scheduler.OverrunCount}; " +
+            $"overruns={status.Scheduler.SlowCycleCount}; " +
             $"watchdogReads={rig.Hardware.ModeReads}; " +
             $"fanWrites={rig.Hardware.FanWrites - initialFanWrites}; " +
             $"events={status.RecentEvents.Count}; " +

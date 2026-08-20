@@ -181,6 +181,12 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
 
     internal List<RazerPacket> Requests { get; } = [];
 
+    /// <summary>
+    /// Invoked after each request is recorded, so a test can model the machine changing
+    /// underneath an operation.
+    /// </summary>
+    internal Action<RazerPacket>? AfterRequest { get; set; }
+
     internal IReadOnlyList<RazerPacket> WriteRequests => Requests
         .Where(packet => packet.CommandId is
             RazerCommands.SetFanRpmCommandId or
@@ -195,6 +201,7 @@ internal sealed class StatefulPerformanceTransport : IRazerTransport
         RazerPacket packet = RazerPacketCodec.DecodeHidFeatureReport(
             request.FeatureReport.Span);
         Requests.Add(packet);
+        AfterRequest?.Invoke(packet);
         bool isWrite = packet.CommandId is
             RazerCommands.SetFanRpmCommandId or
             RazerCommands.WriteBackPerformanceAndFanModeCommandId or

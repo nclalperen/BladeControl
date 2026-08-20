@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BladeControl.Hardware.Windows.Telemetry.Nvml;
 using BladeControl.Razer;
 using BladeControl.Telemetry;
@@ -76,6 +77,17 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
     public TelemetryCapabilities Capabilities { get; private set; }
 
     public PawnIoProvenance PawnIoProvenance { get; }
+
+    /// <summary>How long the most recent CPU provider read took.</summary>
+    /// <remarks>
+    /// Two plain fields rather than a statistics object: this is the 500 ms path, and the
+    /// windowing that turns these into percentiles belongs to the caller that already keeps
+    /// one.
+    /// </remarks>
+    public TimeSpan LastCpuAcquisitionDuration { get; private set; }
+
+    /// <summary>How long the most recent GPU provider read took.</summary>
+    public TimeSpan LastGpuAcquisitionDuration { get; private set; }
 
     public static WindowsTelemetrySession Open(
         RazerClient? razerClient = null,
@@ -171,11 +183,19 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         DateTimeOffset timestamp = DateTimeOffset.UtcNow;
+        // Measured separately because they are separate problems. An aggregate figure of
+        // ~390 ms says the cycle is tight; it does not say which provider to look at, and the
+        // two are not remotely comparable in cost.
+        long cpuStarted = Stopwatch.GetTimestamp();
         CpuTelemetryReading cpu = _cpu?.Read(timestamp) ??
             CpuTelemetryReading.ProviderFailure(
                 timestamp,
                 "The CPU telemetry provider did not initialize.");
+        LastCpuAcquisitionDuration = Stopwatch.GetElapsedTime(cpuStarted);
+
+        long gpuStarted = Stopwatch.GetTimestamp();
         NvmlGpuReading gpu = _gpu?.Read(timestamp) ?? UnavailableGpuReading(timestamp);
+        LastGpuAcquisitionDuration = Stopwatch.GetElapsedTime(gpuStarted);
         Capabilities = CreateCapabilities(cpu, gpu);
         return new ThermalTelemetrySample(
             timestamp,

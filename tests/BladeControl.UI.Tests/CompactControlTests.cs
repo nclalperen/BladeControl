@@ -281,7 +281,7 @@ public sealed class CompactControlTests
             fake.Status = RuntimeUiSampleData.Status(
                 state: "Stopped",
                 telemetry: RuntimeUiSampleData.Telemetry(timestamp: old),
-                scheduler: RuntimeUiSampleData.Scheduler(overrunCount: 9),
+                scheduler: RuntimeUiSampleData.Scheduler(slowCycleCount: 9),
                 schedulerHealth: "Degraded · overruns",
                 watchdog: RuntimeUiSampleData.Watchdog());
         }, now: () => DateTimeOffset.UtcNow);

@@ -79,18 +79,22 @@ public static class RuntimeUiSampleData
 
     public static SchedulerMetrics Scheduler(
         long completedCycles = 0,
-        long overrunCount = 0,
-        double actualStartToStartMilliseconds = 0,
+        long slowCycleCount = 0,
+        double latestStartToStartMilliseconds = 0,
         double cycleDurationMilliseconds = 0,
-        double maximumOverrunMilliseconds = 0) => new(
+        double maximumCycleExecutionMilliseconds = 0,
+        long catchUpCycleCount = 0) => new(
         TimeSpan.FromMilliseconds(500),
         completedCycles,
-        TimeSpan.FromMilliseconds(actualStartToStartMilliseconds),
+        TimeSpan.FromMilliseconds(latestStartToStartMilliseconds),
         TimeSpan.FromMilliseconds(cycleDurationMilliseconds),
         TimeSpan.Zero,
-        overrunCount,
-        TimeSpan.FromMilliseconds(maximumOverrunMilliseconds),
-        0);
+        slowCycleCount,
+        catchUpCycleCount,
+        0,
+        TimeSpan.FromMilliseconds(maximumCycleExecutionMilliseconds),
+        TimeSpan.Zero,
+        DurationStatistics.Empty);
 
     public static RuntimeRazerModeStateDto Watchdog(bool isAuto = true) => new(
         isAuto ? "Balanced" : "Balanced",

@@ -160,15 +160,14 @@ public sealed class ThermalIpcCommandTests
             Timestamp = firstSample.Timestamp.AddMilliseconds(500),
             AcquisitionDurationMilliseconds = 11.0
         };
-        var scheduler = new SchedulerMetrics(
-            TimeSpan.FromMilliseconds(500),
-            2,
-            TimeSpan.FromMilliseconds(500),
-            TimeSpan.FromMilliseconds(20),
-            TimeSpan.Zero,
-            1,
-            TimeSpan.FromMilliseconds(8),
-            0);
+        SchedulerMetrics scheduler = SchedulerMetrics.Idle(TimeSpan.FromMilliseconds(500)) with
+        {
+            CompletedCycles = 2,
+            LatestStartToStart = TimeSpan.FromMilliseconds(500),
+            LatestCycleExecutionDuration = TimeSpan.FromMilliseconds(20),
+            SlowCycleCount = 1,
+            MaximumCycleExecutionDuration = TimeSpan.FromMilliseconds(508)
+        };
         var ipc = new FakeIpcClient((operation, _) => operation switch
         {
             RuntimeIpcOperation.StartThermalControl => Success(Status("Running")),
@@ -217,15 +216,15 @@ public sealed class ThermalIpcCommandTests
     [TestMethod]
     public void StoppedRuntimeStatusLabelsDiagnosticValuesAsHistorical()
     {
-        var scheduler = new SchedulerMetrics(
-            TimeSpan.FromMilliseconds(500),
-            122,
-            TimeSpan.FromMilliseconds(501),
-            TimeSpan.FromMilliseconds(80),
-            TimeSpan.FromMilliseconds(2),
-            7,
-            TimeSpan.FromMilliseconds(44),
-            0);
+        SchedulerMetrics scheduler = SchedulerMetrics.Idle(TimeSpan.FromMilliseconds(500)) with
+        {
+            CompletedCycles = 122,
+            LatestStartToStart = TimeSpan.FromMilliseconds(501),
+            LatestCycleExecutionDuration = TimeSpan.FromMilliseconds(80),
+            LatestDeadlineLateness = TimeSpan.FromMilliseconds(2),
+            SlowCycleCount = 7,
+            MaximumCycleExecutionDuration = TimeSpan.FromMilliseconds(544)
+        };
         var watchdog = new RuntimeRazerModeStateDto(
             "Balanced",
             "Manual",
@@ -288,9 +287,12 @@ public sealed class ThermalIpcCommandTests
             TimeSpan.Zero,
             TimeSpan.Zero,
             0,
+            0,
+            0,
             TimeSpan.Zero,
-            0),
-        scheduler?.OverrunCount > 0 ? "Degraded" : "Healthy",
+            TimeSpan.Zero,
+            DurationStatistics.Empty),
+        scheduler?.SlowCycleCount > 0 ? "Degraded" : "Healthy",
         watchdog,
         null,
         null,

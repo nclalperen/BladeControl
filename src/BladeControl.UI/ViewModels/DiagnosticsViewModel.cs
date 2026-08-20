@@ -727,30 +727,30 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Actual start-to-start",
                 metrics is null
                     ? Display.Unavailable
-                    : Display.Duration(metrics.ActualStartToStart)),
+                    : Display.Duration(metrics.LatestStartToStart)),
             new DiagnosticItem(
                 "Cycle execution",
                 metrics is null
                     ? Display.Unavailable
-                    : Display.Duration(metrics.CycleExecutionDuration)),
+                    : Display.Duration(metrics.LatestCycleExecutionDuration)),
             new DiagnosticItem(
                 "Deadline lateness",
-                metrics is null ? Display.Unavailable : Display.Duration(metrics.DeadlineLateness)),
+                metrics is null ? Display.Unavailable : Display.Duration(metrics.LatestDeadlineLateness)),
             new DiagnosticItem(
                 "Completed cycles",
                 metrics?.CompletedCycles.ToString("N0", CultureInfo.CurrentCulture) ??
                     Display.Unavailable),
             new DiagnosticItem(
                 "Overruns",
-                metrics?.OverrunCount.ToString("N0", CultureInfo.CurrentCulture) ??
+                metrics?.SlowCycleCount.ToString("N0", CultureInfo.CurrentCulture) ??
                     Display.Unavailable,
                 null,
                 metrics is null || stopped
                     ? StatusTone.Muted
-                    : metrics.OverrunCount == 0 ? StatusTone.Good : StatusTone.Warning),
+                    : metrics.SlowCycleCount == 0 ? StatusTone.Good : StatusTone.Warning),
             new DiagnosticItem(
                 "Maximum overrun",
-                metrics is null ? Display.Unavailable : Display.Duration(metrics.MaximumOverrun)),
+                metrics is null ? Display.Unavailable : Display.Duration(metrics.MaximumCycleExecutionDuration)),
             new DiagnosticItem(
                 "Skipped deadlines",
                 metrics?.SkippedDeadlines.ToString("N0", CultureInfo.CurrentCulture) ??
