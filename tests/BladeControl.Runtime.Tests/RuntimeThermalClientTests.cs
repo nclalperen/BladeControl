@@ -507,6 +507,7 @@ public sealed class RuntimeThermalClientTests
         SchedulerMetrics.Idle(TimeSpan.FromMilliseconds(500)),
         "Healthy",
         null,
+        null,
         failure,
         null,
         TimeSpan.Zero,

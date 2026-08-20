@@ -143,6 +143,15 @@ internal static partial class Program
         }
     }
 
+    /// <summary>Human-readable age, coarse enough not to imply false precision.</summary>
+    private static string FormatAge(TimeSpan age) => age switch
+    {
+        { TotalSeconds: < 1 } => "under a second",
+        { TotalMinutes: < 1 } => $"{age.TotalSeconds:F0} s",
+        { TotalHours: < 1 } => $"{age.TotalMinutes:F0} min",
+        _ => $"{age.TotalHours:F1} h"
+    };
+
     /// <summary>Renders one bounded statistic, or says plainly that it was not reported.</summary>
     private static string Describe(DurationStatistics? statistics) =>
         statistics is null
@@ -203,6 +212,17 @@ internal static partial class Program
         output.WriteLine(stopped
             ? "Last watchdog observation (historical; not current firmware state)"
             : "Current watchdog observation");
+
+        // An ownership observation without a time is an assertion about the present made from
+        // an unknown moment. Printing the age lets a reader judge it instead of trusting it.
+        if (status.LastRazerWatchdogObservedAt is { } observedAt)
+        {
+            TimeSpan age = DateTimeOffset.UtcNow - observedAt;
+            output.WriteLine(
+                $"  Observed               {observedAt.ToLocalTime():HH:mm:ss} " +
+                $"({FormatAge(age)} ago)");
+        }
+
         if (status.LastRazerWatchdogState is null)
         {
             output.WriteLine("  Observation            <unavailable>");

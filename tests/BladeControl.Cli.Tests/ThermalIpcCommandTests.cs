@@ -296,6 +296,7 @@ public sealed class ThermalIpcCommandTests
         watchdog,
         null,
         null,
+        null,
         TimeSpan.Zero,
         null,
         null,

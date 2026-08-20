@@ -27,6 +27,7 @@ public sealed record RuntimeStatus(
     SchedulerMetrics Scheduler,
     string SchedulerHealth,
     RuntimeRazerModeState? LastRazerWatchdogState,
+    DateTimeOffset? LastRazerWatchdogObservedAt,
     string? LastFailureReason,
     string? EmergencyStatus,
     TimeSpan LastTelemetryAcquisitionDuration,
@@ -79,6 +80,17 @@ public sealed class BladeRuntime : IAsyncDisposable
     private DeadlineScheduler _scheduler;
     private RuntimeState _state = RuntimeState.Stopped;
     private RuntimeRazerModeState? _lastWatchdog;
+
+    /// <summary>
+    /// When the last watchdog observation was actually taken.
+    /// </summary>
+    /// <remarks>
+    /// An ownership observation without a time is an assertion about the present made from an
+    /// unknown moment. A stopped runtime once presented a fan reading sixteen minutes old as
+    /// current firmware state; a reader could not tell, because nothing carried when it was
+    /// read.
+    /// </remarks>
+    private DateTimeOffset? _lastWatchdogAt;
     private Guid? _sessionId;
     private DateTimeOffset? _startTimestamp;
     private TimeSpan _nextWatchdog;
@@ -171,6 +183,7 @@ public sealed class BladeRuntime : IAsyncDisposable
         {
             startupState = _hardware.ReadModeState();
             _lastWatchdog = startupState;
+            _lastWatchdogAt = _clock.UtcNow;
         }
         catch (Exception exception)
         {
@@ -458,6 +471,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                     _scheduler.Metrics,
                     DescribeSchedulerHealth(_scheduler.Metrics),
                     _lastWatchdog,
+                    _lastWatchdogAt,
                     _lastFailure,
                     _emergencyStatus,
                     _telemetryAdapter.LastAcquisitionDuration,
@@ -809,6 +823,7 @@ public sealed class BladeRuntime : IAsyncDisposable
             }
 
             _lastWatchdog = mode;
+            _lastWatchdogAt = _clock.UtcNow;
             AddEvent((sequence, timestamp) => new RazerWatchdogCheckEvent(
                 sequence,
                 timestamp,

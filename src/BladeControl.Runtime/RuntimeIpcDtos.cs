@@ -151,6 +151,7 @@ public sealed record RuntimeStatusDto(
     SchedulerMetrics Scheduler,
     string SchedulerHealth,
     RuntimeRazerModeStateDto? LastRazerWatchdogState,
+    DateTimeOffset? LastRazerWatchdogObservedAt,
     string? LastFailureReason,
     string? EmergencyStatus,
     TimeSpan LastTelemetryAcquisitionDuration,
@@ -207,6 +208,7 @@ internal static class RuntimeIpcDtoMapper
         status.LastRazerWatchdogState is null
             ? null
             : ToDto(status.LastRazerWatchdogState),
+        status.LastRazerWatchdogObservedAt,
         status.LastFailureReason,
         status.EmergencyStatus,
         status.LastTelemetryAcquisitionDuration,
