@@ -141,8 +141,13 @@ public sealed class RazerCommandsTests
     [DataTestMethod]
     [DataRow((byte)0x00, (byte)0x01, (byte)0x04, (byte)0x00)]
     [DataRow((byte)0x01, (byte)0x03, (byte)0x04, (byte)0x00)]
-    [DataRow((byte)0x01, (byte)0x01, (byte)0x04, (byte)0x01)]
-    [DataRow((byte)0x01, (byte)0x01, (byte)0x05, (byte)0x01)]
+    // Custom + Manual (0x04, 0x01) and Silent + Manual (0x05, 0x01) were rows here. Both are
+    // now permitted, validated on hardware - see
+    // PerformancePacketFactoryTests.ManualIsConstructibleWithEveryKnownPerformanceMode. What
+    // remains rejected is what was always genuinely wrong: a bad selector, a bad zone, and any
+    // unknown mode byte.
+    [DataRow((byte)0x01, (byte)0x01, (byte)0x02, (byte)0x01)]
+    [DataRow((byte)0x01, (byte)0x01, (byte)0xFF, (byte)0x00)]
     public void EveryNonPolicyModeWriteShapeIsRejected(
         byte selector,
         byte zone,

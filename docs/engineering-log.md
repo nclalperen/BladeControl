@@ -850,3 +850,61 @@ The rest of the audit found nothing, which is worth recording as much as a defec
   reasoning stated. Neither derives from NVML, so neither is affected.
 
 The GPU entry gate was the only casualty, and it was a comment rather than a behaviour.
+
+## Manual fan control works outside Balanced
+
+The requirement changed: BladeControl should run in whatever performance mode the user chose,
+not force Balanced. That turns out to resolve the GPU anchor blocker too — if qualification
+happens in the operating mode, Silent derives 75/77/80 and Balanced derives 87/89/92, each
+correct for its own mode, and there is no stored triple left to mismatch.
+
+Two things stood in the way, and neither was a firmware limit.
+
+`BuildFanControlPlan` writes `SetBalancedManualZone1/2` whenever it takes fan ownership, so
+starting a session moves the machine to Balanced regardless of what the user had selected. And
+`ApplyPerformanceProfile` writes every mode change with `RazerFanMode.Auto` and refuses outright
+while fans are Manual. The two subsystems were mutually exclusive by our own policy.
+
+Underneath both sat the real gate, in the packet validator:
+
+```
+allowedCombination =
+    fanMode == Auto || (performanceMode == Balanced && fanMode == Manual)
+```
+
+Manual only with Balanced, enforced at the innermost layer. It came in with the original Fan
+Control V1 hardware validation as a scope decision, not as a recorded finding — the pair had
+simply never been sent, so nothing was known either way. `0x0D02` has always taken both values
+as parameters.
+
+### The probe, and getting it wrong the first time
+
+The first run wrote 3800 into every mode while the machine already happened to be reporting
+3800. Every row said "3800" and proved nothing: "the target held" was indistinguishable from
+"nothing happened". Redone with a distinct target per mode, each having to move the value off
+the previous mode's:
+
+| Step | Result |
+|---|---|
+| Balanced + Manual, target 3200 | 3200, still 3200 four seconds later |
+| Silent + Manual, target 3500 | 3500, still 3500 four seconds later |
+| Custom + Manual, target 4100 | 4100, still 4100 four seconds later |
+
+All three pairs were accepted and read back correctly. Neither Silent's nor Custom's own curve
+reclaimed the fans.
+
+**What this is evidence of, precisely.** `0x0D81` reports the firmware's commanded fan target —
+what the controller says it is aiming for. It is not a tachometer and this does not establish
+blade speed. It covers seconds on an idle machine, not sustained behaviour under load.
+
+### The first run also found a real gap
+
+Restoration failed. The probe left the machine in Custom + Manual, and
+`ApplyFanControlProfile(Auto)` refused: "Current combination Custom + Manual is not safe for Fan
+Control V1. No SET command was sent." The path back to firmware ownership was itself gated on
+being in a state V1 recognises — so the one moment it was needed was a moment it would not run.
+Fans were at 3800 and firmware protection was untouched, so nothing was at risk, but the machine
+had to be recovered with a primitive that does not consult V1's state model.
+
+That is worth carrying into the feature: whatever else changes, returning the fans to firmware
+must not depend on the current state being one the caller already understands.

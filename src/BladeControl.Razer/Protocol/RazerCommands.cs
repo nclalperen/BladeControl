@@ -270,10 +270,26 @@ internal static class RazerCommands
              arguments[1] == (byte)RazerZone.Zone2) &&
             IsKnownPerformanceMode(arguments[2]) &&
             IsKnownFanMode(arguments[3]);
+        // Manual is permitted with every known performance mode, not only Balanced.
+        //
+        // This read "Auto with any known mode, Manual only with Balanced". That restriction
+        // arrived with the original Fan Control V1 hardware validation as a scope decision —
+        // Balanced + Manual was the one ownership state that had been exercised — and never as
+        // a finding that the controller rejects Manual elsewhere. Nothing was known either way,
+        // because the pair had never been sent.
+        //
+        // It has now been sent, on a Razer Blade 16 (RZ09-0483). Each of the three known modes
+        // accepted Manual, took a distinct fan target, and still held it four seconds later:
+        // Balanced 3200, Silent 3500, Custom 4100, each moving the target off the previous
+        // mode's value. Neither Silent's nor Custom's own curve reclaimed the fans. The
+        // evidence is the firmware-reported commanded target from 0x0D81 — what the controller
+        // says it is aiming for, not a tachometer reading — over seconds on an idle machine.
+        //
+        // Both bytes are still checked against the known-value sets above, so an unknown mode
+        // is refused with Manual exactly as with Auto. Only the pairing is relaxed.
         bool allowedCombination =
             arguments[3] == RazerFanMode.Auto.Value ||
-            (arguments[2] == RazerPerformanceMode.Balanced.Value &&
-             arguments[3] == RazerFanMode.Manual.Value);
+            arguments[3] == RazerFanMode.Manual.Value;
 
         return commonPrefix && allowedCombination && IsAllZero(arguments[4..]);
     }

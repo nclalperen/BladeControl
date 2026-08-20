@@ -53,6 +53,16 @@ internal static partial class Program
             return RunGpuThermalProbe();
         }
 
+        if (subcommand.Equals("mode-ownership-probe", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunModeOwnershipProbe();
+        }
+
+        if (subcommand.Equals("mode-restore", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunModeRestore();
+        }
+
         Console.Error.WriteLine($"Unknown telemetry subcommand: {subcommand}");
         PrintUsage();
         return 2;
