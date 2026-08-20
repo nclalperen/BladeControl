@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Publishes BladeControl and produces the release artifacts.
 
@@ -143,6 +143,8 @@ Copy-Item -Recurse (Join-Path $publishRoot 'ui/*') $portableStage
 New-Item -ItemType Directory -Force -Path (Join-Path $portableStage 'Runtime') | Out-Null
 Copy-Item -Recurse (Join-Path $publishRoot 'service/*') (Join-Path $portableStage 'Runtime')
 Copy-Item (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') $portableStage
+# GPL-3.0 requires the licence text to accompany the binaries it covers.
+Copy-Item (Join-Path $repoRoot 'LICENSE') (Join-Path $portableStage 'LICENSE.txt')
 Copy-Item (Join-Path $repoRoot 'docs/portable-build.md') (Join-Path $portableStage 'README-PORTABLE.md')
 $portableZip = Join-Path $artifacts "BladeControl-$fullVersion-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path (Split-Path -Parent $portableStage) '*') `

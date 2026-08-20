@@ -77,19 +77,26 @@ work; everything below is packaging, hosting and distribution.
   runs as LocalSystem, and replaced by an explicit ACL plus server-owner verification rather
   than by a weaker restriction.
 
+### Licence
+
+- **GNU General Public License v3.0.** Applied to the project and conveyed with the binaries:
+  the MSI installs `LICENSE.txt`, the portable zip carries it, and the installer's licence
+  dialog presents the GPL text. Reasoning in `docs/license-recommendation.md`.
+
 ### Not included
 
 - **PawnIO is not bundled.** Detected and reported only. It is GPL-2.0 licensed with a linking
   exception that does not cover the path actually used, it is a third-party signed kernel
   driver, and shipping our own copy would turn an independent provenance check into a
   self-attestation. Reasoning and reconsideration prerequisites in `THIRD-PARTY-NOTICES.md`.
-- **No open-source licence has been applied.** Audit complete, recommendation on record, the
-  decision left to the copyright holder.
 - **No Authenticode signature.** Pre-release builds are unsigned; verify the published SHA-256.
   Where signing belongs in a public pipeline is documented in `docs/code-signing.md`.
-- **No live hardware acceptance of the installed product.** The MSI has been built and its
-  contents verified, but it has not been installed, and the service has not been registered or
-  started. `docs/install-test-checklist.md` is the manual procedure for a reference machine.
+- **No validated hardware beyond one machine.** Everything here was exercised on a single
+  Razer Blade 16 (RZ09-0483). Thermal-limit qualification is by exact GPU identity and thermal
+  signature and fails closed on anything else, so other machines are refused rather than
+  guessed at.
+- **The GPU thermal ladders have never run live.** The GPU stayed at or below 48 C throughout,
+  and manufacturing a thermal emergency to reach them is deliberately out of scope.
 
 [Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.0

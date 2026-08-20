@@ -569,3 +569,29 @@ stronger claim than the full sentence, and the half that got cut is the half doi
 Fixed at the style rather than per call site, so the four caption-styled blocks and the two
 performance summaries are covered together. Eyebrows and metrics are deliberately excluded —
 short labels and single values are broken by wrapping, not saved by it.
+
+## The licence did not ship with the binaries
+
+Choosing GPL-3.0 and committing `LICENSE` is not the same as conveying it. Three things were
+still wrong, and none of them would have failed a build:
+
+- **`installer/License.rtf` predated the decision.** It told every installing user the project
+  "has not yet selected a final open-source licence." It would have shipped that claim to every
+  machine while `LICENSE` sat in the same install folder saying GPL-3.0 — the installer
+  contradicting the product on the one point people consult an installer about.
+- **The MSI shipped `THIRD-PARTY-NOTICES.md` and not `LICENSE`**, under a component comment
+  reading "Licensing and attribution travel with the product." Every third party's licence
+  travelled with the product; BladeControl's own did not.
+- **The portable zip had the same omission.**
+
+GPL-3.0 sections 4 through 6 require the licence text to accompany the object code it covers.
+`License.rtf` is now generated from `LICENSE` itself, with a preamble that states the GPL grants
+rights rather than restricting use and that acceptance is not a condition of running the
+program — which is what the FSF actually says, and worth saying on a dialog whose button reads
+"I accept".
+
+Verified at the binary level: the built MSI's `File` table contains `LICENSE.txt`.
+
+`CHANGELOG.md` carried two claims that had gone stale the same way — that no licence had been
+applied, and that the installed product had never been exercised on hardware. Both were true
+when written and false by the time they were read. Corrected rather than deleted.

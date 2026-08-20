@@ -280,6 +280,62 @@ public sealed class ReleaseEngineeringTests
     }
 
     /// <summary>
+    /// Both shipping packages carry the licence the binaries are conveyed under.
+    /// </summary>
+    /// <remarks>
+    /// GPL-3.0 requires the licence text to accompany the object code it covers (sections 4
+    /// through 6). The MSI shipped THIRD-PARTY-NOTICES.md under a comment reading "licensing
+    /// and attribution travel with the product", and the portable zip copied the same file —
+    /// so every third party's licence travelled with the product and BladeControl's own did
+    /// not. Asserted against the packaging sources because the failure is silent: nothing about
+    /// a build or an install goes wrong when the file is simply absent.
+    /// </remarks>
+    [TestMethod]
+    public void BothPackagesShipTheLicenceTheBinariesAreConveyedUnder()
+    {
+        string root = FindRepositoryRoot();
+
+        Assert.IsTrue(
+            File.Exists(Path.Combine(root, "LICENSE")),
+            "The repository must carry the licence it conveys binaries under.");
+
+        string product = File.ReadAllText(Path.Combine(root, "installer", "Product.wxs"));
+        StringAssert.Contains(
+            product,
+            "$(RepositoryRoot)LICENSE",
+            "The MSI must install the licence, not only the third-party attributions.");
+
+        string pack = File.ReadAllText(Path.Combine(root, "build", "pack.ps1"));
+        StringAssert.Contains(
+            pack,
+            "'LICENSE'",
+            "The portable zip must carry the licence alongside the binaries.");
+    }
+
+    /// <summary>
+    /// The installer's licence dialog states the licence that was actually chosen.
+    /// </summary>
+    /// <remarks>
+    /// License.rtf predated the licence decision and told every installing user that the
+    /// project "has not yet selected a final open-source licence". Left alone it would have
+    /// shipped that claim to every machine while LICENSE in the same install folder said
+    /// GPL-3.0 — the installer contradicting the product on the one point a user consults an
+    /// installer about.
+    /// </remarks>
+    [TestMethod]
+    public void TheInstallerLicenceDialogMatchesTheChosenLicence()
+    {
+        string rtf = File.ReadAllText(
+            Path.Combine(FindRepositoryRoot(), "installer", "License.rtf"));
+
+        StringAssert.Contains(rtf, "GNU General Public License, version 3");
+        StringAssert.Contains(rtf, "15. Disclaimer of Warranty");
+        Assert.IsFalse(
+            rtf.Contains("has not yet selected", StringComparison.OrdinalIgnoreCase),
+            "The licence dialog must not still describe the project as unlicensed.");
+    }
+
+    /// <summary>
     /// The GUI must stay a thin IPC client. BladeControl.Ipc is allowed because it is a
     /// dependency-free policy assembly; the hardware providers and the service host are not.
     /// </summary>
