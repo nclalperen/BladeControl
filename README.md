@@ -208,6 +208,9 @@ Stop the installed service first — only one host may own the hardware.
 
 | Document | Contents |
 |---|---|
+| [docs/safety-model.md](docs/safety-model.md) | What the software will and will not do to your cooling, and why |
+| [docs/known-limitations.md](docs/known-limitations.md) | Measured limits, unavailable data, and what is not yet done |
+| [docs/engineering-log.md](docs/engineering-log.md) | Chronological record of changes, evidence and rejected hypotheses |
 | [docs/runtime-core-v1.md](docs/runtime-core-v1.md) | Runtime state machine and IPC contract |
 | [docs/thermal-control-v1.md](docs/thermal-control-v1.md) | Curve, hysteresis and scheduler semantics |
 | [docs/gui-v0.1.md](docs/gui-v0.1.md) | Interface contract, both surfaces |

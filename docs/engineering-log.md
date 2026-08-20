@@ -331,3 +331,102 @@ Last acquisition     223.4 ms
 ```
 
 Three acquisition samples across the session: 348.8, 164.5, 223.4 ms. Variable, as stated.
+
+---
+
+## 2026-08-20 — New RC deployed and measured
+
+**Deployed:** `1850783`, MSI `cd8a108c497b8b3c051bed217c36dfb1b65bb6ab4ea79ebba86837d3da8c4773`,
+update-in-place, exit code 0, service Running/Automatic, all five runtime assemblies verified
+byte-identical to the publish output.
+
+### The 8-exchange path, confirmed on hardware
+
+From a verbose protocol capture, `0x0D01` writes appear at three target changes. The first
+`0x0D87` in the entire log appears well after the last of them, in this context:
+
+```
+0x0D82, 0x0D82, 0x0D87, 0x0D87   ← tail of a six-GET ReadCompleteStatus (diagnostics)
+```
+
+**Fan-target changes issue no `0x0D87`.** Remaining `0x0D87` traffic is session-start
+stabilisation and periodic diagnostic snapshots — separate paths, correctly unchanged.
+
+`GetDiagnosticSnapshot` takes the same operation gate as the control cycle, so HID access is
+serialised. There is no parallel transport access.
+
+### Rejected hypothesis: verbose logging inflates the control cycle
+
+An early reading showed actuator 863 ms and cycle 1244 ms under `--verbose`, against 236 ms and
+525 ms without it. The obvious inference — that per-exchange event emission was distorting the
+loop — was **wrong**.
+
+Those samples came from the cycle in which an emergency handoff occurred. That cycle
+deliberately performs `ReturnToBalancedAuto` and `RestorePerformance`, both full HID sequences,
+and it is the last cycle of the session. Nothing to do with verbosity. Recorded because the
+wrong conclusion was one step away and would have sent the next batch chasing the logger.
+
+### CPU 100 °C immediate handoff — live-validated
+
+A session ended with:
+
+```
+Emergency firmware handoff required: CPU Package temperature reached 100.0 C,
+at or above the 100 C immediate limit.
+```
+
+Provoked naturally by concurrent builds loading the CPU, not manufactured. The single-sample
+immediate handoff fired as specified, the service stayed Running with no errors in the event
+log, and the runtime latched in `EmergencyHandoff` awaiting a deliberate restart.
+
+### Defect found by that handoff
+
+While latched in `EmergencyHandoff`, the status report announced:
+
+```
+Current watchdog observation
+  Zone 1   Balanced + Manual
+```
+
+Firmware Auto owned the fans at that moment. The historical labelling tested only for `Stopped`,
+so `EmergencyHandoff` and `Faulted` kept a "Current" heading over stale data — claiming
+BladeControl still owned the fans at exactly the moment it had handed them back. Fixed in
+`f99d8bc` for both CLI and GUI, with regression tests across all four states.
+
+### Scheduler measurement — 252 cycles, corrected metrics
+
+| | latest | p95 | p99 | max |
+|---|---|---|---|---|
+| Telemetry acquisition | 381.7 | 392.7 | 402.6 | 423.1 ms |
+| Actuator (8-exchange write) | 0.0 | 235.0 | 244.5 | 244.9 ms |
+| Whole cycle | 381.8 | 613.8 | 624.2 | 652.5 ms |
+
+Slow cycles 13, catch-up cycles 25, **missed periods 0**, maximum lateness 153.6 ms, watchdog
+coalescing fired 3 times.
+
+### Decision gate: case B
+
+Acquisition alone consumes ~390 ms of the 500 ms period, so **any cycle that also writes
+overruns**, by roughly 125 ms. Halving the write from sixteen exchanges to eight halved that
+cost without eliminating it: ~30 ms per HID exchange × 8 is ~244 ms, and eight is the minimum
+that can still be verified.
+
+Not case C. The schedule self-corrects, no period was ever lost, and worst-case detection delay
+for a newly critical temperature is about 1.1 s — comfortable against the three-sample ladders,
+and about a second against the single-sample immediate handoffs, with firmware slowdown and
+shutdown as the backstop.
+
+**Accepted and documented for v0.1.0 rather than fixed.** Separating acquisition from actuation
+introduces sole-HID-ownership, sample-freshness and preemption invariants that deserve their own
+design pass rather than being attached to a latency patch.
+
+### Normal stop — validated
+
+`runtime stop-thermal` → firmware **Auto**, performance **Custom** restored, verified by reading
+firmware directly with the service stopped. Service restarted cleanly afterwards.
+
+### GPU ladders not naturally exercised
+
+GPU stayed at 48 °C under this workload, well below the 75 °C critical threshold. Per the
+standing instruction, no attempt was made to manufacture GPU heat. Those paths remain covered by
+unit tests only.
