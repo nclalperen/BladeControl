@@ -430,3 +430,80 @@ firmware directly with the service stopped. Service restarted cleanly afterwards
 GPU stayed at 48 °C under this workload, well below the 75 °C critical threshold. Per the
 standing instruction, no attempt was made to manufacture GPU heat. Those paths remain covered by
 unit tests only.
+
+---
+
+## 2026-08-20 — UI truthfulness batch and installer lifecycle
+
+**Commits:** `37cd69e`, `af38bd1`, `55db3e4`, `42244e6`, `87cac22`, `1f3a1e6`
+
+### Items that turned out to be already correct
+
+Checked rather than assumed, and left alone:
+
+- Unavailable GPU levels were already `IsEnabled`-bound to availability, dimmed to 0.42 opacity,
+  cursor-changed, and tooltipped with the blocked reason.
+- CPU and GPU Custom rows were already separate and labelled.
+- The compact panel already had a single segmented Auto / Fixed / Dynamic control with
+  mode-specific detail beneath it.
+
+### The duplicate rejection banner had a root cause, not a presentation quirk
+
+`RejectStart` wrote its reason into the same field as `Fault`, so the dashboard rendered
+"Runtime failure: …" beside the operation's own rejection message. One refusal, reported twice,
+with a safe refusal called a failure — while the runtime was `Stopped`, healthy, and had sent no
+write.
+
+The runtime draws that distinction deliberately; writing both into one field erased it a layer
+up. The reason now has its own field, and the dashboard raises no alert for a refusal because
+the refused operation already reports it.
+
+### ComboBox popup
+
+The theme styled `ComboBox` but not `ComboBoxItem`, so the dropdown inherited system colours:
+near-black text on a near-black list. Items present, selectable, effectively invisible. Styling
+the control you click is the easy half; the popup is where the text has to be read.
+
+### Scheduler health, no-session state, observation ages
+
+Health now derives from slow cycles inside the rolling window rather than cumulative counts, so
+one slow cycle no longer reads "Degraded" for the life of the session; the lifetime totals are
+reported alongside. A runtime that has never run a session says so instead of showing a table of
+zeros under a health verdict. Watchdog observations carry the time they were taken and their age
+is displayed, rendered coarsely because false precision on "how stale is this" would be its own
+small dishonesty.
+
+### The runtime now reports its own build
+
+Establishing that an installed runtime predated a commit previously meant hashing five
+assemblies against a publish directory. The build stamps the short source commit into
+`InformationalVersion` and the runtime carries it across IPC. Confirmed live: after deploying
+`1f3a1e6`, `runtime status` reported `Build 0.1.0+1f3a1e643bca`.
+
+### Installer lifecycle — validated end to end
+
+| Step | Result |
+|---|---|
+| Upgrade in place | exit 0, service Running/Automatic, build identifier matched the deployed commit |
+| Uninstall | exit 0, service **removed**, install directory **removed** |
+| Firmware state after uninstall | **Fan mode Auto**, performance Custom — fans not left in Manual |
+| User settings after uninstall | **preserved** at `%LOCALAPPDATA%\BladeControl\ui-settings.json` |
+| Reinstall | exit 0, service Running/Automatic |
+| Settings after reinstall | **byte-identical**, honoured by the fresh install |
+| Event log across the whole cycle | no Error-level BladeControl entries |
+
+Settings surviving uninstall is deliberate and correct: uninstalling an application should not
+destroy the user's preferences.
+
+### Dashboard vocabulary
+
+"Live — provider-only sample" was engineering vocabulary on a user-facing surface. The dashboard
+now answers whether the reading is live and how old it is; the acquisition provenance moved to
+Diagnostics rather than being deleted.
+
+### Noted, not fixed
+
+`RuntimeStatusDto` is a positional record with twenty-three parameters. Four separate field
+additions in this session each broke the same three test fixtures, silently and only at compile
+time. It works, but the shape invites exactly the kind of positional mistake that would be
+invisible if two adjacent parameters shared a type. Worth a named-argument or builder pass.
