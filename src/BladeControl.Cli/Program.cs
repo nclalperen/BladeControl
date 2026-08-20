@@ -8,7 +8,30 @@ internal static partial class Program
 {
     private const string Unavailable = "<unavailable>";
 
+    /// <summary>
+    /// Entry point. Turns any unhandled failure into a diagnostic line and an exit code.
+    /// </summary>
+    /// <remarks>
+    /// Without this, an IPC failure — a runtime that is not running, a pipe published by
+    /// something else, a status field an older runtime did not send — terminated the process
+    /// through the unhandled-exception path and filed a Windows Error Reporting crash. A
+    /// diagnostic tool that appears in the event log as a faulting application every time the
+    /// thing it diagnoses is unavailable actively obstructs the diagnosis.
+    /// </remarks>
     private static int Main(string[] args)
+    {
+        try
+        {
+            return Run(args);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"{exception.GetType().Name}: {exception.Message}");
+            return 1;
+        }
+    }
+
+    private static int Run(string[] args)
     {
         if (args.Length == 1 && IsHelp(args[0]))
         {
