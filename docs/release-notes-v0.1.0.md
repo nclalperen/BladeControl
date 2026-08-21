@@ -93,47 +93,19 @@ the GPL text rather than a summary.
 
 ## Open decisions before tagging
 
-**0. The GPU thermal signature — this one blocks Dynamic.** On the reference machine the
-derivation now yields 87/89/92 C against a pinned signature of 75/77/80 C, so thermal ownership
-is refused and Dynamic will not start. Fan control, performance modes and every fixed-target
-path are unaffected.
+**0. The GPU thermal signature — resolved.** Dynamic no longer refuses. Thermal control now runs
+in whatever performance mode the machine is in, and qualifies against that mode's limits:
+Balanced 87/89/92, Silent and Custom 75/77/80. Verified live, including a full session run in
+Silent + Manual with the machine never moved to Balanced.
 
-**The cause is established.** The anchor is a function of the Razer performance mode —
-Balanced gives 87, Silent and Custom give 75 — reproducible in both directions on the same GPU,
-driver and specifications. Fan mode, temperature and elapsed time have no effect.
+The signature pins the T.Limit offsets, which are static device properties, and enumerates the
+anchors observed on the part. It used to pin the derived limits, which pinned the anchor with
+them — and the anchor is the driver's current thermal target, not a device property.
 
-BladeControl performs thermal control exclusively in Balanced + Manual, so the pinned 75/77/80
-is the signature of a mode the runtime never operates in. The original measurement was correct;
-it was simply taken in Silent or Custom, and nvidia-smi agreed because it reports the same
-driver-side target read in the same mode.
-
-The constant was deliberately not edited, because changing 75 to 87 fixes this machine and
-leaves the real defect in place. Two things are wrong independently of the number:
-
-1. An exact-match allowlist pins a value the driver is entitled to change. The anchor is a
-   thermal *target*, not a device identity.
-2. Qualification reads it at start-preflight, which runs before the runtime has entered the
-   mode it will operate in. Confirmed from the start path: `QualifyThermalOwnership()` is called
-   before the state moves to `Starting` and before any mode transition, nothing requires the
-   machine to already be in Balanced, and nothing re-reads the limits afterwards. A machine in
-   Silent therefore qualifies against 75, switches to Balanced, and runs a ladder built on
-   limits that no longer apply. The direction is conservative — it escalates about 12 C early,
-   over-cooling rather than under-cooling, with firmware protection untouched — so it is a
-   correctness defect and not a hazard. It is the mirror image of today's visible refusal: one
-   bug with two faces, and an exact-match allowlist cannot tell them apart.
-
-Today's refusal is the safe direction of that same bug. Options, recommended order:
-
-- **Qualify in the operating mode.** Establish thermal limits after the runtime has taken
-  Balanced + Manual ownership rather than before, and sanity-check the derived target against
-  the legacy absolute thresholds (105/97/100) instead of a stored triple. This fixes the defect
-  rather than the symptom. It touches the ownership gate, so it wants your sign-off.
-- **Re-pin to 87/89/92** as an interim, documenting that the signature is mode-scoped. Restores
-  Dynamic on this machine today; leaves both problems above.
-- **Ship with Dynamic refusing**, which is honest and safe but makes the headline feature
-  unavailable on the only validated machine.
-
-Full experiment and raw data in [engineering-log.md](engineering-log.md).
+Two things follow, both documented in [known-limitations.md](known-limitations.md): changing
+performance mode during a session hands the fans back to firmware, because the limits in force
+were derived for the previous mode; and an anchor that has not been observed on that part is
+refused even when it looks reasonable, which can turn away a legitimate configuration.
 
 The remaining four are the copyright holder's call, not an engineering task. None of them blocks
 the build; all of them are easier to settle before a tag than after.

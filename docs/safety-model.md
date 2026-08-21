@@ -121,8 +121,14 @@ delay an upward response to a hot part.
 
 ### The watchdog
 
-Every five seconds BladeControl re-reads both zones and confirms it still holds Balanced +
-Manual. If firmware or another application has taken the fans back, the session ends.
+Every five seconds BladeControl re-reads both zones and confirms two things: that it still holds
+Manual in both, and that the performance mode is still the one the session qualified in. If
+firmware or another application has taken the fans back, the session ends.
+
+The mode check is there because the GPU thermal limits are derived from the mode's thermal
+target — 87/89/92 in Balanced, 75/77/80 in Silent and Custom. A mode change from outside leaves
+the fan mode untouched, so ownership would look intact while the ladder used limits that no
+longer describe the machine. That also ends the session, handing the fans back to firmware.
 
 When a fan write has *just* read that same state, its observation may answer the deadline
 instead of issuing a second identical pair — but only if its measured age is within one control
@@ -134,7 +140,7 @@ never reused, and the observation is discarded every cycle.
 A fan-target change issues exactly eight HID exchanges:
 
 ```
-0x0D82 ×2   ownership still Balanced + Manual, zones agree
+0x0D82 ×2   ownership still Manual, zones agree, mode known
 0x0D01 ×2   the write, echo-validated
 0x0D81 ×2   firmware-reported fan state equals the commanded target
 0x0D82 ×2   ownership still held, zones still agree

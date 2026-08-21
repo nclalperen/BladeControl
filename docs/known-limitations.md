@@ -104,33 +104,46 @@ single snapshot.
 
 ---
 
-## Dynamic thermal control is currently refused on the reference machine
+## Thermal control runs in the mode you chose, and only that mode
 
-The GPU thermal limit derivation (`temperature + margin - specification`) currently yields
-**87/89/92 C**, which does not match the validated signature of **75/77/80 C**, so thermal
-ownership qualification fails closed and Dynamic will not start. No SET is sent; firmware
-protection is unaffected; fan and performance control are unaffected.
+BladeControl takes fan ownership in whatever performance mode the machine is already in and
+leaves it there. Silent stays Silent, Custom stays Custom. It no longer moves the machine to
+Balanced to take control of the fans, and it no longer moves it to Balanced to give them back.
 
-**The cause is established.** The anchor (`temperature + margin`) is a function of the Razer
-performance mode:
+This matters beyond preference, because the GPU thermal limits are mode-dependent. The anchor
+the derivation rests on is the thermal target the driver is currently enforcing, and it follows
+the performance mode:
 
-| Mode | Anchor | Derived limits |
+| Mode | Anchor | Qualified limits |
 |---|---|---|
 | Balanced | 87 | 87 / 89 / 92 |
 | Silent | 75 | 75 / 77 / 80 |
 | Custom (CPU low, GPU low) | 75 | 75 / 77 / 80 |
 
-Reproducible in both directions on the same GPU, driver and specifications. Fan mode does not
-affect it (verified at 87 with fan mode read back as Manual), nor does temperature within a
-mode, nor elapsed time.
+Each mode therefore qualifies against the limits that are actually correct for it. Fan mode does
+not affect the anchor (verified at 87 with the fan mode read back as `Manual`), nor does
+temperature within a mode, nor elapsed time.
 
-BladeControl performs thermal control exclusively in **Balanced + Manual**, where the anchor is
-87. The pinned 75/77/80 is the signature of Silent or Custom — modes the runtime never operates
-in. The constant is deliberately still unchanged, because correcting it would leave the actual
-defect in place: an exact-match allowlist pins a value the driver is entitled to change, and
-qualification reads it before the runtime has entered its operating mode. See
-[engineering-log.md](engineering-log.md) and
-[release-notes-v0.1.0.md](release-notes-v0.1.0.md).
+### Changing performance mode ends a running session
+
+The limits in force were derived for the mode the session qualified in. If the mode changes
+underneath it — a keyboard shortcut, vendor software — the fan mode is untouched, so ownership
+would still look intact while the ladder used limits that no longer describe the machine.
+Balanced to Silent is the direction that matters: the real target drops to 75 while the ladder
+still holds 87-based thresholds.
+
+The runtime detects this and hands the fans back to firmware. That is deliberate: re-qualifying
+mid-session would mean a fresh NVML discovery inside the control loop. Change modes first, then
+start Dynamic.
+
+### An unrecognised anchor fails closed
+
+Qualification pins the T.Limit offsets, which are static device properties, and matches the
+anchor against the values observed on that part. An anchor that is neither 75 nor 87 is refused
+even if it looks entirely reasonable — a margin measured against the wrong reference yields
+77/79/82, which is correctly ordered, plausible, under the hardware shutdown temperature, and
+two degrees too permissive. A mode or driver policy producing a new anchor is refused until it
+has been checked, which may mean a legitimate configuration is turned away.
 
 ---
 
