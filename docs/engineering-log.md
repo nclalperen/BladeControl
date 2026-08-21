@@ -979,3 +979,41 @@ run` executes inside the installed service however fresh the CLI is. And an exit
 an installer is a statement about the transaction, not about the bytes on disk — the check that
 settled it was reading the deployed assembly and looking for a symbol that only exists in the
 new code.
+
+## The hole that multi-mode opened
+
+Supporting every performance mode created a failure that did not exist while every session
+forced Balanced, and it was not in the plan I wrote for the change.
+
+A session's GPU thermal limits are derived from its mode's anchor — 87/89/92 in Balanced,
+75/77/80 in Silent and Custom. The mode can change from outside the session: a keyboard
+shortcut, vendor software, anything. That leaves the fan mode untouched, so `IsOwnedManual`
+still returns true, ownership still looks intact, and the ladder carries on with limits that no
+longer describe the machine.
+
+One direction of it is dangerous rather than merely wrong:
+
+| Change | Real target | Ladder holds | Effect |
+|---|---|---|---|
+| Silent → Balanced | 87 | 75-based | fires ~12 °C early — conservative |
+| **Balanced → Silent** | **75** | **87-based** | **fires ~12 °C late** |
+
+Firmware slowdown and shutdown still stand underneath, but acting before them is the entire
+point of the ladder.
+
+The watchdog now records the mode the session qualified in and hands back to firmware when it
+changes. Re-qualifying mid-session would mean a fresh NVML discovery inside the control loop,
+which is the wrong place to take that on; handing back is bounded, correct, and consistent with
+how every other loss of the qualified state is already treated.
+
+### The fake hid it twice
+
+Two properties of `FakeRuntimeHardware` had been written when Balanced was the only mode, and
+both quietly asserted nothing once it was not. `ReturnToFirmwareAuto` forced Balanced, so every
+recovery test passed whether or not the code preserved anything. `EnterManualBaseline` did the
+same, and once the watchdog started checking the mode, that one turned into five failing tests —
+the fake was entering Manual in a mode the session had not qualified in, which is exactly the
+condition the new check exists to catch. The fake was wrong; the check was right.
+
+That is the second time in this change that a test double forcing Balanced was the thing
+standing between a real defect and a green suite.

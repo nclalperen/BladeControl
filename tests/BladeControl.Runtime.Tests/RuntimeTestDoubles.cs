@@ -309,8 +309,11 @@ internal sealed class FakeRuntimeHardware : IRuntimeHardwareController
             return Result(false, _state, "injected fan apply failure");
         }
 
+        // Preserves the performance mode, as the real path does. A fake that forced Balanced
+        // here would enter Manual in a mode the session did not qualify in, which the watchdog
+        // now correctly treats as the machine having moved underneath it.
         _state = Machine(
-            RazerPerformanceMode.Balanced,
+            _state.Zone1PerformanceMode,
             RazerFanMode.Manual,
             _state.CpuLevel,
             _state.GpuLevel,

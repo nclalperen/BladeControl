@@ -106,6 +106,44 @@ public sealed class CrashRecoveryDiagnosticsTests
             "Recovery must hand the fans back without moving the machine to Balanced.");
     }
 
+    /// <summary>
+    /// A performance-mode change during a session hands the fans back to firmware.
+    /// </summary>
+    /// <remarks>
+    /// <para>The GPU thermal limits a session runs under are derived from its mode's thermal
+    /// anchor: 87/89/92 in Balanced, 75/77/80 in Silent and Custom. A mode change from outside
+    /// — a keyboard shortcut, vendor software — leaves the fan mode untouched, so ownership
+    /// still looks intact while the ladder carries on with limits that no longer describe the
+    /// machine.</para>
+    /// <para>One direction is dangerous rather than merely wrong. Balanced to Silent drops the
+    /// real target from 87 to 75 while the ladder still holds 87-based thresholds, so every
+    /// rung fires about twelve degrees late. This is a hole that supporting multiple modes
+    /// opened, and it did not exist while every session forced Balanced.</para>
+    /// </remarks>
+    [TestMethod]
+    public async Task PerformanceModeChangingUnderARunningSessionEndsIt()
+    {
+        RuntimeLifecycleTests.RuntimeRig rig = new();
+        rig.Hardware.SetMode(RazerPerformanceMode.Balanced, RazerFanMode.Auto);
+        await using BladeRuntime runtime = rig.CreateRuntime(
+            watchdogInterval: TimeSpan.FromMilliseconds(1));
+
+        Assert.IsTrue(runtime.InitializeHost());
+        runtime.StartThermalControl();
+        Assert.AreEqual(RuntimeState.Running, runtime.GetStatus().State);
+
+        // The machine moves to Silent underneath the session; the fans stay Manual.
+        rig.Hardware.SetMode(RazerPerformanceMode.Silent, RazerFanMode.Manual);
+        await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 12);
+
+        RuntimeStatus status = runtime.GetStatus();
+        Assert.AreNotEqual(
+            RuntimeState.Running,
+            status.State,
+            "A session cannot continue against limits derived for a mode the machine has left.");
+        StringAssert.Contains(status.EmergencyStatus ?? status.LastFailureReason ?? "", "Silent");
+    }
+
     /// <summary>A host that started from a safe state does not write to the hardware.</summary>
     [TestMethod]
     public async Task StartupFromAutoAttemptsNoRecovery()

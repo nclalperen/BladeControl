@@ -97,6 +97,18 @@ public sealed class BladeRuntime : IAsyncDisposable
 
     /// <summary>Why the last start attempt was refused, as distinct from a fault.</summary>
     private string? _lastRejection;
+
+    /// <summary>
+    /// The performance mode the running session qualified in, or null when none is running.
+    /// </summary>
+    /// <remarks>
+    /// A session runs in whichever mode the user chose and preserves it, and the GPU thermal
+    /// limits it operates under were derived from that mode's thermal anchor. The mode can
+    /// still change from outside — a keyboard shortcut, vendor software — and the fan mode
+    /// would be untouched, so nothing about ownership would look wrong while the ladder went
+    /// on using limits for a mode the machine had left.
+    /// </remarks>
+    private RazerPerformanceMode? _sessionPerformanceMode;
     private Guid? _sessionId;
     private DateTimeOffset? _startTimestamp;
     private TimeSpan _nextWatchdog;
@@ -336,6 +348,12 @@ public sealed class BladeRuntime : IAsyncDisposable
                     },
                     clock: new ThermalClockAdapter(_clock));
                 _controller.Start();
+
+                // The performance mode the session qualified and took ownership in. The GPU
+                // thermal limits above were derived from that mode's thermal anchor, so if the
+                // mode changes underneath the session those limits stop describing the machine.
+                _sessionPerformanceMode =
+                    _controller.OriginalState?.Zone1PerformanceMode;
                 _currentTarget = ThermalCurve.MinimumDynamicRpm;
                 _currentProfile = "Thermal/default";
                 _nextWatchdog = _clock.MonotonicNow + _watchdogInterval;
@@ -457,6 +475,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                 }
 
                 _currentProfile = null;
+                _sessionPerformanceMode = null;
                 _currentTarget = null;
 
                 if (!result.Succeeded)
@@ -642,6 +661,7 @@ public sealed class BladeRuntime : IAsyncDisposable
 
                 _standaloneManualOriginal = null;
                 _currentProfile = null;
+                _sessionPerformanceMode = null;
                 _currentTarget = null;
             }
 
@@ -722,6 +742,7 @@ public sealed class BladeRuntime : IAsyncDisposable
                 {
                     _state = auto ? RuntimeState.EmergencyHandoff : RuntimeState.Faulted;
                     _currentProfile = null;
+                    _sessionPerformanceMode = null;
                 }
 
                 if (!auto)
@@ -888,6 +909,31 @@ public sealed class BladeRuntime : IAsyncDisposable
         // first watchdog tick.
         if (mode.IsOwnedManual)
         {
+            // Owned, but possibly no longer in the mode the session was qualified for. The
+            // GPU thermal limits were derived from that mode's anchor: 87/89/92 in Balanced,
+            // 75/77/80 in Silent and Custom. A mode change from outside leaves the fan mode
+            // untouched, so ownership looks intact while the ladder carries on with limits
+            // that no longer describe the machine.
+            //
+            // One direction of that is dangerous rather than merely wrong. Balanced to Silent
+            // drops the real target from 87 to 75 while the ladder still holds 87-based
+            // thresholds, so every rung fires about twelve degrees late. Firmware slowdown and
+            // shutdown still stand, but the entire point of the ladder is to act before them.
+            //
+            // Re-qualifying mid-session would mean a fresh NVML discovery inside the control
+            // loop, and this is the wrong place to take that on. Handing back to firmware is
+            // correct, bounded, and consistent with how every other loss of the qualified
+            // state is treated here.
+            if (_sessionPerformanceMode is { } qualified &&
+                mode.Zone1PerformanceMode != qualified)
+            {
+                return EmergencyHandoff(
+                    $"Performance mode changed from {qualified} to " +
+                    $"{mode.Zone1PerformanceMode} during the session. The GPU thermal limits " +
+                    "in force were derived for the previous mode and no longer describe this " +
+                    "machine.");
+            }
+
             return true;
         }
 
@@ -901,6 +947,7 @@ public sealed class BladeRuntime : IAsyncDisposable
             {
                 _state = RuntimeState.Faulted;
                 _currentProfile = null;
+                _sessionPerformanceMode = null;
             }
 
             AddEvent((sequence, timestamp) => new OwnershipLostEvent(
@@ -932,6 +979,7 @@ public sealed class BladeRuntime : IAsyncDisposable
             // could not get it there, which is the genuinely alarming case.
             _state = auto ? RuntimeState.EmergencyHandoff : RuntimeState.Faulted;
             _currentProfile = null;
+            _sessionPerformanceMode = null;
         }
 
         if (!auto)
@@ -1124,6 +1172,7 @@ public sealed class BladeRuntime : IAsyncDisposable
             _sessionId = null;
             _startTimestamp = null;
             _currentProfile = null;
+            _sessionPerformanceMode = null;
         }
     }
 
@@ -1179,6 +1228,7 @@ public sealed class BladeRuntime : IAsyncDisposable
         {
             _standaloneManualOriginal = null;
             _currentProfile = null;
+            _sessionPerformanceMode = null;
             _currentTarget = null;
         }
 
