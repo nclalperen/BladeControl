@@ -1093,17 +1093,34 @@ Packaged from a known clean commit, which is the point of recording this at all.
 | `BladeControl-0.1.0-win-x64-portable.zip` | `29a9bf312bf5d3c35dff152e1b0a83d9b2e8d48cf9044884e1aeaec958c09e6a` |
 | `BladeControl-0.1.0-win-x64-symbols.zip` | `c4513352e87087d167946f30db4edb250f958aeb1e92bdc51bc55cbd06f30c99` |
 
-**This RC has not been deployed.** Elevation was withdrawn partway through the session, and
-installing an MSI or controlling the service both need it. The last build actually running on the
-reference machine is `6e0efe5`, which predates the multi-mode mid-session guard, the compact
-window rework and the diagnostics corrections. Anything in those three changes is verified by
-tests and by inspection, not on hardware.
+**This RC is deployed.** The runtime reports `Build 0.1.0+2d18337e91a5`, which is this commit.
 
-Deploying it needs a plain `msiexec /i` from an elevated shell. Not `REINSTALL=`: that diverts a
-major upgrade into the repair path, which skips same-version files and returns exit code 0 while
-changing nothing on disk. That cost three false "successful" live tests earlier in this session,
-and the check that settled it was reading the deployed assembly for a symbol only the new code
-contains.
+I previously wrote here that it had not been deployed and that elevation was the blocker. Both
+were wrong, and the way they were wrong is worth keeping.
+
+**Elevation was never the problem.** `Stop-Service` and `Start-Service` both work from an
+unelevated shell and were used successfully throughout this session. The one "Access is denied"
+came immediately after a failed MSI transaction, while the SCM was still unwinding it, and it
+cleared on its own. I read a transient condition as a permanent capability loss and wrote a
+report around it, when one retry would have settled it.
+
+**The deployment verification was a false negative.** I checked for the new code by decoding the
+whole assembly with `Encoding.Unicode.GetString` and running `-match` over the result. That does
+not reliably find literals in the metadata `#US` heap, so it answered "not deployed" for a file
+that contained the string at byte offset 168115. A direct byte-pattern search found it in the
+local build and the installed copy at the identical offset.
+
+The distinction that matters for anyone repeating this: type and member names live in the UTF-8
+`#Strings` heap and a UTF-8 scan finds them, which is why the earlier `IsOwnedManual` check was
+sound. String literals live in the UTF-16 `#US` heap and need a byte-level search. The
+authoritative check needs neither — the runtime reports its own build identifier over IPC, and
+comparing that to the commit is one command.
+
+That also weakens what I claimed about `REINSTALL=`. That finding used the sound UTF-8 method and
+did show a real before-and-after difference, so it stands as an observation. But today a plain
+`msiexec /i` was followed by a false-negative reading, so I cannot say from today's evidence
+whether the plain form alone would have sufficed. Uninstall-by-ProductCode followed by install is
+what was actually observed to work end to end.
 
 ## Steady-state footprint
 
@@ -1127,3 +1144,88 @@ for a number nobody is complaining about.
 
 Measured with the service running build `6e0efe5`, not the current RC. Nothing in the RC changes
 polling or allocation behaviour.
+
+## Live validation of RC 2d18337
+
+Deployed and confirmed by the runtime's own report: `Build 0.1.0+2d18337e91a5`, which is the RC
+commit. Uninstall by ProductCode followed by install is what was observed to work end to end.
+
+### Scheduler timing, 248-cycle session in Balanced
+
+| Measure | latest | p95 | p99 | max |
+|---|---|---|---|---|
+| Telemetry acquisition | 378.4 ms | 391.6 ms | 408.0 ms | 464.4 ms |
+| Actuator duration | 0.0 ms | 6.4 ms | 248.5 ms | 249.8 ms |
+| Cycle execution | 378.5 ms | 464.5 ms | 627.5 ms | 628.0 ms |
+
+| Counter | Value |
+|---|---|
+| Completed cycles | 248 |
+| Latest start-to-start | 498.3 ms |
+| Slow cycles | 12 |
+| Catch-up cycles | 18 |
+| **Missed deadline periods** | **0** |
+| Maximum lateness | 285.8 ms |
+| Skipped deadlines | 0 |
+| Watchdog coalesced | **0** |
+
+Telemetry acquisition dominates and is stable rather than spiky here — p95 391.6 ms against a
+464.4 ms maximum. The actuator is zero on most cycles because most cycles command nothing, and
+about 250 ms when they do, which is the eight-exchange write at roughly 31 ms per exchange.
+
+The arithmetic of a slow cycle is visible in the numbers: 378 ms of acquisition plus 250 ms of
+actuation is 628 ms, and 628.0 ms is exactly the observed maximum cycle. A cycle that writes
+overruns a 500 ms period; a cycle that does not, does not. Twelve of 248 cycles wrote at a moment
+that pushed them over.
+
+### Architecture decision gate: case B
+
+Occasional bounded overrun, fully recovered, with critical response still acceptable. **Retain
+the simple architecture.**
+
+The evidence for that rather than case C is `Missed deadline periods = 0` across 248 cycles. The
+schedule uses absolute deadlines, so a late cycle is followed by catch-up cycles that close the
+gap rather than by accumulating drift — 18 catch-up cycles for 12 slow ones, and start-to-start
+back at 498.3 ms. Maximum lateness 285.8 ms.
+
+Worst case for noticing a newly critical temperature: a sample can go critical just after an
+acquisition begins, so the wait is that cycle (up to 628 ms) plus the next acquisition (about
+378 ms) before a decision, plus about 250 ms to command it — roughly 1.25 s. Firmware slowdown
+and shutdown are unaffected throughout and are not part of this budget.
+
+Choosing case C on these numbers would mean introducing threading into the hardware path — sole
+HID ownership, sample ordering, actuator serialisation, emergency preemption — to remove an
+overrun that never misses a deadline. That trade is not justified by this data.
+
+### Watchdog coalescing does nothing on this workload
+
+`Watchdog coalesced = 0` across 248 cycles. The optimisation is correct and its tests pass; it
+simply never fires here. It requires a fan write's post-write `0x0D82` pair to land within one
+control period of a due watchdog, and with the watchdog interval at five seconds and writes
+occurring on a small minority of cycles, that coincidence did not occur once.
+
+Recorded rather than removed. It costs nothing when it does not fire, and a busier curve with
+frequent target changes is exactly where it would. But it should not be described as a
+contributor to the timing above, because on this evidence it contributed nothing.
+
+### Stop and restoration
+
+| Check | Result |
+|---|---|
+| Stop reported | "firmware Auto handoff performed" |
+| Firmware fan mode, read directly | **Auto** |
+| Performance state | Balanced, CPU Medium, GPU Low — as found |
+| Runtime state | Stopped |
+| Post-stop watchdog | labelled "historical; not current firmware state" |
+| Post-stop watchdog value | **Balanced + Auto**, not a stale Manual |
+
+The last row is the one that used to be wrong. The observation reflects the state after the
+handoff because the recovery's own readback is adopted, so a stopped session no longer reports
+the Manual mode it was holding a moment earlier.
+
+### Service lifecycle
+
+`Stop-Service`, `Start-Service` and `Restart-Service` all succeed from an unelevated shell. The
+System log carries only Information-level SCM entries. No `.NET Runtime`, `Application Error` or
+Windows Error Reporting events referencing BladeControl in the window covering the whole session,
+the stop, the restarts and the reinstall.
