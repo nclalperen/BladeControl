@@ -280,6 +280,32 @@ public sealed class ReleaseEngineeringTests
     }
 
     /// <summary>
+    /// Diagnostics report the runtime's own build, not one inferred from this executable.
+    /// </summary>
+    /// <remarks>
+    /// The two can differ, and the case where they differ is the one worth catching: an upgrade
+    /// that replaced the GUI while the previous service was still running. Deriving the value
+    /// from the UI assembly would describe the wrong process precisely then. This asserted
+    /// "Runtime Core V1 does not expose a version over IPC", which stopped being true when
+    /// RuntimeStatusDto gained RuntimeBuild.
+    /// </remarks>
+    [TestMethod]
+    public void DiagnosticsShowTheRuntimeReportedBuildIdentifier()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "BladeControl.UI",
+            "ViewModels",
+            "DiagnosticsViewModel.cs"));
+
+        StringAssert.Contains(source, "status?.RuntimeBuild");
+        Assert.IsFalse(
+            source.Contains("does not expose a version over IPC", StringComparison.Ordinal),
+            "The runtime reports its build; the interface must stop saying it cannot.");
+    }
+
+    /// <summary>
     /// Both shipping packages carry the licence the binaries are conveyed under.
     /// </summary>
     /// <remarks>

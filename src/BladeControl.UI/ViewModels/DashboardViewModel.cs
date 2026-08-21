@@ -100,11 +100,25 @@ public sealed class DashboardViewModel : PageViewModel
     public string RuntimeStateDescription =>
         Display.RuntimeStateDescription(Connection.RuntimeStateName);
 
-    public string SchedulerHealth => Display.Text(Status?.SchedulerHealth);
+    /// <summary>True when the runtime has served no thermal session since it started.</summary>
+    /// <remarks>
+    /// Distinct from stopped. A stopped runtime that ran a session has a last session to report;
+    /// one that has never run a session does not, and labelling its zeroes "LAST SESSION
+    /// SCHEDULER ... Healthy" describes a session that never happened. The completed-cycle count
+    /// is the marker: a session that ran produced cycles.
+    /// </remarks>
+    public bool HasNoSessionHistory => Status?.Scheduler is null ||
+        Status.Scheduler.CompletedCycles == 0;
 
-    public string SchedulerLabel => IsStopped ? "LAST SESSION SCHEDULER" : "SCHEDULER";
+    public string SchedulerHealth => HasNoSessionHistory
+        ? "No thermal session since the runtime started"
+        : Display.Text(Status?.SchedulerHealth);
 
-    public StatusTone SchedulerHealthTone => IsStopped
+    public string SchedulerLabel => HasNoSessionHistory
+        ? "SCHEDULER"
+        : IsStopped ? "LAST SESSION SCHEDULER" : "SCHEDULER";
+
+    public StatusTone SchedulerHealthTone => HasNoSessionHistory || IsStopped
         ? StatusTone.Muted
         : Display.SchedulerTone(Status?.SchedulerHealth);
 
@@ -305,6 +319,7 @@ public sealed class DashboardViewModel : PageViewModel
             nameof(ConnectionText), nameof(ConnectionTone),
             nameof(RuntimeState), nameof(RuntimeStateTone), nameof(RuntimeStateDescription),
             nameof(SchedulerHealth), nameof(SchedulerLabel), nameof(SchedulerHealthTone),
+            nameof(HasNoSessionHistory),
             nameof(TelemetryHealth), nameof(TelemetryLabel),
             nameof(TelemetryHealthDetail), nameof(TelemetryHealthTone),
             nameof(ThermalSession), nameof(ThermalSessionTone), nameof(SessionId),

@@ -124,11 +124,13 @@ Until such a path exists, Offline plus Reconnect is the complete and safe GUI be
 
 ## 4. Expose runtime version and build identity
 
-> **Status: satisfied.** `RuntimeStatusDto` carries `RuntimeBuild`, stamped from
-> `SourceRevisionId` at build time and originating in the server process. Confirmed live: the
-> installed service reported `Build 0.1.0+5b9457779b75`. The process-instance/event-epoch field
-> described below was not added; event-stream restarts are still detected by the cursor moving
-> behind the server's retained sequence.
+> **Status: satisfied, and now surfaced.** `RuntimeStatusDto` carries `RuntimeBuild`, stamped
+> from `SourceRevisionId` at build time and originating in the server process. Confirmed live:
+> the installed service reported `Build 0.1.0+5b9457779b75`. Diagnostics displays it as "Runtime
+> version"; it previously said the runtime could not report one, which stayed on screen for
+> several commits after it stopped being true. The process-instance/event-epoch field described
+> below was not added; event-stream restarts are still detected by the cursor moving behind the
+> server's retained sequence.
 
 ### Current V1 constraint
 

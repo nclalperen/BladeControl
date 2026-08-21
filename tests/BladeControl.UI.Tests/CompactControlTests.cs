@@ -283,7 +283,12 @@ public sealed class CompactControlTests
             fake.Status = RuntimeUiSampleData.Status(
                 state: "Stopped",
                 telemetry: RuntimeUiSampleData.Telemetry(timestamp: old),
-                scheduler: RuntimeUiSampleData.Scheduler(slowCycleCount: 9),
+                // A session that actually ran: nine slow cycles out of twelve hundred. The
+                // fixture previously left completedCycles at zero, which describes a session
+                // that produced slow cycles without producing any cycles.
+                scheduler: RuntimeUiSampleData.Scheduler(
+                    completedCycles: 1200,
+                    slowCycleCount: 9),
                 schedulerHealth: "Degraded · overruns",
                 watchdog: RuntimeUiSampleData.Watchdog());
         }, now: () => DateTimeOffset.UtcNow);
@@ -308,6 +313,39 @@ public sealed class CompactControlTests
         client = new FakeRuntimeUiClient();
         connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
         return new ShellViewModel(connection, new UiSettings(), true);
+    }
+
+    /// <summary>
+    /// A runtime that has served no session says so, rather than reporting a healthy one.
+    /// </summary>
+    /// <remarks>
+    /// Stopped and never-run are different. A stopped runtime that ran a session has a last
+    /// session to report; one that has never run a session does not, and labelling its zeroes
+    /// "LAST SESSION SCHEDULER ... Healthy" describes a session that never happened. This is the
+    /// same defect as rendering an unreported metric as zero, one level up.
+    /// </remarks>
+    [TestMethod]
+    public async Task ARuntimeWithNoSessionDoesNotReportAHealthyLastSession()
+    {
+        (ShellViewModel shell, _) = await CreateOnlineShellAsync(configure: fake =>
+        {
+            fake.Status = RuntimeUiSampleData.Status(
+                state: "Stopped",
+                scheduler: RuntimeUiSampleData.Scheduler(completedCycles: 0),
+                schedulerHealth: "Healthy");
+        });
+        using var compact = new CompactControlViewModel(shell);
+        try
+        {
+            Assert.IsTrue(shell.Dashboard.HasNoSessionHistory);
+            Assert.AreEqual("SCHEDULER", shell.Dashboard.SchedulerLabel);
+            StringAssert.Contains(shell.Dashboard.SchedulerHealth, "No thermal session");
+            Assert.AreNotEqual("Healthy", shell.Dashboard.SchedulerHealth);
+        }
+        finally
+        {
+            shell.Dispose();
+        }
     }
 
     // --- The FAN tile is the part most able to lie ----------------------------------------

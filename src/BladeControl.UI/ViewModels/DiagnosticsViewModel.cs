@@ -468,12 +468,17 @@ public sealed class DiagnosticsViewModel : PageViewModel
             new DiagnosticItem(
                 "Active profile",
                 Display.Text(status?.CurrentProfile)),
+            // Reported by the server process itself, not inferred from this executable. The
+            // two can differ - an upgrade that replaced the GUI while the old service was
+            // still running is exactly the case worth catching - so deriving it here would
+            // describe the wrong process precisely when it matters.
             new DiagnosticItem(
                 "Runtime version",
-                Display.Unavailable,
-                "Runtime Core V1 does not expose a version over IPC. " +
-                "See docs/gui-backend-needs.md (item 4).",
-                StatusTone.Muted),
+                Display.Text(status?.RuntimeBuild),
+                status?.RuntimeBuild is { Length: > 0 }
+                    ? "Reported by the runtime host over IPC."
+                    : "This runtime is older than the build identifier and reports none.",
+                status?.RuntimeBuild is { Length: > 0 } ? StatusTone.Neutral : StatusTone.Muted),
             new DiagnosticItem(
                 "Protocol version",
                 RuntimeIpcDispatcher.ProtocolVersion.ToString(CultureInfo.CurrentCulture)),
