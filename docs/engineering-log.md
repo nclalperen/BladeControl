@@ -1073,3 +1073,34 @@ nothing will — resuming automatically after a thermal emergency is how a loop 
 The window builds, loads its resources and constructs in the WPF smoke test, and five new tests
 pin the fan tile's honesty, the single control, the disabled levels and the handoff panel. Screen
 access was declined, so the rendered layout has not been looked at. Recorded rather than assumed.
+
+## RC provenance
+
+Packaged from a known clean commit, which is the point of recording this at all.
+
+| | |
+|---|---|
+| Commit | `2d18337e91a5ca6cde025fa877776e65f0a3778d` |
+| Branch | `release/v0.1.0` |
+| Working tree | clean |
+| Tests | 781 passed, 0 failed |
+| Build | Release, 0 warnings, 0 errors |
+| `dotnet format` | clean |
+
+| Artifact | SHA-256 |
+|---|---|
+| `BladeControl-0.1.0-win-x64.msi` | `35b3e431663360d868fc0bf72bc4ed520877a3323c68881e74af59d4b9bbf1a2` |
+| `BladeControl-0.1.0-win-x64-portable.zip` | `29a9bf312bf5d3c35dff152e1b0a83d9b2e8d48cf9044884e1aeaec958c09e6a` |
+| `BladeControl-0.1.0-win-x64-symbols.zip` | `c4513352e87087d167946f30db4edb250f958aeb1e92bdc51bc55cbd06f30c99` |
+
+**This RC has not been deployed.** Elevation was withdrawn partway through the session, and
+installing an MSI or controlling the service both need it. The last build actually running on the
+reference machine is `6e0efe5`, which predates the multi-mode mid-session guard, the compact
+window rework and the diagnostics corrections. Anything in those three changes is verified by
+tests and by inspection, not on hardware.
+
+Deploying it needs a plain `msiexec /i` from an elevated shell. Not `REINSTALL=`: that diverts a
+major upgrade into the repair path, which skips same-version files and returns exit code 0 while
+changing nothing on disk. That cost three false "successful" live tests earlier in this session,
+and the check that settled it was reading the deployed assembly for a symbol only the new code
+contains.
