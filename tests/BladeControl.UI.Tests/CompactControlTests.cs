@@ -106,8 +106,10 @@ public sealed class CompactControlTests
         using var compact = new CompactControlViewModel(shell);
         try
         {
+            // Through the path the compact window now uses: the level lists bind their
+            // selection directly, rather than one command per level.
             compact.SelectCustomCommand.Execute(null);
-            compact.SelectCpuMediumCommand.Execute(null);
+            compact.Performance.SelectedCpuLevel = "Medium";
             compact.ApplyCustomCommand.Execute(null);
             await UiTestWait.UntilAsync(() => client.PerformanceRequests.Count == 1 &&
                 !compact.Connection.IsCommandInFlight);
@@ -306,6 +308,153 @@ public sealed class CompactControlTests
         client = new FakeRuntimeUiClient();
         connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
         return new ShellViewModel(connection, new UiSettings(), true);
+    }
+
+    // --- The FAN tile is the part most able to lie ----------------------------------------
+
+    /// <summary>
+    /// Under firmware Auto the fan tile shows no number and names who owns cooling.
+    /// </summary>
+    /// <remarks>
+    /// There is no measured fan speed on this machine — 0x0D81 echoes the commanded target,
+    /// LibreHardwareMonitor reports no fan sensors, NVML reports fan speed unavailable. Under
+    /// Auto there is not even a BladeControl target, so any number here would be a stale one
+    /// from a previous mode dressed as the current state.
+    /// </remarks>
+    [TestMethod]
+    public async Task FirmwareAutoShowsNoFanNumberAndNamesTheOwner()
+    {
+        (ShellViewModel shell, _) = await CreateOnlineShellAsync();
+        using var compact = new CompactControlViewModel(shell);
+        try
+        {
+            compact.SelectAutoCommand.Execute(null);
+
+            Assert.AreEqual(Display.Unavailable, compact.FanValue);
+            Assert.AreEqual("FIRMWARE AUTO", compact.FanHeading);
+            StringAssert.Contains(compact.FanCaption, "firmware owns cooling");
+        }
+        finally
+        {
+            shell.Dispose();
+        }
+    }
+
+    /// <summary>A fixed target is shown as a target, never as a measured speed.</summary>
+    [TestMethod]
+    public async Task FixedModeLabelsTheNumberAsATargetNotASpeed()
+    {
+        (ShellViewModel shell, _) = await CreateOnlineShellAsync();
+        using var compact = new CompactControlViewModel(shell);
+        try
+        {
+            compact.SelectFixedCommand.Execute(null);
+            compact.FanTarget = 3400;
+
+            Assert.AreEqual("FAN", compact.FanHeading);
+            StringAssert.Contains(compact.FanValue, "3");
+            Assert.AreEqual("target", compact.FanCaption);
+            Assert.IsFalse(
+                compact.FanCaption.Contains("RPM", StringComparison.OrdinalIgnoreCase),
+                "No measured-speed claim: nothing here is a tachometer reading.");
+        }
+        finally
+        {
+            shell.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// One fan control drives both zones; the runtime still receives them separately.
+    /// </summary>
+    /// <remarks>
+    /// The compact window used to expose Fan 1 and Fan 2 as independent sliders, which asked
+    /// the user for a decision they have no basis to make and let the zones drift apart for no
+    /// benefit. Zone-aware safety is unchanged underneath.
+    /// </remarks>
+    [TestMethod]
+    public async Task TheSingleFanControlKeepsBothZonesTogether()
+    {
+        (ShellViewModel shell, _) = await CreateOnlineShellAsync();
+        using var compact = new CompactControlViewModel(shell);
+        try
+        {
+            compact.SelectFixedCommand.Execute(null);
+            compact.FanTarget = 4200;
+
+            Assert.AreEqual(4200, compact.Fans.Fan1Target);
+            Assert.AreEqual(4200, compact.Fans.Fan2Target);
+            Assert.IsTrue(compact.Fans.LinkFans);
+        }
+        finally
+        {
+            shell.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// An emergency handoff is presented as finished, not as something in progress.
+    /// </summary>
+    [TestMethod]
+    public async Task EmergencyHandoffReadsAsTerminalAndSaysWhatToDo()
+    {
+        (ShellViewModel shell, _) = await CreateOnlineShellAsync("EmergencyHandoff");
+        using var compact = new CompactControlViewModel(shell);
+        try
+        {
+            Assert.IsTrue(compact.IsEmergencyHandoff);
+            StringAssert.Contains(compact.EmergencyTitle, "Firmware Auto");
+
+            // Nothing resolves on its own, and the interface has to say so rather than
+            // implying that waiting is the remedy.
+            Assert.IsFalse(
+                compact.EmergencyAction.Contains("in progress", StringComparison.OrdinalIgnoreCase));
+            StringAssert.Contains(compact.EmergencyAction, "will not resume");
+
+            // And no stale commanded value presented as the current fan state.
+            Assert.AreEqual(Display.Unavailable, compact.FanValue);
+        }
+        finally
+        {
+            shell.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Levels this build will not send are listed and disabled, not omitted.
+    /// </summary>
+    /// <remarks>
+    /// An absent level looks like hardware that does not have it. A visible, greyed one says the
+    /// protocol models it and this build has not validated it, and carries the reason.
+    /// </remarks>
+    [TestMethod]
+    public async Task UnvalidatedPerformanceLevelsAreVisibleAndDisabled()
+    {
+        (ShellViewModel shell, _) = await CreateOnlineShellAsync();
+        using var compact = new CompactControlViewModel(shell);
+        try
+        {
+            CollectionAssert.AreEquivalent(
+                new[] { "Low", "Medium", "High", "Boost", "Overclock" },
+                compact.CpuLevels.Select(level => level.Value).ToArray());
+            CollectionAssert.AreEquivalent(
+                new[] { "Low", "Medium", "High" },
+                compact.GpuLevels.Select(level => level.Value).ToArray());
+
+            foreach (var blocked in compact.CpuLevels.Where(level => !level.IsAvailable))
+            {
+                Assert.IsFalse(
+                    string.IsNullOrWhiteSpace(blocked.Tooltip),
+                    $"{blocked.Value} is disabled and must say why.");
+            }
+
+            Assert.IsTrue(compact.GpuLevels.Single(level => level.Value == "Low").IsAvailable);
+            Assert.IsFalse(compact.GpuLevels.Single(level => level.Value == "Medium").IsAvailable);
+        }
+        finally
+        {
+            shell.Dispose();
+        }
     }
 
     private static async Task<(ShellViewModel Shell, FakeRuntimeUiClient Client)>

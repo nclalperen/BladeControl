@@ -381,6 +381,61 @@
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
     </Style>
 
+    <!--
+        The compact counterpart of PolicyItemStyle. Same semantics deliberately - enabled from
+        IsAvailable, the reason on the tooltip, the same selected and disabled treatments - at a
+        scale that fits the compact window. A level this build will not send stays visible and
+        greyed rather than being dropped from the list: an absent option looks like hardware that
+        does not have it, a greyed one says it exists and has not been validated here.
+    -->
+    <Style x:Key="CompactPolicyListStyle" TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+    </Style>
+
+    <Style x:Key="CompactPolicyItemStyle" TargetType="ListBoxItem">
+        <Setter Property="Margin" Value="0,0,4,0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="IsEnabled" Value="{Binding IsAvailable}" />
+        <Setter Property="ToolTip" Value="{Binding Tooltip}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="OptionBorder"
+                            Padding="0,5"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            BorderThickness="1"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            Background="{StaticResource SurfaceRaisedBrush}">
+                        <ContentPresenter HorizontalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="OptionBorder" Property="Background" Value="{StaticResource SurfaceHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="OptionBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="OptionBorder" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="OptionBorder" Property="Opacity" Value="0.38" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <DataTemplate x:Key="CompactPolicyOptionTemplate">
+        <TextBlock Text="{Binding Label}" FontSize="11.5" HorizontalAlignment="Center" />
+    </DataTemplate>
+
     <Style x:Key="CompactCaptionTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
         <Setter Property="FontSize" Value="11" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />

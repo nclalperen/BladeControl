@@ -1017,3 +1017,59 @@ condition the new check exists to catch. The fake was wrong; the check was right
 
 That is the second time in this change that a test double forcing Balanced was the thing
 standing between a real defect and a green suite.
+
+## Compact window rework
+
+The compact window is the surface most people will actually use, and it had three problems that
+were all the same problem: it showed things it could not vouch for.
+
+### The fan tile
+
+The header was CPU and GPU. It is now CPU, FAN, GPU, and the fan figure is the one that needed
+care. No physical tachometer has been found on this machine — 0x0D81 echoes the commanded
+target, LibreHardwareMonitor reports no fan sensors, NVML reports fan speed unavailable — so
+there is no measured RPM to show and presenting a commanded value as one would be a claim the
+evidence does not support.
+
+What it shows instead is what BladeControl actually knows, labelled as what it is:
+
+| State | Heading | Value | Caption |
+|---|---|---|---|
+| Firmware Auto | FIRMWARE AUTO | — | firmware owns cooling |
+| Fixed | FAN | the commanded target | target |
+| Dynamic running | FAN | the effective target | dynamic target |
+| Emergency handoff | FIRMWARE AUTO | — | firmware owns cooling |
+
+Under Auto there is no BladeControl target at all, so the tile shows nothing rather than the
+last number from a previous mode dressed as the current state.
+
+### Two fan sliders became one
+
+The window exposed Fan 1 and Fan 2 as independent sliders. The machine has two fans and the
+protocol addresses them separately — which the runtime still does, and still verifies per zone —
+but asking the user to set them independently offered a decision they have no basis for making
+and an easy way to desynchronise the zones for no benefit. One control now drives both.
+
+### Levels that will not be sent are shown, disabled
+
+Custom performance offered CPU Low and Medium as hardcoded buttons and GPU as the static text
+"GPU Low". The protocol models five CPU levels and three GPU levels; the rest were simply
+absent, which reads as hardware that does not have them.
+
+Both rows now list every modelled level, with the unvalidated ones visible and greyed and their
+reason on the tooltip. The full Performance page already had exactly this — `PolicyOptionViewModel`
+with availability and a reason — so the compact window binds the same lists through a compact
+variant of the same list style, rather than growing a second visual language for the same idea.
+
+### Emergency handoff
+
+A dedicated panel, above the controls it invalidates, saying that firmware owns cooling, that
+the service is still running, and that Dynamic will not resume by itself. It is a latched
+terminal state, and describing it as in progress reads as "wait and it will resolve" when
+nothing will — resuming automatically after a thermal emergency is how a loop starts.
+
+### Not visually confirmed
+
+The window builds, loads its resources and constructs in the WPF smoke test, and five new tests
+pin the fan tile's honesty, the single control, the disabled levels and the handoff panel. Screen
+access was declined, so the rendered layout has not been looked at. Recorded rather than assumed.

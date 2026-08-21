@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using BladeControl.UI.Services;
 
 namespace BladeControl.UI.ViewModels;
@@ -23,12 +24,6 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             () => Connection.CanApplyStaticProfile);
         SelectCustomCommand = new RelayCommand(
             () => Performance.TrySelectMode("Custom"),
-            () => Connection.CanApplyStaticProfile);
-        SelectCpuLowCommand = new RelayCommand(
-            () => Performance.TrySelectCpuLevel("Low"),
-            () => Connection.CanApplyStaticProfile);
-        SelectCpuMediumCommand = new RelayCommand(
-            () => Performance.TrySelectCpuLevel("Medium"),
             () => Connection.CanApplyStaticProfile);
         ApplyCustomCommand = Performance.ApplyCommand;
 
@@ -63,10 +58,6 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
     public RelayCommand SelectSilentCommand { get; }
 
     public RelayCommand SelectCustomCommand { get; }
-
-    public RelayCommand SelectCpuLowCommand { get; }
-
-    public RelayCommand SelectCpuMediumCommand { get; }
 
     public AsyncRelayCommand ApplyCustomCommand { get; }
 
@@ -173,15 +164,139 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             ? StatusTone.Muted
             : Connection.IsTelemetryStale ? StatusTone.Warning : StatusTone.Muted;
 
+    // --- The FAN tile -------------------------------------------------------------------
+    //
+    // The compact window shows CPU, FAN and GPU side by side, and the fan figure is the one
+    // that has to be handled carefully. No physical tachometer signal has been found on this
+    // machine: 0x0D81 returns the firmware's commanded target echoed back, LibreHardwareMonitor
+    // reports no fan sensors, and NVML reports fan speed as unavailable. So there is no measured
+    // RPM to show, and presenting a commanded value as though it were one would be a claim the
+    // evidence does not support.
+    //
+    // What is shown instead is what BladeControl actually knows: the target it asked for, said
+    // plainly to be a target. Under firmware Auto there is no BladeControl target at all, and
+    // the last one is meaningless, so the tile shows nothing rather than a stale number.
+
+    /// <summary>The number under FAN, or an em dash when there is nothing truthful to show.</summary>
+    public string FanValue
+    {
+        get
+        {
+            if (IsEmergencyHandoff || Fans.Mode == CoolingMode.FirmwareAuto)
+            {
+                return Display.Unavailable;
+            }
+
+            if (Fans.Mode == CoolingMode.Fixed && !IsDynamicRunning)
+            {
+                return Fans.Fan1Target.ToString("N0", CultureInfo.CurrentCulture);
+            }
+
+            return IsDynamicRunning
+                ? Display.Rpm(Connection.Status?.CurrentEffectiveFanTargetRpm)
+                : Display.Unavailable;
+        }
+    }
+
+    /// <summary>What the number above it is, in the user's words rather than the protocol's.</summary>
+    public string FanCaption
+    {
+        get
+        {
+            if (IsEmergencyHandoff)
+            {
+                return "firmware owns cooling";
+            }
+
+            if (Fans.Mode == CoolingMode.FirmwareAuto)
+            {
+                return "firmware owns cooling";
+            }
+
+            if (!Connection.IsOnline)
+            {
+                return "runtime offline";
+            }
+
+            return IsDynamicRunning ? "dynamic target" : "target";
+        }
+    }
+
+    /// <summary>Reads "Firmware Auto" where a measured speed would otherwise sit.</summary>
+    public string FanHeading =>
+        IsEmergencyHandoff || Fans.Mode == CoolingMode.FirmwareAuto ? "FIRMWARE AUTO" : "FAN";
+
+    public StatusTone FanTone => IsEmergencyHandoff
+        ? StatusTone.Warning
+        : Fans.Mode == CoolingMode.FirmwareAuto ? StatusTone.Muted : StatusTone.Good;
+
+    /// <summary>
+    /// One fan control for the user; both zones still travel over IPC explicitly.
+    /// </summary>
+    /// <remarks>
+    /// This machine has two fans and the protocol addresses them separately, which the runtime
+    /// keeps doing. Exposing that as two sliders asked the user to make a decision they have no
+    /// basis for, and invited them to desynchronise the zones for no benefit. The compact window
+    /// offers one number and keeps the zones together.
+    /// </remarks>
+    public int FanTarget
+    {
+        get => Fans.Fan1Target;
+        set
+        {
+            Fans.LinkFans = true;
+            Fans.Fan1Target = value;
+            Raise(nameof(FanTarget));
+            Raise(nameof(FanValue));
+        }
+    }
+
+    public int MinimumFanRpm => Fans.MinimumFanRpm;
+
+    public int MaximumFanRpm => Fans.MaximumFanRpm;
+
+    public int FanRpmIncrement => Fans.FanRpmIncrement;
+
+    // --- Emergency handoff --------------------------------------------------------------
+    //
+    // A latched terminal state for the session, not a transient one. The interface used to
+    // describe it as in progress, which reads as "wait and it will resolve"; nothing resolves,
+    // because resuming automatically after a thermal emergency is how a loop starts.
+
+    public bool IsEmergencyHandoff =>
+        string.Equals(Connection.RuntimeStateName, "EmergencyHandoff", StringComparison.Ordinal);
+
+    public string EmergencyTitle => "Firmware Auto owns cooling";
+
+    public string EmergencyDetail =>
+        Connection.Status?.EmergencyStatus is { Length: > 0 } status
+            ? status
+            : "A thermal emergency ended the session. BladeControl no longer controls the fans.";
+
+    /// <summary>Says what the person has to do, because nothing will happen on its own.</summary>
+    public string EmergencyAction =>
+        "The service is still running. Dynamic will not resume by itself — start it again " +
+        "deliberately once the machine has cooled.";
+
+    // --- Performance levels -------------------------------------------------------------
+
+    /// <summary>
+    /// The modelled CPU levels, including the ones this build will not send.
+    /// </summary>
+    /// <remarks>
+    /// Shown disabled rather than omitted. A level that is simply absent looks like the hardware
+    /// does not have it; a level that is present and greyed out says the protocol models it and
+    /// this build has not validated it, which is what is actually true.
+    /// </remarks>
+    public IReadOnlyList<PolicyOptionViewModel> CpuLevels => Performance.CpuLevels;
+
+    public IReadOnlyList<PolicyOptionViewModel> GpuLevels => Performance.GpuLevels;
+
     public bool IsBalancedSelected => Performance.SelectedMode == "Balanced";
 
     public bool IsSilentSelected => Performance.SelectedMode == "Silent";
 
     public bool IsCustomSelected => Performance.IsCustomSelected;
-
-    public bool IsCpuLowSelected => Performance.SelectedCpuLevel == "Low";
-
-    public bool IsCpuMediumSelected => Performance.SelectedCpuLevel == "Medium";
 
     public bool IsAutoSelected => Fans.Mode == CoolingMode.FirmwareAuto;
 
@@ -276,7 +391,6 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             nameof(CpuTemperature), nameof(GpuTemperature),
             nameof(TelemetryCaption), nameof(TelemetryTone),
             nameof(IsBalancedSelected), nameof(IsSilentSelected), nameof(IsCustomSelected),
-            nameof(IsCpuLowSelected), nameof(IsCpuMediumSelected),
             nameof(IsAutoSelected), nameof(IsFixedSelected), nameof(IsDynamicSelected),
             nameof(IsDynamicRunning), nameof(IsDynamicStopped),
             nameof(DynamicState), nameof(DynamicTarget),
@@ -284,12 +398,13 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             nameof(OperationMessage), nameof(OperationIsError), nameof(OperationTone),
             nameof(HasOperationMessage),
             nameof(FooterText), nameof(FooterTone),
-            nameof(StartWithWindows));
+            nameof(StartWithWindows),
+            nameof(FanValue), nameof(FanCaption), nameof(FanHeading), nameof(FanTone),
+            nameof(FanTarget),
+            nameof(IsEmergencyHandoff), nameof(EmergencyDetail));
         SelectBalancedCommand.RaiseCanExecuteChanged();
         SelectSilentCommand.RaiseCanExecuteChanged();
         SelectCustomCommand.RaiseCanExecuteChanged();
-        SelectCpuLowCommand.RaiseCanExecuteChanged();
-        SelectCpuMediumCommand.RaiseCanExecuteChanged();
         SelectAutoCommand.RaiseCanExecuteChanged();
         SelectFixedCommand.RaiseCanExecuteChanged();
         SelectDynamicCommand.RaiseCanExecuteChanged();

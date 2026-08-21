@@ -1,4 +1,4 @@
-<Window x:Class="BladeControl.UI.CompactControlWindow"
+﻿<Window x:Class="BladeControl.UI.CompactControlWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="BladeControl"
@@ -55,8 +55,15 @@
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled" MaxHeight="490">
                 <StackPanel Margin="14,0,14,10">
-                    <Grid Margin="4,0,4,10">
+                    <!--
+                        CPU, FAN, GPU. The fan figure is deliberately not called RPM: no physical
+                        tachometer has been found on this machine, so what is shown is the target
+                        BladeControl asked for, labelled as a target. Under firmware Auto there is
+                        no BladeControl target at all and the heading says so.
+                    -->
+                    <Grid Margin="4,0,4,8">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
@@ -64,7 +71,16 @@
                             <TextBlock Text="CPU" Style="{StaticResource EyebrowTextStyle}" />
                             <TextBlock Text="{Binding CpuTemperature}" Style="{StaticResource CompactMetricTextStyle}" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                            <TextBlock Text="{Binding FanHeading}" Style="{StaticResource EyebrowTextStyle}"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding FanValue}" Style="{StaticResource CompactMetricTextStyle}"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{Binding FanTone, Converter={StaticResource StatusToneBrushConverter}}" />
+                            <TextBlock Text="{Binding FanCaption}" Style="{StaticResource CompactCaptionTextStyle}"
+                                       HorizontalAlignment="Center" TextAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
                             <TextBlock Text="GPU" Style="{StaticResource EyebrowTextStyle}" HorizontalAlignment="Right" />
                             <TextBlock Text="{Binding GpuTemperature}" Style="{StaticResource CompactMetricTextStyle}" />
                         </StackPanel>
@@ -72,6 +88,26 @@
                     <TextBlock Text="{Binding TelemetryCaption}" Margin="4,-6,4,10"
                                Style="{StaticResource CompactCaptionTextStyle}"
                                Foreground="{Binding TelemetryTone, Converter={StaticResource StatusToneBrushConverter}}" />
+
+                    <!--
+                        A latched terminal state, placed above the controls it invalidates. It is
+                        not "in progress": nothing resolves on its own, because resuming Dynamic
+                        automatically after a thermal emergency is how a loop starts.
+                    -->
+                    <Border Margin="{StaticResource CompactCardGapMargin}" Padding="12,10"
+                            CornerRadius="{StaticResource CardCornerRadius}"
+                            Background="{StaticResource WarningBackgroundBrush}"
+                            BorderBrush="{StaticResource WarningBrush}" BorderThickness="1"
+                            Visibility="{Binding IsEmergencyHandoff, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding EmergencyTitle}" FontWeight="SemiBold"
+                                       Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding EmergencyDetail}" Margin="0,4,0,0"
+                                       Style="{StaticResource CompactCaptionTextStyle}" />
+                            <TextBlock Text="{Binding EmergencyAction}" Margin="0,6,0,0"
+                                       Style="{StaticResource CompactCaptionTextStyle}" />
+                        </StackPanel>
+                    </Border>
 
                     <Border Style="{StaticResource CompactCardStyle}" Margin="{StaticResource CompactCardGapMargin}">
                         <StackPanel>
@@ -90,26 +126,58 @@
                                              IsChecked="{Binding IsCustomSelected, Mode=OneWay}"
                                              Command="{Binding SelectCustomCommand}" />
                             </UniformGrid>
-                            <Grid Margin="0,10,0,0"
-                                  Visibility="{Binding IsCustomSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="CPU" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                    <RadioButton Content="Low" GroupName="CpuLevel" Style="{StaticResource SegmentToggleStyle}"
-                                                 IsChecked="{Binding IsCpuLowSelected, Mode=OneWay}"
-                                                 Command="{Binding SelectCpuLowCommand}" />
-                                    <RadioButton Content="Medium" GroupName="CpuLevel" Style="{StaticResource SegmentToggleStyle}"
-                                                 IsChecked="{Binding IsCpuMediumSelected, Mode=OneWay}"
-                                                 Command="{Binding SelectCpuMediumCommand}" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="GPU  Low" Margin="12,0" VerticalAlignment="Center" />
-                                <Button Grid.Column="2" Content="Apply" Command="{Binding ApplyCustomCommand}"
+                            <!--
+                                CPU and GPU as separate rows, listing every level the protocol
+                                models. The ones this build will not send are shown disabled
+                                rather than omitted: an absent level looks like hardware that
+                                does not have it, while a greyed one says the protocol models it
+                                and it has not been validated here — which is what is true. Their
+                                tooltip carries the reason.
+                            -->
+                            <StackPanel Margin="0,10,0,0"
+                                        Visibility="{Binding IsCustomSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid Margin="0,0,0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="CPU" VerticalAlignment="Center"
+                                               Style="{StaticResource CompactCaptionTextStyle}" />
+                                    <ListBox Grid.Column="1"
+                                             ItemsSource="{Binding CpuLevels}"
+                                             SelectedValuePath="Value"
+                                             SelectedValue="{Binding Performance.SelectedCpuLevel, Mode=TwoWay}"
+                                             ItemTemplate="{StaticResource CompactPolicyOptionTemplate}"
+                                             ItemContainerStyle="{StaticResource CompactPolicyItemStyle}"
+                                             Style="{StaticResource CompactPolicyListStyle}">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                    </ListBox>
+                                </Grid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="GPU" VerticalAlignment="Center"
+                                               Style="{StaticResource CompactCaptionTextStyle}" />
+                                    <ListBox Grid.Column="1"
+                                             ItemsSource="{Binding GpuLevels}"
+                                             SelectedValuePath="Value"
+                                             SelectedValue="{Binding Performance.SelectedGpuLevel, Mode=TwoWay}"
+                                             ItemTemplate="{StaticResource CompactPolicyOptionTemplate}"
+                                             ItemContainerStyle="{StaticResource CompactPolicyItemStyle}"
+                                             Style="{StaticResource CompactPolicyListStyle}">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                    </ListBox>
+                                </Grid>
+                                <Button Content="Apply" HorizontalAlignment="Right" Margin="0,8,0,0"
+                                        Command="{Binding ApplyCustomCommand}"
                                         Style="{StaticResource CompactPrimaryButtonStyle}" />
-                            </Grid>
+                            </StackPanel>
                             <TextBlock Text="{Binding Performance.ApplyBlockedReason}" Margin="0,7,0,0"
                                        Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                         </StackPanel>
@@ -133,23 +201,32 @@
                                              Command="{Binding SelectDynamicCommand}" />
                             </UniformGrid>
 
+                            <TextBlock Text="Firmware owns cooling. BladeControl is not commanding the fans."
+                                       Margin="{StaticResource CompactSectionGapMargin}"
+                                       Style="{StaticResource CompactCaptionTextStyle}"
+                                       Visibility="{Binding IsAutoSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
                             <StackPanel Margin="{StaticResource CompactSectionGapMargin}"
                                         Visibility="{Binding IsFixedSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <!--
+                                    One fan control. The machine has two fans and the protocol
+                                    addresses them separately, which the runtime keeps doing and
+                                    still verifies per zone. Asking the user to set them
+                                    independently offered a decision with no basis for making it
+                                    and an easy way to desynchronise the zones for no benefit.
+                                -->
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                    <TextBlock Text="Fan 1" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Fans.Fan1Target, StringFormat={}{0:N0} RPM}" FontWeight="SemiBold" />
+                                    <TextBlock Text="Fan target" />
+                                    <TextBlock Grid.Column="1" Text="{Binding FanTarget, StringFormat={}{0:N0}}"
+                                               FontWeight="SemiBold" />
                                 </Grid>
-                                <Slider Minimum="2000" Maximum="5000" TickFrequency="100" IsSnapToTickEnabled="True"
-                                        Value="{Binding Fans.Fan1Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                    <TextBlock Text="Fan 2" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Fans.Fan2Target, StringFormat={}{0:N0} RPM}" FontWeight="SemiBold" />
-                                </Grid>
-                                <Slider Minimum="2000" Maximum="5000" TickFrequency="100" IsSnapToTickEnabled="True"
-                                        Value="{Binding Fans.Fan2Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <Button Content="Apply Fixed" HorizontalAlignment="Right"
+                                <Slider Minimum="{Binding MinimumFanRpm}" Maximum="{Binding MaximumFanRpm}"
+                                        TickFrequency="{Binding FanRpmIncrement}" IsSnapToTickEnabled="True"
+                                        Value="{Binding FanTarget, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Text="Both fans receive this target. It is a command, not a measured speed."
+                                           Style="{StaticResource CompactCaptionTextStyle}" Margin="0,2,0,0" />
+                                <Button Content="Apply Fixed" HorizontalAlignment="Right" Margin="0,6,0,0"
                                         Command="{Binding ApplyFixedCommand}"
                                         Style="{StaticResource CompactPrimaryButtonStyle}" />
                             </StackPanel>
