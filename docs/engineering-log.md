@@ -1229,3 +1229,48 @@ the Manual mode it was holding a moment earlier.
 System log carries only Information-level SCM entries. No `.NET Runtime`, `Application Error` or
 Windows Error Reporting events referencing BladeControl in the window covering the whole session,
 the stop, the restarts and the reinstall.
+
+## Installer lifecycle, and where PawnIO actually lives
+
+Uninstall by ProductCode then install, both exit 0, verified after:
+
+| Check | Result |
+|---|---|
+| Install directory after uninstall | removed |
+| Service after install | `AUTO_START`, LocalSystem, correct binary path |
+| Failure actions | RESTART ×2, 20 s delay, 86400 s reset |
+| `LICENSE.txt` in payload | present, 35,149 bytes |
+| `THIRD-PARTY-NOTICES.md` | present |
+| PawnIO files bundled | **zero** |
+| User settings | preserved — `ui-settings.json` still carries its pre-uninstall timestamp |
+| Orphan IPC hosts | none; one process, the running service |
+
+Settings surviving is visible in the modification time rather than merely in the file existing:
+it predates the uninstall, so the file was left alone rather than recreated.
+
+### A check of mine that was looking in the wrong place
+
+I tested for PawnIO at `C:\Windows\System32\drivers\PawnIO.sys` and found nothing, while
+telemetry was reporting healthy and CPU package temperature was being read — which should have
+been the tell, and was.
+
+PawnIO is INF-installed, so it lives in the driver store:
+`C:\WINDOWS\System32\DriverStore\FileRepository\pawnio.inf_amd64_a72a2f969b8b7496\PawnIO.sys`,
+with its kernel service RUNNING. The doctor already reports this path under `PawnIoProvenance`
+and had done all along. Present, external, not bundled, exactly as intended.
+
+That is the third check in this session where my own verification method was the thing that was
+wrong. The pattern is consistent enough to name: when a probe contradicts a system that is
+visibly working, suspect the probe first.
+
+## Reboot acceptance — not performed
+
+Deliberately not done. Rebooting the reference machine is disruptive to whoever is using it and
+ends the session driving the validation, so it is recorded as a human-required acceptance item
+rather than claimed.
+
+What is already known without a reboot: the service is `AUTO_START` under LocalSystem with
+restart-on-failure configured and validated, a hard-killed process is recovered by the SCM in
+about 25 s and returns the firmware to Auto, and the runtime refuses a second host through the
+ownership gate. What a reboot would add is confirmation that these hold from a cold start, that
+the UI reconnects, and that Dynamic does not resume on its own.
