@@ -1104,3 +1104,26 @@ major upgrade into the repair path, which skips same-version files and returns e
 changing nothing on disk. That cost three false "successful" live tests earlier in this session,
 and the check that settled it was reading the deployed assembly for a symbol only the new code
 contains.
+
+## Steady-state footprint
+
+Measured over a twenty-second window on the reference machine, 32 logical processors, with the
+runtime in `Stopped` — that is, the service holding hardware ownership and serving IPC but with
+no thermal session running, which is how it will sit most of the time.
+
+| Process | Idle CPU | Working set | Private | Threads |
+|---|---|---|---|---|
+| `BladeControl.Service` | **0%** | 75.8 MB | 53.2 MB | 12 |
+| `BladeControl.UI` | **0.081%** | 160.9 MB | 89.9 MB | 26 |
+
+Nothing here is alarming for a Synapse replacement. The service does not poll while stopped,
+which is the property that matters: an idle machine pays nothing for having BladeControl
+installed. The UI's 0.081% is a WPF window with a live chart and a poll loop, and it is optional
+— closing it costs the machine nothing, because the service owns the hardware independently.
+
+The service's 76 MB working set is a self-contained .NET publish and is mostly the runtime
+itself. It is worth noting rather than chasing: trimming would trade a real correctness surface
+for a number nobody is complaining about.
+
+Measured with the service running build `6e0efe5`, not the current RC. Nothing in the RC changes
+polling or allocation behaviour.
