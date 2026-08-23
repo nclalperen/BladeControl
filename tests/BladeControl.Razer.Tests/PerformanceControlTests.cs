@@ -5,6 +5,77 @@ namespace BladeControl.Razer.Tests;
 [TestClass]
 public sealed class PerformanceControlTests
 {
+    /// <summary>
+    /// Changing performance mode leaves the fan mode exactly as it was.
+    /// </summary>
+    /// <remarks>
+    /// <para>Performance and cooling are independent. <c>0x0D02</c> carries both in one write, so
+    /// changing one means restating the other — and this restated it as Auto unconditionally,
+    /// which made every performance change silently hand the fans back to firmware. A user with
+    /// a fixed fan target, or a running Dynamic session, lost it by touching a power setting.</para>
+    /// <para>It was the exact mirror of the bug fan control had in the other direction, where
+    /// taking the fans forced Balanced.</para>
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow((byte)0x00)]
+    [DataRow((byte)0x04)]
+    [DataRow((byte)0x05)]
+    public void ChangingPerformanceModeDoesNotTakeTheFansBack(byte targetMode)
+    {
+        using var transport = CreateTransport(
+            RazerPerformanceMode.Balanced,
+            RazerCpuPerformanceLevel.Medium,
+            RazerGpuPerformanceLevel.Low);
+
+        // The machine is under a manual fan target: BladeControl owns cooling.
+        transport.Zone1FanMode = RazerFanMode.Manual;
+        transport.Zone2FanMode = RazerFanMode.Manual;
+        var client = new RazerClient(transport);
+
+        var mode = new RazerPerformanceMode(targetMode);
+        PerformanceProfile profile = targetMode switch
+        {
+            0x04 => PerformanceProfile.Custom(
+                RazerCpuPerformanceLevel.Medium,
+                RazerGpuPerformanceLevel.Low),
+            0x05 => PerformanceProfile.Silent,
+            _ => PerformanceProfile.Balanced
+        };
+
+        PerformanceApplyResult result = client.ApplyPerformanceProfile(profile);
+
+        Assert.IsTrue(result.Succeeded, result.Verification.Message);
+        Assert.AreEqual(mode, result.FinalState!.Zone1Mode.PerformanceMode);
+        Assert.AreEqual(
+            RazerFanMode.Manual,
+            result.FinalState.Zone1Mode.FanMode,
+            "A power-mode change must not take the fans back to firmware.");
+        Assert.AreEqual(RazerFanMode.Manual, result.FinalState.Zone2Mode.FanMode);
+    }
+
+    /// <summary>Performance control acts while the fans are Manual rather than refusing.</summary>
+    /// <remarks>
+    /// It used to throw "Performance Control V1 supports Auto only", so the only way to change
+    /// power mode during a Dynamic session was to give up cooling first.
+    /// </remarks>
+    [TestMethod]
+    public void PerformanceControlIsUsableWhileBladeControlOwnsTheFans()
+    {
+        using var transport = CreateTransport(
+            RazerPerformanceMode.Balanced,
+            RazerCpuPerformanceLevel.Medium,
+            RazerGpuPerformanceLevel.Low);
+        transport.Zone1FanMode = RazerFanMode.Manual;
+        transport.Zone2FanMode = RazerFanMode.Manual;
+        var client = new RazerClient(transport);
+
+        PerformanceApplyResult result = client.ApplyPerformanceProfile(
+            PerformanceProfile.Silent);
+
+        Assert.IsTrue(result.Succeeded, result.Verification.Message);
+        Assert.AreEqual(RazerPerformanceMode.Silent, result.FinalState!.Zone1Mode.PerformanceMode);
+    }
+
     [TestMethod]
     public void AlreadyAtTargetProducesNoSetAndVerifiedNoOp()
     {

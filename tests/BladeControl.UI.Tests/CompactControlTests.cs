@@ -200,14 +200,14 @@ public sealed class CompactControlTests
         using var compact = new CompactControlViewModel(shell);
         try
         {
-            // Handing the fans back is now a named firmware profile. Applying the performance
-            // mode already writes fan mode Auto, so this is one performance request rather than
-            // a separate fan request.
-            compact.SelectFirmwareBalancedCommand.Execute(null);
-            await UiTestWait.UntilAsync(() => client.PerformanceRequests.Count == 1 &&
+            compact.SelectFirmwareCommand.Execute(null);
+            await UiTestWait.UntilAsync(() => client.FanRequests.Count == 1 &&
                 !compact.Connection.IsCommandInFlight);
-            Assert.AreEqual("Balanced", client.PerformanceRequests[0].Mode);
-            Assert.AreEqual(0, client.FanRequests.Count);
+            Assert.AreEqual(new ApplyFanProfileRequest("Auto", null, null), client.FanRequests[0]);
+
+            // Handing the fans back is a fan operation. It must not carry a performance change
+            // with it: the two are independent, and the user did not ask to change power mode.
+            Assert.AreEqual(0, client.PerformanceRequests.Count);
         }
         finally
         {

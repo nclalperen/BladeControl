@@ -202,9 +202,13 @@ public sealed partial class RazerClient
             gpuExchange);
     }
 
+    /// <summary>The Custom + Auto write-back probe. Auto is the point of it, not an accident.</summary>
     private RazerExchangeTrace WriteBackCustomAutoMode(RazerZone zone)
     {
-        return WritePerformanceMode(zone, RazerPerformanceMode.Custom);
+        return WritePerformanceAndFanMode(
+            zone,
+            RazerPerformanceMode.Custom,
+            RazerFanMode.Auto);
     }
 
     private RazerExchangeTrace WriteBackExpectedPerformanceLevel(

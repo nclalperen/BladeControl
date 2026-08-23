@@ -90,22 +90,33 @@ public sealed class PerformanceApplyOperation
         PerformanceApplyOperationKind kind,
         RazerPerformanceMode? performanceMode = null,
         RazerCpuPerformanceLevel? cpuLevel = null,
-        RazerGpuPerformanceLevel? gpuLevel = null)
+        RazerGpuPerformanceLevel? gpuLevel = null,
+        RazerFanMode? fanMode = null)
     {
         Kind = kind;
         PerformanceMode = performanceMode;
         CpuLevel = cpuLevel;
         GpuLevel = gpuLevel;
+        FanMode = fanMode;
     }
+
+    /// <summary>The fan mode written alongside the performance mode, and left as it was.</summary>
+    /// <remarks>
+    /// <c>0x0D02</c> carries performance mode and fan mode in one write, so changing one means
+    /// restating the other. Performance Control used to restate it as Auto unconditionally,
+    /// which made every performance change silently hand the fans back to firmware — the exact
+    /// mirror of the bug fan control had in the other direction.
+    /// </remarks>
+    public RazerFanMode? FanMode { get; }
 
     public PerformanceApplyOperationKind Kind { get; }
 
     public string Description => Kind switch
     {
         PerformanceApplyOperationKind.SetModeZone1 =>
-            $"SET Zone 1 {PerformanceMode} + Auto",
+            $"SET Zone 1 {PerformanceMode} + {FanMode}",
         PerformanceApplyOperationKind.SetModeZone2 =>
-            $"SET Zone 2 {PerformanceMode} + Auto",
+            $"SET Zone 2 {PerformanceMode} + {FanMode}",
         PerformanceApplyOperationKind.SetCpuLevel => $"SET CPU {CpuLevel}",
         PerformanceApplyOperationKind.SetGpuLevel => $"SET GPU {GpuLevel}",
         _ => Kind.ToString()

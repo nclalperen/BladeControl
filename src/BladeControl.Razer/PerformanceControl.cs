@@ -216,7 +216,7 @@ public sealed partial class RazerClient
         }
 
         PerformanceVerificationResult verification =
-            VerifyPerformanceProfile(finalState, profile);
+            VerifyPerformanceProfile(finalState, profile, currentState.Zone1Mode.FanMode);
         return new ApplyAttempt(
             plan,
             results,
@@ -298,20 +298,27 @@ public sealed partial class RazerClient
         PerformanceProfile profile)
     {
         var operations = new List<PerformanceApplyOperation>(capacity: 4);
+
+        // The fan mode currently in force, carried through unchanged. Performance and cooling
+        // are independent: which power ceiling the machine runs at says nothing about who
+        // drives the fans, and a user who set a fixed fan or started Dynamic did not ask for
+        // that to end because they changed performance mode.
+        RazerFanMode fanMode = currentState.Zone1Mode.FanMode;
+
         bool modeMatches =
             currentState.Zone1Mode.PerformanceMode == profile.PerformanceMode &&
-            currentState.Zone2Mode.PerformanceMode == profile.PerformanceMode &&
-            currentState.Zone1Mode.FanMode == RazerFanMode.Auto &&
-            currentState.Zone2Mode.FanMode == RazerFanMode.Auto;
+            currentState.Zone2Mode.PerformanceMode == profile.PerformanceMode;
 
         if (!modeMatches)
         {
             operations.Add(new PerformanceApplyOperation(
                 PerformanceApplyOperationKind.SetModeZone1,
-                performanceMode: profile.PerformanceMode));
+                performanceMode: profile.PerformanceMode,
+                fanMode: fanMode));
             operations.Add(new PerformanceApplyOperation(
                 PerformanceApplyOperationKind.SetModeZone2,
-                performanceMode: profile.PerformanceMode));
+                performanceMode: profile.PerformanceMode,
+                fanMode: fanMode));
         }
 
         if (profile.IsCustom)
@@ -342,13 +349,15 @@ public sealed partial class RazerClient
         return operation.Kind switch
         {
             PerformanceApplyOperationKind.SetModeZone1 =>
-                WritePerformanceMode(
+                WritePerformanceAndFanMode(
                     RazerZone.Zone1,
-                    operation.PerformanceMode!.Value),
+                    operation.PerformanceMode!.Value,
+                    operation.FanMode!.Value),
             PerformanceApplyOperationKind.SetModeZone2 =>
-                WritePerformanceMode(
+                WritePerformanceAndFanMode(
                     RazerZone.Zone2,
-                    operation.PerformanceMode!.Value),
+                    operation.PerformanceMode!.Value,
+                    operation.FanMode!.Value),
             PerformanceApplyOperationKind.SetCpuLevel =>
                 WriteCpuPerformanceLevel(operation.CpuLevel!.Value),
             PerformanceApplyOperationKind.SetGpuLevel =>
@@ -356,13 +365,6 @@ public sealed partial class RazerClient
             _ => throw new InvalidOperationException(
                 $"Unsupported performance operation {operation.Kind}.")
         };
-    }
-
-    private RazerExchangeTrace WritePerformanceMode(
-        RazerZone zone,
-        RazerPerformanceMode mode)
-    {
-        return WritePerformanceAndFanMode(zone, mode, RazerFanMode.Auto);
     }
 
     private RazerExchangeTrace WritePerformanceAndFanMode(
@@ -440,9 +442,14 @@ public sealed partial class RazerClient
         return exchange;
     }
 
+    /// <param name="expectedFanMode">
+    /// The fan mode that was in force before the write and must still be after it. Verifying
+    /// against Auto would have passed a write that quietly took the fans from the user.
+    /// </param>
     private static PerformanceVerificationResult VerifyPerformanceProfile(
         PerformanceState state,
-        PerformanceProfile profile)
+        PerformanceProfile profile,
+        RazerFanMode expectedFanMode)
     {
         if (!state.ZonesAgree)
         {
@@ -452,12 +459,13 @@ public sealed partial class RazerClient
         }
 
         if (state.Zone1Mode.PerformanceMode != profile.PerformanceMode ||
-            state.Zone1Mode.FanMode != RazerFanMode.Auto)
+            state.Zone1Mode.FanMode != expectedFanMode)
         {
             return new PerformanceVerificationResult(
                 false,
-                $"Verification mismatch: expected {profile.PerformanceMode} + Auto; " +
-                $"received {state.Zone1Mode.PerformanceMode} + {state.Zone1Mode.FanMode}.");
+                $"Verification mismatch: expected {profile.PerformanceMode} + " +
+                $"{expectedFanMode}; received {state.Zone1Mode.PerformanceMode} + " +
+                $"{state.Zone1Mode.FanMode}.");
         }
 
         if (profile.IsCustom &&
@@ -514,12 +522,11 @@ public sealed partial class RazerClient
                 "Current performance or fan mode differs between zones. No SET command was sent.");
         }
 
-        if (state.Zone1Mode.FanMode != RazerFanMode.Auto)
-        {
-            throw new PerformanceStateException(
-                $"Current fan mode is {state.Zone1Mode.FanMode}; Performance Control V1 " +
-                "supports Auto only. No SET command was sent.");
-        }
+        // Fan mode is deliberately not checked. Performance Control refused to act at all
+        // while the fans were Manual, which meant a running Dynamic session or a fixed fan
+        // target made the performance controls unusable — and the only way to change mode was
+        // to give up cooling first. The fan mode in force is preserved through the write
+        // instead.
 
         RazerPerformanceMode mode = state.Zone1Mode.PerformanceMode;
         if (mode != RazerPerformanceMode.Balanced &&
@@ -533,13 +540,9 @@ public sealed partial class RazerClient
 
     private static void ValidateRestorationState(PerformanceState state)
     {
-        if (state.Zone1Mode.FanMode != RazerFanMode.Auto ||
-            state.Zone2Mode.FanMode != RazerFanMode.Auto)
-        {
-            throw new PerformanceStateException(
-                "Restoration requires Auto fan mode in both zones.");
-        }
-
+        // Fan mode is not required to be Auto. Restoration puts back the performance state, and
+        // whoever owns the fans keeps owning them; demanding Auto here meant a machine under a
+        // fixed target or a Dynamic session could not be restored at all.
         RazerPerformanceMode[] modes =
             [state.Zone1Mode.PerformanceMode, state.Zone2Mode.PerformanceMode];
         if (modes.Any(mode =>
@@ -557,17 +560,22 @@ public sealed partial class RazerClient
         out PerformanceProfile? profile)
     {
         profile = null;
-        if (!state.ZonesAgree || state.Zone1Mode.FanMode != RazerFanMode.Auto)
+        if (!state.ZonesAgree)
         {
             return false;
         }
 
+        // Fan mode deliberately does not disqualify a restoration. This returned false whenever
+        // the fans were Manual, which meant a performance apply that failed part-way during a
+        // Dynamic session left the machine in whatever half-applied state it had reached and
+        // attempted no recovery — the one situation where recovery matters most.
+        //
+        // The level check is the one that still applies, and it now matches what this build will
+        // send: anything except Overclock, which cannot be written back and so cannot be
+        // restored to.
         bool cpuPermitted =
-            state.CpuPerformanceLevel == RazerCpuPerformanceLevel.Low ||
-            state.CpuPerformanceLevel == RazerCpuPerformanceLevel.Medium;
-        bool gpuPermitted =
-            state.GpuPerformanceLevel == RazerGpuPerformanceLevel.Low;
-        if (!cpuPermitted || !gpuPermitted)
+            state.CpuPerformanceLevel != RazerCpuPerformanceLevel.Overclock;
+        if (!cpuPermitted)
         {
             return false;
         }

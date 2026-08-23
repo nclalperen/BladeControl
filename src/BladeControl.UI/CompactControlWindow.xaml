@@ -193,15 +193,11 @@
                                 over - one operation, since applying a performance mode already
                                 writes fan mode Auto.
                             -->
-                            <UniformGrid Columns="4">
-                                <RadioButton Content="Silent" GroupName="CoolingMode"
+                            <UniformGrid Columns="3">
+                                <RadioButton Content="Firmware" GroupName="CoolingMode"
                                              Style="{StaticResource SegmentToggleStyle}"
-                                             IsChecked="{Binding IsFirmwareSilentSelected, Mode=OneWay}"
-                                             Command="{Binding SelectFirmwareSilentCommand}" />
-                                <RadioButton Content="Balanced" GroupName="CoolingMode"
-                                             Style="{StaticResource SegmentToggleStyle}"
-                                             IsChecked="{Binding IsFirmwareBalancedSelected, Mode=OneWay}"
-                                             Command="{Binding SelectFirmwareBalancedCommand}" />
+                                             IsChecked="{Binding IsFirmwareSelected, Mode=OneWay}"
+                                             Command="{Binding SelectFirmwareCommand}" />
                                 <RadioButton Content="Fixed" GroupName="CoolingMode"
                                              Style="{StaticResource SegmentToggleStyle}"
                                              IsChecked="{Binding IsFixedSelected, Mode=OneWay}"
@@ -212,7 +208,7 @@
                                              Command="{Binding SelectDynamicCommand}" />
                             </UniformGrid>
 
-                            <TextBlock Text="Firmware owns cooling. BladeControl is not commanding the fans."
+                            <TextBlock Text="{Binding FirmwareCurveLabel, StringFormat=Firmware owns cooling · following the {0}.}"
                                        Margin="{StaticResource CompactSectionGapMargin}"
                                        Style="{StaticResource CompactCaptionTextStyle}"
                                        Visibility="{Binding IsFirmwareSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />

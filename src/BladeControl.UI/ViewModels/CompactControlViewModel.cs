@@ -27,16 +27,13 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             () => Connection.CanApplyStaticProfile);
         ApplyCustomCommand = Performance.ApplyCommand;
 
-        // "Auto" was one button meaning "give the fans back", which said nothing about what
-        // firmware would then do. The firmware's fan curve is the performance mode's curve, so
-        // the two named profiles are the honest way to offer it: picking one hands the fans back
-        // *and* says which curve takes over. Applying a performance mode already writes fan mode
-        // Auto, so this is one operation, not two.
-        SelectFirmwareSilentCommand = new RelayCommand(
-            () => ApplyPerformance("Silent"),
-            () => Connection.CanApplyStaticProfile);
-        SelectFirmwareBalancedCommand = new RelayCommand(
-            () => ApplyPerformance("Balanced"),
+        // Cooling is about who drives the fans, and nothing else. Putting the firmware profile
+        // names in this row conflated two independent things: performance mode is a power
+        // ceiling, cooling is fan ownership, and every combination of the two is valid on this
+        // hardware. Which firmware curve is running is shown as context beside the control
+        // rather than duplicated as a second copy of the performance selector.
+        SelectFirmwareCommand = new RelayCommand(
+            ApplyFirmwareAuto,
             () => Connection.CanApplyStaticProfile);
         SelectFixedCommand = new RelayCommand(
             () => Fans.Mode = CoolingMode.Fixed,
@@ -69,9 +66,7 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand ApplyCustomCommand { get; }
 
-    public RelayCommand SelectFirmwareSilentCommand { get; }
-
-    public RelayCommand SelectFirmwareBalancedCommand { get; }
+    public RelayCommand SelectFirmwareCommand { get; }
 
     public RelayCommand SelectFixedCommand { get; }
 
@@ -220,11 +215,8 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
 
             if (IsFirmwareSelected)
             {
-                // Name the curve, not just the fact that firmware has it. "Silent" and
-                // "Balanced" are the two things the controller actually does.
-                return Performance.SelectedMode is "Silent" or "Balanced"
-                    ? $"{Performance.SelectedMode.ToLowerInvariant()} firmware curve"
-                    : "firmware owns cooling";
+                // Name the curve, not just the fact that firmware has it.
+                return $"firmware · {FirmwareCurveLabel}";
             }
 
             if (!Connection.IsOnline)
@@ -315,11 +307,10 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
     /// <summary>Firmware owns the fans, whichever profile it is running.</summary>
     public bool IsFirmwareSelected => Fans.Mode == CoolingMode.FirmwareAuto;
 
-    public bool IsFirmwareSilentSelected =>
-        IsFirmwareSelected && Performance.SelectedMode == "Silent";
-
-    public bool IsFirmwareBalancedSelected =>
-        IsFirmwareSelected && Performance.SelectedMode == "Balanced";
+    /// <summary>Which firmware curve is running, named rather than duplicated as a control.</summary>
+    public string FirmwareCurveLabel => Performance.SelectedMode is "Silent" or "Balanced"
+        ? $"{Performance.SelectedMode} curve"
+        : "firmware curve";
 
     public bool IsFixedSelected => Fans.Mode == CoolingMode.Fixed;
 
@@ -412,8 +403,7 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
             nameof(CpuTemperature), nameof(GpuTemperature),
             nameof(TelemetryCaption), nameof(TelemetryTone),
             nameof(IsBalancedSelected), nameof(IsSilentSelected), nameof(IsCustomSelected),
-            nameof(IsFirmwareSelected), nameof(IsFirmwareSilentSelected),
-            nameof(IsFirmwareBalancedSelected),
+            nameof(IsFirmwareSelected), nameof(FirmwareCurveLabel),
             nameof(IsFixedSelected), nameof(IsDynamicSelected),
             nameof(IsDynamicRunning), nameof(IsDynamicStopped),
             nameof(DynamicState), nameof(DynamicTarget),
@@ -428,8 +418,7 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
         SelectBalancedCommand.RaiseCanExecuteChanged();
         SelectSilentCommand.RaiseCanExecuteChanged();
         SelectCustomCommand.RaiseCanExecuteChanged();
-        SelectFirmwareSilentCommand.RaiseCanExecuteChanged();
-        SelectFirmwareBalancedCommand.RaiseCanExecuteChanged();
+        SelectFirmwareCommand.RaiseCanExecuteChanged();
         SelectFixedCommand.RaiseCanExecuteChanged();
         SelectDynamicCommand.RaiseCanExecuteChanged();
     }

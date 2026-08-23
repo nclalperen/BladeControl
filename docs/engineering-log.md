@@ -1444,3 +1444,55 @@ That did require widening one thing. Monitoring's presentation flag doubled as "
 selected", because it used to be the only page with charts; gating on that alone would have left
 the new charts collecting samples and never repainting. One `ChartsAreOnScreen` predicate now
 decides it for every chart-bearing page.
+
+## Performance and cooling are independent, and now behave that way
+
+Applying a performance mode wrote fan mode Auto. So changing a power setting silently took the
+fans back from whoever had them: a fixed target was discarded, and a running Dynamic session
+would have had its ownership pulled out from under it.
+
+This is the exact mirror of the bug fan control had in the other direction, where taking the
+fans forced Balanced. That one was fixed; this one was not, and the asymmetry is what made it
+easy to miss — one half of the pair had been corrected and the other still looked like it
+worked.
+
+`0x0D02` carries performance mode and fan mode as a pair, so changing either means restating the
+other. The question is only what to restate it as, and the answer is "whatever it already was".
+Both directions now preserve.
+
+Seven places assumed Auto:
+
+| Site | Was | Now |
+|---|---|---|
+| `WritePerformanceMode` | forced Auto | removed; callers write the pair explicitly |
+| plan builder | "already correct" required Auto | compares performance mode only |
+| `ValidatePerformanceState` | **refused outright when Manual** | fan mode not consulted |
+| verification | expected Auto | expects the mode that was preserved |
+| `ValidateRestorationState` | required Auto | fan mode not consulted |
+| `TryCreateRestorationProfile` | **returned false when Manual** | fan mode not consulted |
+| self-test precondition | requires Custom + Auto | unchanged; it is a self-test |
+
+The two marked in bold were the worst. Refusing to act while Manual meant the only way to change
+power mode during a Dynamic session was to stop cooling first. And returning no restoration
+profile when Manual meant a performance apply that failed part-way during a session attempted no
+recovery at all — the one situation where recovery matters most.
+
+Nothing failed when this was changed, which is the other finding: no test pinned the coupling in
+either direction. Two now do.
+
+### The UI was wrong the same way
+
+Yesterday's cooling row offered Silent and Balanced as firmware fan profiles. That only worked
+*because* of the bug — applying a mode happened to hand the fans back, so the buttons appeared to
+do a cooling thing. With the axes separated they would set a power ceiling and leave fan
+ownership untouched, which is not what a cooling control should do.
+
+Cooling is fan ownership: **Firmware · Fixed · Dynamic**. Which firmware curve is running is
+named beside it — "following the Silent curve" — as context rather than as a second copy of the
+performance selector.
+
+### The level restriction in restoration was stale too
+
+`TryCreateRestorationProfile` only restored CPU Low or Medium and GPU Low, which was the old
+policy set. It now refuses only Overclock, which is the one level this build cannot write and
+therefore cannot restore to.
