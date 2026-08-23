@@ -121,7 +121,7 @@ public sealed class CrashRecoveryDiagnosticsTests
     /// opened, and it did not exist while every session forced Balanced.</para>
     /// </remarks>
     [TestMethod]
-    public async Task PerformanceModeChangingUnderARunningSessionEndsIt()
+    public async Task PerformanceModeChangingUnderARunningSessionRequalifiesRatherThanEnding()
     {
         RuntimeLifecycleTests.RuntimeRig rig = new();
         rig.Hardware.SetMode(RazerPerformanceMode.Balanced, RazerFanMode.Auto);
@@ -136,12 +136,16 @@ public sealed class CrashRecoveryDiagnosticsTests
         rig.Hardware.SetMode(RazerPerformanceMode.Silent, RazerFanMode.Manual);
         await runtime.RunScheduledAsync(CancellationToken.None, maximumCycles: 12);
 
+        // The limits went stale, not the session. Re-deriving them for the mode now in force
+        // is the fix; ending the session called a deliberate user action a thermal emergency
+        // and, on the way out, restored the captured performance state - undoing the very
+        // change that triggered it.
         RuntimeStatus status = runtime.GetStatus();
-        Assert.AreNotEqual(
+        Assert.AreEqual(
             RuntimeState.Running,
             status.State,
-            "A session cannot continue against limits derived for a mode the machine has left.");
-        StringAssert.Contains(status.EmergencyStatus ?? status.LastFailureReason ?? "", "Silent");
+            "A deliberate mode change is not a reason to stop cooling.");
+        Assert.IsTrue(string.IsNullOrEmpty(status.EmergencyStatus));
     }
 
     /// <summary>A host that started from a safe state does not write to the hardware.</summary>

@@ -927,11 +927,7 @@ public sealed class BladeRuntime : IAsyncDisposable
             if (_sessionPerformanceMode is { } qualified &&
                 mode.Zone1PerformanceMode != qualified)
             {
-                return EmergencyHandoff(
-                    $"Performance mode changed from {qualified} to " +
-                    $"{mode.Zone1PerformanceMode} during the session. The GPU thermal limits " +
-                    "in force were derived for the previous mode and no longer describe this " +
-                    "machine.");
+                return AdoptLimitsForNewPerformanceMode(qualified, mode.Zone1PerformanceMode);
             }
 
             return true;
@@ -958,6 +954,58 @@ public sealed class BladeRuntime : IAsyncDisposable
         }
 
         return EmergencyHandoff($"Razer watchdog found mismatched or unsafe state: {mode}.");
+    }
+
+    /// <summary>
+    /// Re-derives GPU thermal limits after the performance mode changed under the session.
+    /// </summary>
+    /// <remarks>
+    /// <para>This used to hand off to firmware and latch an emergency. That was wrong twice
+    /// over. Nothing had overheated — the user had deliberately changed a power setting — so
+    /// calling it an emergency described a safe, intentional act as a thermal event. And the
+    /// handoff restored the captured performance state on the way out, silently undoing the very
+    /// change that triggered it.</para>
+    /// <para>The limits are what went stale, not the session. The anchor those limits are derived
+    /// from follows the performance mode, so the fix is to derive them again for the mode now in
+    /// force and carry on. Ladder counters and hysteresis are preserved, because a GPU sitting at
+    /// its slowdown limit a moment ago is still there under a different ceiling.</para>
+    /// <para>It still fails closed. If the new mode does not qualify — an anchor nobody has
+    /// validated, telemetry gone — there are no thresholds to run against and the fans go back to
+    /// firmware, which is the one case that genuinely warrants a handoff.</para>
+    /// </remarks>
+    private bool AdoptLimitsForNewPerformanceMode(
+        RazerPerformanceMode previous,
+        RazerPerformanceMode current)
+    {
+        ThermalOwnershipQualification qualification;
+        try
+        {
+            qualification = _controlTelemetry.QualifyThermalOwnership();
+        }
+        catch (Exception exception)
+        {
+            return EmergencyHandoff(
+                $"Performance mode changed from {previous} to {current}, and GPU thermal " +
+                $"limits could not be re-derived for it: {exception.Message}");
+        }
+
+        if (!qualification.ThermalOwnershipReady ||
+            _controlTelemetry.Capabilities.GpuThermalLimits is not { } limits)
+        {
+            return EmergencyHandoff(
+                $"Performance mode changed from {previous} to {current}, and the new mode does " +
+                $"not qualify for thermal ownership: {string.Join(" ", qualification.Reasons)}");
+        }
+
+        _controller!.AdoptGpuThermalLimits(limits);
+        _sessionPerformanceMode = current;
+        AddEvent((sequence, timestamp) => new RecoveryResultEvent(
+            sequence,
+            timestamp,
+            $"Performance mode changed from {previous} to {current}; GPU thermal limits " +
+            $"re-derived for it ({limits.Describe()}). The session continues.",
+            true));
+        return true;
     }
 
     private bool EmergencyHandoff(string reason)

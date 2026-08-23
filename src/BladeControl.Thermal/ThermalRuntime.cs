@@ -53,6 +53,11 @@ public sealed class ThermalRuntimeController
     private readonly IThermalControlDevice _control;
     private readonly IThermalClock _clock;
     private readonly ThermalDecisionEngine _engine;
+
+    /// <summary>Adopts GPU limits re-derived after a performance-mode change.</summary>
+    public void AdoptGpuThermalLimits(GpuThermalLimits limits) =>
+        _engine.AdoptGpuThermalLimits(limits);
+
     private readonly List<ThermalMachineState> _restorationCaptures = [];
     private readonly Queue<ThermalDecision> _decisions = [];
     private readonly Queue<ThermalTraceEntry> _trace = [];

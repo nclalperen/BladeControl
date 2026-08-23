@@ -73,7 +73,11 @@ public enum ThermalControllerStateKind
 public sealed class ThermalDecisionEngine
 {
     private readonly ThermalProfile _profile;
-    private readonly ThermalPolicy _policy;
+    // Not readonly: the GPU thermal limits are derived from the performance mode's thermal
+    // anchor, and the mode can change under a running session. Rebuilding the engine to adopt
+    // new limits would discard the ladder's sustained-sample counters and hysteresis state,
+    // which is exactly the history that stops it reacting to a single reading.
+    private ThermalPolicy _policy;
     private FanRpm _writtenTarget = new(ThermalCurve.MinimumDynamicRpm);
     private DateTimeOffset _lastWrite;
     private DateTimeOffset _lastDecision;
@@ -90,6 +94,22 @@ public sealed class ThermalDecisionEngine
     private bool _initialized;
     private bool _emergencyStopped;
     private long _sequence;
+
+    /// <summary>
+    /// Adopts GPU thermal limits derived for a new performance mode, keeping ladder state.
+    /// </summary>
+    /// <remarks>
+    /// A performance-mode change moves the driver's thermal target, so limits qualified for the
+    /// previous mode stop describing the machine. The session does not have to end for that: it
+    /// has to start using the right numbers. Counters and hysteresis are deliberately preserved,
+    /// because a GPU that has been sitting at its slowdown limit is still doing so a moment
+    /// later under a different ceiling.
+    /// </remarks>
+    public void AdoptGpuThermalLimits(GpuThermalLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        _policy = _policy with { GpuLimits = limits };
+    }
 
     public ThermalDecisionEngine(ThermalProfile profile, ThermalPolicy? policy = null)
     {
