@@ -56,12 +56,15 @@ with `Escape`.
 │ BladeControl                    ↗  × │
 │ ● Online                             │
 │                                      │
-│ CPU                             GPU  │
-│ 61.5 °C                     52.0 °C  │
-│ Live telemetry                       │
+│  CPU        FIRMWARE AUTO      GPU   │
+│  61.5 °C          —         52.0 °C  │
+│              firmware owns           │
+│                 cooling              │
 │ ┌──────────────────────────────────┐ │
 │ │ PERFORMANCE                      │ │
 │ │ [ Balanced ] Silent    Custom    │ │
+│ │ CPU  [Low][Med][High][Bst][OC]   │ │
+│ │ GPU  [Low][Medium][High]         │ │
 │ └──────────────────────────────────┘ │
 │ ┌──────────────────────────────────┐ │
 │ │ COOLING                          │ │
@@ -71,6 +74,22 @@ with `Escape`.
 │ ● Firmware Auto   Diagnostics  Full  │
 └──────────────────────────────────────┘
 ```
+
+The middle column is the one worth explaining. **There is no measured fan speed on this
+machine** — the controller's fan register echoes the last commanded target, LibreHardwareMonitor
+exposes no fan sensors, NVML reports fan speed unavailable, and `Win32_Fan` leaves its speed
+fields empty. So the panel shows the *target* under Fixed and Dynamic, labelled as a target, and
+under firmware Auto it shows nothing at all: there is no BladeControl target then, and the last
+one is a leftover from a mode you have already left. The heading changes to `FIRMWARE AUTO` to
+say who is in charge.
+
+Performance levels the protocol models but this build will not send — CPU High, Boost, Overclock
+and GPU Medium, High — appear greyed rather than hidden, with the reason on their tooltip. An
+absent control looks like hardware that lacks the feature; a disabled one tells the truth.
+
+One fan control is offered, not two. The machine has two fans and the runtime addresses and
+verifies each zone separately, but setting them independently is a decision with no basis and an
+easy way to desynchronise them.
 
 The full sidebar application remains available as the **Advanced / Full App** surface — same
 shell, same connection, created only when asked for. Both share one runtime connection and one
