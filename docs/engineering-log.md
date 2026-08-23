@@ -1274,3 +1274,49 @@ restart-on-failure configured and validated, a hard-killed process is recovered 
 about 25 s and returns the firmware to Auto, and the runtime refuses a second host through the
 ownership gate. What a reboot would add is confirmation that these hold from a cold start, that
 the UI reconnects, and that Dynamic does not resume on its own.
+
+## Cold-boot acceptance — performed
+
+A real reboot was performed on the reference machine. Boot at 2026-08-23 14:53:13; everything
+below happened without me touching the service.
+
+| Check | Result |
+|---|---|
+| Service start | **automatic, unaided** — Running by 166 s |
+| Start type | `AUTO_START (DELAYED)`, `DelayedAutostart=1` |
+| Build | `0.1.0+2d18337e91a5` — the RC |
+| Duplicate hosts | none; one process |
+| Firmware state at boot | **Custom + Auto** — firmware owns cooling |
+| Dynamic self-resume | **did not** — runtime `Stopped` |
+| PawnIO | service RUNNING, external, unbundled |
+| Boot-time crash events | none (`.NET Runtime`, `Application Error`, WER all clear) |
+| UI reconnect | connects to the cold-booted service |
+
+### The reboot exercised multi-mode without being asked to
+
+The machine came back in **Custom**, not the Balanced I left it in. That turned the cold boot
+into an unplanned test of this session's main change, and it passed:
+
+- Qualification derived **75/77/80** — Custom's own anchor — and reported
+  `ThermalOwnershipReady: true`.
+- A session started and ran as **Custom + Manual**, healthy, with the mode preserved.
+- Stop performed the firmware Auto handoff, and a direct read afterwards showed fan mode
+  **Auto**, performance **Custom**, CPU Medium, GPU Low — as the machine booted.
+- The post-stop watchdog reads `Custom + Auto`, labelled "historical; not current firmware
+  state" with its age.
+
+Before this session that same boot would have gone one of two ways: the old code would have
+forced the machine to Balanced to take the fans, or — with the anchor pinned to a single derived
+triple — would have refused to start at all once the mode and the pinned signature disagreed.
+
+### I called it a failure before it had a chance
+
+Two minutes after boot I read `Stopped` and wrote it up as a genuine cold-boot failure. It is a
+*delayed* auto-start service; it starts around two minutes in by design, and it was Running at
+166 s. There were no error events precisely because nothing had failed — an absence of events
+should have made me check the clock rather than reach for a diagnosis.
+
+Two other probes of mine misfired in the same minutes: `Split(' ')[0]` on an `ImagePath`
+containing "Program Files" reported the service binary missing, and the earlier PawnIO check
+looked in `System32\drivers` for an INF-installed driver. Neither was a real defect. Every
+"failure" found in this cold-boot pass was mine, and the system under test was correct each time.
