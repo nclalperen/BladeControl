@@ -161,7 +161,7 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli perf status [--verbose]");
         Console.WriteLine("  BladeControl.Cli perf apply balanced [--verbose]");
         Console.WriteLine("  BladeControl.Cli perf apply silent [--verbose]");
-        Console.WriteLine("  BladeControl.Cli perf apply custom --cpu low|medium --gpu low [--verbose]");
+        Console.WriteLine("  BladeControl.Cli perf apply custom --cpu low|medium|high|boost --gpu low|medium|high [--verbose]");
         Console.WriteLine("  BladeControl.Cli perf selftest --verbose");
         Console.WriteLine("  BladeControl.Cli fan status [--verbose]");
         Console.WriteLine("  BladeControl.Cli fan apply auto [--verbose]");
@@ -180,6 +180,7 @@ internal static partial class Program
         Console.WriteLine("  BladeControl.Cli runtime status [--verbose]");
         Console.WriteLine("  BladeControl.Cli runtime doctor [--verbose]");
         Console.WriteLine("  BladeControl.Cli runtime stop-thermal");
+        Console.WriteLine("  BladeControl.Cli runtime perf balanced|silent");
         Console.WriteLine("  BladeControl.Cli service console [--verbose]");
         Console.WriteLine();
         Console.WriteLine(

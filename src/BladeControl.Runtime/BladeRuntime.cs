@@ -596,7 +596,7 @@ public sealed class BladeRuntime : IAsyncDisposable
 
     public PerformanceApplyResult ApplyPerformanceProfile(PerformanceProfile profile)
     {
-        EnsureStaticOperationAllowed();
+        EnsurePerformanceOperationAllowed();
         _operationGate.Wait();
         try
         {
@@ -1171,6 +1171,43 @@ public sealed class BladeRuntime : IAsyncDisposable
         {
             throw new RuntimeOwnershipException(
                 $"Runtime read rejected during the {State} transition.");
+        }
+    }
+
+    /// <summary>
+    /// Allows a performance change while a thermal session is running.
+    /// </summary>
+    /// <remarks>
+    /// <para>Performance and cooling are independent, and the point of separating them is that a
+    /// power ceiling can be changed without giving up fan control. The general static-operation
+    /// gate refuses everything while the runtime is Running, which put that promise back out of
+    /// reach: even the interface could not change mode during a session.</para>
+    /// <para>This is safe because the control cycle takes <c>_operationGate</c> for its whole
+    /// body, so a performance write serialises against it rather than racing it — the HID
+    /// transport still has exactly one user at a time. The cost is that a cycle can be held up by
+    /// a handful of exchanges, which the scheduler absorbs the same way it absorbs a fan write:
+    /// deadlines are absolute, so a late cycle is followed by catch-up rather than drift.</para>
+    /// <para>Fan operations keep the strict gate. Those would take the fans from the controller
+    /// that is actively driving them, which is a different thing entirely.</para>
+    /// <para>The transitional and broken states are still refused: mid-start and mid-stop the
+    /// ownership picture is being rewritten, and after an emergency or a fault the runtime is
+    /// deliberately inert until someone restarts it.</para>
+    /// </remarks>
+    private void EnsurePerformanceOperationAllowed()
+    {
+        ThrowIfDisposed();
+        if (!InitializeHost())
+        {
+            throw new InvalidOperationException(
+                _lastFailure ?? "Runtime host initialization failed.");
+        }
+
+        RuntimeState state = State;
+        if (state is RuntimeState.Starting or RuntimeState.Stopping or
+            RuntimeState.EmergencyHandoff or RuntimeState.Faulted)
+        {
+            throw new RuntimeOwnershipException(
+                $"Performance operation rejected while runtime state is {state}.");
         }
     }
 

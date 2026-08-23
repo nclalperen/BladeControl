@@ -42,6 +42,16 @@ internal static partial class Program
             return RunThermalStopCommand();
         }
 
+        // perf goes through the same IPC operation the interface uses, so a performance mode can
+        // be changed while a thermal session is running. "perf apply" cannot: it takes the
+        // hardware directly, and the service holds it whenever the runtime is up. Without this
+        // there was no command-line way to exercise the one interaction most worth exercising -
+        // changing a power ceiling without giving up cooling.
+        if (args.Length >= 2 && args[0].Equals("perf", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunRuntimePerformanceCommand(args[1]);
+        }
+
         bool verbose = args.Length == 2 &&
             args[1].Equals("--verbose", StringComparison.OrdinalIgnoreCase);
         if ((args.Length != 1 && !verbose) ||
@@ -50,7 +60,7 @@ internal static partial class Program
         {
             Console.Error.WriteLine(
                 "Expected: runtime status [--verbose] OR runtime doctor [--verbose] " +
-                "OR runtime stop-thermal");
+                "OR runtime stop-thermal OR runtime perf balanced|silent");
             return 2;
         }
 
@@ -119,6 +129,40 @@ internal static partial class Program
     /// safety behaviour: the runtime still establishes firmware Auto first and then restores
     /// the captured performance state.
     /// </remarks>
+    /// <summary>Applies a performance mode over IPC, session running or not.</summary>
+    private static int RunRuntimePerformanceCommand(string mode)
+    {
+        if (!mode.Equals("balanced", StringComparison.OrdinalIgnoreCase) &&
+            !mode.Equals("silent", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine("Expected: runtime perf balanced|silent");
+            return 2;
+        }
+
+        string normalized = char.ToUpperInvariant(mode[0]) + mode[1..].ToLowerInvariant();
+        try
+        {
+            RuntimeIpcResponse response = RuntimePipeClient.SendAsync(
+                    RuntimeIpcOperation.ApplyPerformanceProfile,
+                    new ApplyPerformanceProfileRequest(normalized, null, null))
+                .GetAwaiter().GetResult();
+            if (!response.Succeeded)
+            {
+                Console.Error.WriteLine($"Performance apply failed: {response.Error}");
+                return 1;
+            }
+
+            Console.WriteLine($"Performance mode {normalized} applied.");
+            return 0;
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException)
+        {
+            Console.Error.WriteLine(
+                $"BladeControl runtime service is unavailable: {exception.Message}");
+            return 1;
+        }
+    }
+
     private static int RunThermalStopCommand()
     {
         try
