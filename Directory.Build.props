@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
 
   <!--
     Single authoritative product version for BladeControl. Assemblies, the UI, the
@@ -52,6 +52,14 @@
     <Company>BladeControl Project</Company>
     <Authors>BladeControl Project</Authors>
     <Copyright>Copyright (c) BladeControl Project</Copyright>
+
+    <!--
+      The variant, declared once. GPL-3.0 alone does not say whether later versions apply, and
+      "or-later" is what the FSF's own boilerplate uses. It costs the copyright holder nothing
+      here - a sole holder can relicense at will either way - and it keeps the option open
+      without needing anyone's agreement later. Every built assembly carries it.
+    -->
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <NeutralLanguage>en</NeutralLanguage>
   </PropertyGroup>
 

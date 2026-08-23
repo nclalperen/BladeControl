@@ -224,7 +224,13 @@ Stop the installed service first — only one host may own the hardware.
 
 ## Licence
 
-**GNU General Public License v3.0.** See [LICENSE](LICENSE).
+**GNU General Public License v3.0 or later** (`GPL-3.0-or-later`). See [LICENSE](LICENSE).
+
+Per-file headers are deliberately not used. The project has a single copyright holder and ships
+`LICENSE` with every artifact — the MSI installs it, the portable zip carries it, and the
+installer presents the GPL text — which is what sections 4 through 6 require. Headers would help
+most if code were copied out of the project file by file; that is worth revisiting if the project
+gains contributors, and is recorded here so the omission is a choice rather than an oversight.
 
 BladeControl is free software: you may redistribute and modify it under the terms of the GPL as
 published by the Free Software Foundation, either version 3 or (at your option) any later

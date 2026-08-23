@@ -110,7 +110,13 @@ refused even when it looks reasonable, which can turn away a legitimate configur
 The remaining four are the copyright holder's call, not an engineering task. None of them blocks
 the build; all of them are easier to settle before a tag than after.
 
-**1. `GPL-3.0-only` or `GPL-3.0-or-later`.** The repository says "GPL-3.0" throughout and
+**1. Licence variant — settled: `GPL-3.0-or-later`.** Declared once in
+`Directory.Build.props` as `PackageLicenseExpression`, so every built assembly carries it, and
+stated in the README. Per-file headers are deliberately not used: a single copyright holder, and
+`LICENSE` ships with every artifact, which is what sections 4 through 6 require. Worth revisiting
+if the project gains contributors. The original text of this decision follows.
+
+**1a. (superseded) `GPL-3.0-only` or `GPL-3.0-or-later`.** The repository says "GPL-3.0" throughout and
 `LICENSE` is the plain GPL-3.0 text, which does not itself decide this. The FSF's own boilerplate
 uses *or-later*, and *or-later* is what lets the project adopt a future GPL without tracking down
 every contributor. *Only* gives you certainty about the exact terms forever. This has to be
@@ -118,7 +124,11 @@ settled before per-file headers are worth adding, because the header states the 
 source files currently carry no licence header, and adding one is a mechanical pass once the
 variant is chosen.
 
-**2. Contributor licensing.** No CLA or DCO is in place. A DCO (`Signed-off-by`) is the lighter
+**2. Contributor licensing — moot for now.** There are no contributors besides the copyright
+holder, so no CLA or DCO is needed. Worth adding a DCO if that changes; nothing is blocked by its
+absence today.
+
+**2a. (superseded) Contributor licensing.** No CLA or DCO is in place. A DCO (`Signed-off-by`) is the lighter
 option and is what the kernel and most GPL projects use; a CLA additionally lets the holder
 relicense later. Doing nothing means inbound contributions arrive under GPL-3.0 by implication,
 which is workable but leaves relicensing effectively impossible.
