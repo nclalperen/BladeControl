@@ -63,6 +63,11 @@ internal static partial class Program
             return RunModeRestore();
         }
 
+        if (subcommand.Equals("fan-ramp-probe", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunFanRampProbe();
+        }
+
         Console.Error.WriteLine($"Unknown telemetry subcommand: {subcommand}");
         PrintUsage();
         return 2;

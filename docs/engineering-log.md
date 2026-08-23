@@ -1348,3 +1348,48 @@ Not visually confirmed — screen access was declined. The risk is bounded by co
 window is `SizeToContent="Height"` with `MaxHeight="596"` and its content sits in a
 `ScrollViewer` capped at 490, so added content scrolls rather than clips. That is a reason not to
 worry about truncation, not a substitute for looking at it.
+
+## 0x0D81 is an echo, proved by a step response
+
+The request was to show current fan speed alongside the target rather than only the target. That
+required settling, rather than assuming, whether any current speed is actually available. One
+loose thread justified re-opening it: a single earlier reading showed fan 1 at 0 while fan 2 read
+3800, when both had been commanded identically, and an echo should not be able to do that.
+
+Sampling `0x0D81` at 250 ms through a step in both directions, and through the handover to
+firmware Auto:
+
+| Phase | Command | Reading |
+|---|---|---|
+| A, as found (Auto) | none | 4500 for 8 samples |
+| B | 2000 | 2000 on the first sample, flat for 12 |
+| C | 4500 | **4500 on the first sample**, flat for 24 samples over 6 s |
+| D | 2000 | 2000 on the first sample, flat for 20 |
+| E, firmware Auto | none | **2000, frozen for 16 samples over 7 s** |
+
+A 2500 RPM step is crossed with no intermediate value, in either direction, at 250 ms resolution.
+Fans have inertia; a tachometer cannot do that.
+
+Phase E settles it beyond argument. Under firmware Auto BladeControl commands nothing, and the
+controller is running its own curve — yet the reading sits frozen at 2000, the last value *we*
+wrote. Phase A had shown 4500 under Auto for the same reason: it was the last value written
+before that. The register holds the most recent commanded target and nothing else.
+
+The 0/3800 reading that reopened this was not evidence of measurement. It was a single transient
+at the very start of a probe, and it did not reproduce.
+
+### Every candidate source is now exhausted
+
+| Source | Result |
+|---|---|
+| Razer `0x0D81` | **echo of the last command** — proved above |
+| LibreHardwareMonitor | zero Fan, Control and Flow sensors, elevated and not |
+| NVML `fan.speed` | `[N/A]` |
+| WMI `Win32_Fan` | two cooling devices, speed fields empty |
+
+There is no measured fan speed on this machine. The compact window will keep showing the target,
+labelled as a target, and nothing under firmware Auto — which is not a limitation of the
+interface but the complete truth of what the hardware reports.
+
+Probing undocumented opcodes for a hidden tachometer register was not attempted and is out of
+scope under the standing safety boundary.
