@@ -200,10 +200,14 @@ public sealed class CompactControlTests
         using var compact = new CompactControlViewModel(shell);
         try
         {
-            compact.SelectAutoCommand.Execute(null);
-            await UiTestWait.UntilAsync(() => client.FanRequests.Count == 1 &&
+            // Handing the fans back is now a named firmware profile. Applying the performance
+            // mode already writes fan mode Auto, so this is one performance request rather than
+            // a separate fan request.
+            compact.SelectFirmwareBalancedCommand.Execute(null);
+            await UiTestWait.UntilAsync(() => client.PerformanceRequests.Count == 1 &&
                 !compact.Connection.IsCommandInFlight);
-            Assert.AreEqual(new ApplyFanProfileRequest("Auto", null, null), client.FanRequests[0]);
+            Assert.AreEqual("Balanced", client.PerformanceRequests[0].Mode);
+            Assert.AreEqual(0, client.FanRequests.Count);
         }
         finally
         {
@@ -409,11 +413,11 @@ public sealed class CompactControlTests
         using var compact = new CompactControlViewModel(shell);
         try
         {
-            compact.SelectAutoCommand.Execute(null);
+            compact.Fans.Mode = CoolingMode.FirmwareAuto;
 
             Assert.AreEqual(Display.Unavailable, compact.FanValue);
-            Assert.AreEqual("FIRMWARE AUTO", compact.FanHeading);
-            StringAssert.Contains(compact.FanCaption, "firmware owns cooling");
+            Assert.AreEqual("FIRMWARE", compact.FanHeading);
+            Assert.IsTrue(compact.IsFirmwareSelected);
         }
         finally
         {
@@ -502,35 +506,32 @@ public sealed class CompactControlTests
     }
 
     /// <summary>
-    /// Levels this build will not send are listed and disabled, not omitted.
+    /// The compact window offers every level this build will send, and does not list Overclock.
     /// </summary>
     /// <remarks>
-    /// An absent level looks like hardware that does not have it. A visible, greyed one says the
-    /// protocol models it and this build has not validated it, and carries the reason.
+    /// Overclock is excluded so BladeControl cannot interfere with tuning done in XTU. It stays
+    /// a value the runtime can read and report — a machine already in it is described
+    /// accurately — but it is not offered as a choice anywhere.
     /// </remarks>
     [TestMethod]
-    public async Task UnvalidatedPerformanceLevelsAreVisibleAndDisabled()
+    public async Task EveryOfferedPerformanceLevelIsSelectableAndOverclockIsAbsent()
     {
         (ShellViewModel shell, _) = await CreateOnlineShellAsync();
         using var compact = new CompactControlViewModel(shell);
         try
         {
             CollectionAssert.AreEquivalent(
-                new[] { "Low", "Medium", "High", "Boost", "Overclock" },
+                new[] { "Low", "Medium", "High", "Boost" },
                 compact.CpuLevels.Select(level => level.Value).ToArray());
             CollectionAssert.AreEquivalent(
                 new[] { "Low", "Medium", "High" },
                 compact.GpuLevels.Select(level => level.Value).ToArray());
 
-            foreach (var blocked in compact.CpuLevels.Where(level => !level.IsAvailable))
-            {
-                Assert.IsFalse(
-                    string.IsNullOrWhiteSpace(blocked.Tooltip),
-                    $"{blocked.Value} is disabled and must say why.");
-            }
-
-            Assert.IsTrue(compact.GpuLevels.Single(level => level.Value == "Low").IsAvailable);
-            Assert.IsFalse(compact.GpuLevels.Single(level => level.Value == "Medium").IsAvailable);
+            Assert.IsTrue(
+                compact.CpuLevels.All(level => level.IsAvailable),
+                "Anything offered must be selectable.");
+            Assert.IsTrue(compact.GpuLevels.All(level => level.IsAvailable));
+            Assert.IsFalse(compact.CpuLevels.Any(level => level.Value == "Overclock"));
         }
         finally
         {

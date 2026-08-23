@@ -94,20 +94,19 @@ public sealed class PerformanceViewModel : PageViewModel
         [
             new PolicyOptionViewModel("Low", "Low", "Lowest CPU power ceiling.", true),
             new PolicyOptionViewModel("Medium", "Medium", "Balanced CPU power ceiling.", true),
-            new PolicyOptionViewModel("High", "High", "Modelled by the protocol.", false, NotValidated),
-            new PolicyOptionViewModel("Boost", "Boost", "Modelled by the protocol.", false, NotValidated),
-            new PolicyOptionViewModel(
-                "Overclock",
-                "Overclock",
-                "Modelled by the protocol.",
-                false,
-                NotValidated)
+            new PolicyOptionViewModel("High", "High", "Raised CPU power ceiling.", true),
+            new PolicyOptionViewModel("Boost", "Boost", "Highest CPU power ceiling.", true)
+
+            // Overclock is deliberately absent. It is excluded so BladeControl cannot interfere
+            // with tuning done in XTU, and the runtime will not send it either. A machine
+            // already sitting in Overclock is still read and reported accurately; it simply
+            // cannot be selected here.
         ];
         GpuLevels =
         [
             new PolicyOptionViewModel("Low", "Low", "Lowest GPU power ceiling.", true),
-            new PolicyOptionViewModel("Medium", "Medium", "Modelled by the protocol.", false, NotValidated),
-            new PolicyOptionViewModel("High", "High", "Modelled by the protocol.", false, NotValidated)
+            new PolicyOptionViewModel("Medium", "Medium", "Raised GPU power ceiling.", true),
+            new PolicyOptionViewModel("High", "High", "Highest GPU power ceiling.", true)
         ];
 
         ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => CanApply);

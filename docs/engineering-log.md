@@ -1393,3 +1393,54 @@ interface but the complete truth of what the hardware reports.
 
 Probing undocumented opcodes for a hidden tachometer register was not attempted and is out of
 scope under the standing safety boundary.
+
+## UI batch: levels, cooling profiles, slider, charts
+
+### Performance levels
+
+CPU High and Boost and GPU Medium and High are sendable. They were blocked because they had not
+been exercised here, which is a reason to be careful, not a reason to withhold stock controls
+Synapse exposes to anyone. The packet shape, echo verification, thermal ladders and firmware
+protection are all unchanged; the EC refuses anything it does not accept and the echo check
+catches it.
+
+**Overclock is removed**, at the owner's request, so BladeControl cannot interfere with tuning
+done in XTU. It stays a *readable* value — a machine already sitting in Overclock is reported
+accurately rather than as unknown — and is refused at the policy layer and absent from the UI.
+That distinction is the whole point: reading a state is not offering it.
+
+### Cooling: named firmware profiles instead of "Auto"
+
+"Auto" was one button meaning "give the fans back", which said nothing about what firmware would
+then do. Firmware's fan curve *is* the performance mode's curve, so the cooling row now offers
+**Silent** and **Balanced** alongside Fixed and Dynamic. Picking one hands the fans back and says
+which curve takes over.
+
+It costs no extra write: applying a performance mode already writes fan mode Auto, so this is one
+operation. The fan tile follows, reading "silent firmware curve" or "balanced firmware curve"
+rather than a generic owner.
+
+### The slider was wearing the stock template
+
+Only `Foreground` and `Margin` were set, and neither touches what looked wrong: the default WPF
+template is drawn for a light theme — pale sunken groove, hairline ticks, small grey thumb — so
+on this background it read as a disabled control rather than the main way to set a fan target.
+
+It now has a real template: rounded track, travelled portion filled with the accent so the value
+reads at a glance, and a thumb big enough to grab with a hover halo. One style, used by both
+windows, because it is the same control doing the same job in each.
+
+### Charts on three more pages, from one history
+
+Dashboard gets temperatures, Fans & Thermal gets the fan target beside the fan controls, and
+Performance gets package power — which is where a mode or level change actually shows up, rather
+than as a number that merely moved.
+
+All three draw from the single `TelemetryHistory` that Monitoring already collects. A second
+buffer would drift from the first the moment either missed a sample, and then two pages would
+disagree about what happened.
+
+That did require widening one thing. Monitoring's presentation flag doubled as "is Monitoring
+selected", because it used to be the only page with charts; gating on that alone would have left
+the new charts collecting samples and never repainting. One `ChartsAreOnScreen` predicate now
+decides it for every chart-bearing page.

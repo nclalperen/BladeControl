@@ -194,12 +194,12 @@ public sealed class RazerCommandsTests
             () => RazerCommands.EnsureAllowed(packet));
     }
 
+    // CPU High (0x02) and Boost (0x03) and GPU Medium (0x01) and High (0x02) were rows here.
+    // They are sendable now at the owner's request. What remains rejected is what is still
+    // genuinely wrong: CPU Overclock, which is excluded so BladeControl cannot interfere with
+    // XTU tuning; an unknown cluster; and a bad selector byte.
     [DataTestMethod]
-    [DataRow((byte)0x00, (byte)0x01, (byte)0x02)]
-    [DataRow((byte)0x00, (byte)0x01, (byte)0x03)]
     [DataRow((byte)0x00, (byte)0x01, (byte)0x04)]
-    [DataRow((byte)0x00, (byte)0x02, (byte)0x01)]
-    [DataRow((byte)0x00, (byte)0x02, (byte)0x02)]
     [DataRow((byte)0x00, (byte)0x03, (byte)0x00)]
     [DataRow((byte)0x01, (byte)0x01, (byte)0x01)]
     public void EveryNonExpectedPerformanceLevelWriteBackShapeIsRejected(

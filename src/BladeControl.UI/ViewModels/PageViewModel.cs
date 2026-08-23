@@ -36,6 +36,18 @@ public abstract class PageViewModel : ObservableObject
     /// <summary>Path geometry for the navigation rail icon.</summary>
     public string Glyph { get; }
 
+    /// <summary>
+    /// The chart this page shows, or null for pages that show none.
+    /// </summary>
+    /// <remarks>
+    /// Assigned by the shell from the single <c>TelemetryHistory</c> that Monitoring owns, rather
+    /// than each page collecting its own. One buffer, one collection path, several views of it —
+    /// a second history would drift from the first the moment either missed a sample.
+    /// </remarks>
+    public ChartViewModel? Chart { get; internal set; }
+
+    public bool HasChart => Chart is not null;
+
     public bool IsSelected
     {
         get => _isSelected;

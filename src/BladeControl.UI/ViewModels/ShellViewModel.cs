@@ -47,6 +47,14 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             _lifetime.Token,
             copyToClipboard);
 
+        // The pages that draw a chart take one from Monitoring's history. Each gets the series
+        // that page is actually about: temperature on the dashboard, the fan target beside the
+        // fan controls, and package power on Performance, which is where a mode or level change
+        // shows up as a changed power ceiling rather than as a number that merely moved.
+        Dashboard.Chart = Monitoring.Temperatures;
+        FansThermal.Chart = Monitoring.FanTarget;
+        Performance.Chart = Monitoring.Power;
+
         Pages = [Dashboard, Performance, FansThermal, Monitoring, Diagnostics];
         _selectedPage = Pages.FirstOrDefault(page =>
                 string.Equals(page.Key, settings.SelectedPage, StringComparison.Ordinal)) ??
@@ -98,8 +106,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             if (Set(ref _selectedPage, value))
             {
                 _selectedPage.IsSelected = true;
-                Monitoring.SetPresentationActive(
-                    _advancedVisible && ReferenceEquals(_selectedPage, Monitoring));
+                Monitoring.SetPresentationActive(ChartsAreOnScreen);
                 RaiseAll(nameof(CurrentTitle), nameof(CurrentSubtitle));
             }
         }
@@ -240,10 +247,26 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
 
     public void Start() => Connection.Start();
 
+    /// <summary>
+    /// True when the visible page draws charts, so history keeps redrawing rather than freezing.
+    /// </summary>
+    /// <remarks>
+    /// Monitoring used to be the only page with charts, so its presentation flag doubled as
+    /// "is Monitoring selected". Dashboard, Fans &amp; Thermal and Performance draw from the same
+    /// history now, and gating on Monitoring alone would leave their charts static — collecting
+    /// samples but never repainting.
+    /// </remarks>
+    private bool ChartsAreOnScreen =>
+        _advancedVisible &&
+        (ReferenceEquals(SelectedPage, Monitoring) ||
+         ReferenceEquals(SelectedPage, Dashboard) ||
+         ReferenceEquals(SelectedPage, FansThermal) ||
+         ReferenceEquals(SelectedPage, Performance));
+
     public void SetAdvancedVisibility(bool visible)
     {
         _advancedVisible = visible;
-        Monitoring.SetPresentationActive(visible && ReferenceEquals(SelectedPage, Monitoring));
+        Monitoring.SetPresentationActive(ChartsAreOnScreen);
         if (visible && ReferenceEquals(SelectedPage, Diagnostics))
         {
             Diagnostics.Refresh();
@@ -315,7 +338,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
         Dashboard.Refresh();
         Performance.Refresh();
         FansThermal.Refresh();
-        if (_advancedVisible && ReferenceEquals(SelectedPage, Monitoring))
+        if (ChartsAreOnScreen)
         {
             Monitoring.Refresh();
         }

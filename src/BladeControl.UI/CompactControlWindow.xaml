@@ -186,11 +186,22 @@
                     <Border Style="{StaticResource CompactCardStyle}">
                         <StackPanel>
                             <TextBlock Text="COOLING" Style="{StaticResource EyebrowTextStyle}" Margin="{StaticResource CompactEyebrowMargin}" />
-                            <UniformGrid Columns="3">
-                                <RadioButton Content="Auto" GroupName="CoolingMode"
+                            <!--
+                                The firmware options are named rather than lumped under "Auto".
+                                Firmware's fan curve is the performance mode's curve, so picking
+                                Silent or Balanced hands the fans back and says which curve takes
+                                over - one operation, since applying a performance mode already
+                                writes fan mode Auto.
+                            -->
+                            <UniformGrid Columns="4">
+                                <RadioButton Content="Silent" GroupName="CoolingMode"
                                              Style="{StaticResource SegmentToggleStyle}"
-                                             IsChecked="{Binding IsAutoSelected, Mode=OneWay}"
-                                             Command="{Binding SelectAutoCommand}" />
+                                             IsChecked="{Binding IsFirmwareSilentSelected, Mode=OneWay}"
+                                             Command="{Binding SelectFirmwareSilentCommand}" />
+                                <RadioButton Content="Balanced" GroupName="CoolingMode"
+                                             Style="{StaticResource SegmentToggleStyle}"
+                                             IsChecked="{Binding IsFirmwareBalancedSelected, Mode=OneWay}"
+                                             Command="{Binding SelectFirmwareBalancedCommand}" />
                                 <RadioButton Content="Fixed" GroupName="CoolingMode"
                                              Style="{StaticResource SegmentToggleStyle}"
                                              IsChecked="{Binding IsFixedSelected, Mode=OneWay}"
@@ -204,7 +215,7 @@
                             <TextBlock Text="Firmware owns cooling. BladeControl is not commanding the fans."
                                        Margin="{StaticResource CompactSectionGapMargin}"
                                        Style="{StaticResource CompactCaptionTextStyle}"
-                                       Visibility="{Binding IsAutoSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                       Visibility="{Binding IsFirmwareSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                             <StackPanel Margin="{StaticResource CompactSectionGapMargin}"
                                         Visibility="{Binding IsFixedSelected, Converter={StaticResource BooleanToVisibilityConverter}}">

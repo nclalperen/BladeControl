@@ -1,7 +1,8 @@
 ﻿<UserControl x:Class="BladeControl.UI.Views.PerformanceView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="Transparent">
+             Background="Transparent"
+             xmlns:controls="clr-namespace:BladeControl.UI.Controls">
     <UserControl.Resources>
         <Style x:Key="PolicyListStyle" TargetType="ListBox">
             <Setter Property="Background" Value="Transparent" />
@@ -199,6 +200,45 @@
                             VerticalAlignment="Center" />
                 </Grid>
             </Border>
-        </StackPanel>
+        
+            <!--
+                Drawn from the one telemetry history Monitoring collects, so this and the
+                Monitoring page cannot disagree about what happened.
+            -->
+            <Border Style="{StaticResource CardStyle}" Margin="{StaticResource CardGapMargin}"
+                    Visibility="{Binding HasChart, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Chart.Title}" Style="{StaticResource SectionTitleTextStyle}" />
+                        <ItemsControl Grid.Column="1" ItemsSource="{Binding Chart.Series}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="12,0,0,0"
+                                                VerticalAlignment="Center">
+                                        <Ellipse Width="8" Height="8" Margin="0,0,5,0"
+                                                 VerticalAlignment="Center"
+                                                 Fill="{Binding ColorHex}" />
+                                        <TextBlock Text="{Binding Label}"
+                                                   Style="{StaticResource CaptionTextStyle}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding LatestText}" Margin="6,0,0,0"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                    <controls:TelemetryChart Chart="{Binding Chart}" Height="170" />
+                </StackPanel>
+            </Border>
+</StackPanel>
     </ScrollViewer>
 </UserControl>

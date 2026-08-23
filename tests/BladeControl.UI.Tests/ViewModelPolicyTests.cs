@@ -17,24 +17,22 @@ public sealed class ViewModelPolicyTests
         var viewModel = new PerformanceViewModel(connection, CancellationToken.None);
         viewModel.Refresh();
 
-        Assert.IsFalse(viewModel.TrySelectCpuLevel("High"));
-        Assert.IsFalse(viewModel.TrySelectCpuLevel("Boost"));
+        // The levels the owner asked for are selectable.
+        Assert.IsTrue(viewModel.TrySelectCpuLevel("High"));
+        Assert.IsTrue(viewModel.TrySelectCpuLevel("Boost"));
+        Assert.IsTrue(viewModel.TrySelectGpuLevel("Medium"));
+        Assert.IsTrue(viewModel.TrySelectGpuLevel("High"));
+
+        // Overclock is not offered at all, so it cannot be selected by name either. It is
+        // excluded so BladeControl cannot interfere with tuning done in XTU.
         Assert.IsFalse(viewModel.TrySelectCpuLevel("Overclock"));
-        Assert.IsFalse(viewModel.TrySelectGpuLevel("Medium"));
-        Assert.IsFalse(viewModel.TrySelectGpuLevel("High"));
+        Assert.IsFalse(viewModel.CpuLevels.Any(option => option.Value == "Overclock"));
+
+        // And a value that is not a level at all is still refused.
         Assert.IsFalse(viewModel.TrySelectCpuLevel("Raw-255"));
 
-        Assert.AreEqual("Medium", viewModel.SelectedCpuLevel);
-        Assert.AreEqual("Low", viewModel.SelectedGpuLevel);
+        // Selecting a level is not applying one.
         Assert.AreEqual(0, client.PerformanceRequests.Count);
-        Assert.IsTrue(viewModel.CpuLevels
-            .Where(option => !option.IsAvailable)
-            .All(option => option.BlockedReason?.Contains(
-                "not hardware validated",
-                StringComparison.OrdinalIgnoreCase) == true));
-        Assert.IsTrue(viewModel.GpuLevels
-            .Where(option => !option.IsAvailable)
-            .All(option => option.Tooltip.Contains("no bypass", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -205,7 +203,9 @@ public sealed class ViewModelPolicyTests
     {
         var client = new FakeRuntimeUiClient
         {
-            PerformanceState = Performance("Custom", "High", "Medium")
+            // Overclock: still not sendable, so a machine sitting in it cannot be re-applied
+            // from here. High and Medium used to serve this role and are now ordinary choices.
+            PerformanceState = Performance("Custom", "Overclock", "Medium")
         };
         using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
         await connection.PollOnceAsync(CancellationToken.None);
@@ -218,16 +218,18 @@ public sealed class ViewModelPolicyTests
         dashboard.Refresh();
 
         Assert.AreEqual("Custom", viewModel.SelectedMode);
-        Assert.AreEqual("High", viewModel.SelectedCpuLevel);
+        Assert.AreEqual("Overclock", viewModel.SelectedCpuLevel);
         Assert.AreEqual("Medium", viewModel.SelectedGpuLevel);
         Assert.IsFalse(viewModel.CanApply);
         Assert.IsFalse(viewModel.ApplyCommand.CanExecute(null));
         Assert.IsFalse(dashboard.ApplyCustomCommand.CanExecute(null));
-        StringAssert.Contains(viewModel.ApplyBlockedReason!, "not hardware validated");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(viewModel.ApplyBlockedReason));
         Assert.AreEqual(0, client.PerformanceRequests.Count);
 
-        Assert.IsTrue(viewModel.TrySelectCpuLevel("Medium"));
-        Assert.IsTrue(viewModel.TrySelectGpuLevel("Low"));
+        // The reported state is shown accurately; the user just has to pick something this
+        // build will send before it can apply.
+        Assert.IsTrue(viewModel.TrySelectCpuLevel("Boost"));
+        Assert.IsTrue(viewModel.TrySelectGpuLevel("High"));
         dashboard.Refresh();
 
         Assert.IsTrue(viewModel.CanApply);

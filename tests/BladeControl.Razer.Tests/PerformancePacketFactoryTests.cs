@@ -28,11 +28,21 @@ public sealed class PerformancePacketFactoryTests
         AssertValidEncoding(packet);
     }
 
+    /// <summary>
+    /// Every CPU level is a modelled packet; policy sends all but Overclock.
+    /// </summary>
+    /// <remarks>
+    /// High and Boost used to be refused by policy because they had not been exercised on the
+    /// reference machine. The owner asked for them, and the power ceiling is theirs to choose.
+    /// Overclock stays refused at their request, so BladeControl cannot interfere with tuning
+    /// done in XTU — but it remains a modelled shape, because a machine already sitting in
+    /// Overclock has to be read back accurately rather than reported as unknown.
+    /// </remarks>
     [DataTestMethod]
     [DataRow((byte)0x00, true)]
     [DataRow((byte)0x01, true)]
-    [DataRow((byte)0x02, false)]
-    [DataRow((byte)0x03, false)]
+    [DataRow((byte)0x02, true)]
+    [DataRow((byte)0x03, true)]
     [DataRow((byte)0x04, false)]
     public void AllCpuLevelPacketsAreModeledAndPolicySeparated(
         byte level,
@@ -50,10 +60,11 @@ public sealed class PerformancePacketFactoryTests
         AssertValidEncoding(packet);
     }
 
+    /// <summary>Every GPU level is modelled and sendable.</summary>
     [DataTestMethod]
     [DataRow((byte)0x00, true)]
-    [DataRow((byte)0x01, false)]
-    [DataRow((byte)0x02, false)]
+    [DataRow((byte)0x01, true)]
+    [DataRow((byte)0x02, true)]
     public void AllGpuLevelPacketsAreModeledAndPolicySeparated(
         byte level,
         bool policyAllowed)

@@ -291,9 +291,97 @@
         </Setter>
     </Style>
 
+    <!--
+        The slider was carrying the stock WPF template, which is drawn for a light theme: a pale
+        sunken groove, hairline tick marks and a small grey thumb. On this background it read as
+        a disabled control rather than the main way to set a fan target. Foreground and Margin
+        were the only things being set, and neither touches the parts that looked wrong.
+
+        This is a full template: a rounded track, the travelled portion filled with the accent,
+        and a thumb large enough to grab. Both windows use it - there is one slider style, not a
+        compact variant, because the control is the same size and job in each.
+    -->
+    <Style x:Key="SliderThumbStyle" TargetType="Thumb">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Grid>
+                        <Ellipse x:Name="Halo" Fill="{StaticResource AccentSoftBrush}"
+                                 Opacity="0" Margin="-5" />
+                        <Ellipse x:Name="Knob"
+                                 Fill="{StaticResource AccentBrush}"
+                                 Stroke="{StaticResource SurfaceBrush}"
+                                 StrokeThickness="2" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Halo" Property="Opacity" Value="1" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Halo" Property="Opacity" Value="1" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Knob" Property="Fill"
+                                    Value="{StaticResource MutedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style TargetType="Slider">
         <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
         <Setter Property="Margin" Value="0,6" />
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="IsMoveToPointEnabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid VerticalAlignment="Center">
+                        <Border Height="5" CornerRadius="3"
+                                Background="{StaticResource SurfaceRaisedBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                VerticalAlignment="Center" />
+                        <Track x:Name="PART_Track">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="Slider.DecreaseLarge" Focusable="False">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton">
+                                            <!-- The travelled portion, so the value reads at a glance. -->
+                                            <Border Height="5" CornerRadius="3"
+                                                    Background="{StaticResource AccentBrush}"
+                                                    VerticalAlignment="Center" />
+                                        </ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="Slider.IncreaseLarge" Focusable="False">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton">
+                                            <Border Background="Transparent" />
+                                        </ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource SliderThumbStyle}" />
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="DataGrid">

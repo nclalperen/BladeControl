@@ -331,16 +331,30 @@ internal static class RazerCommands
         return HasKnownModeWriteArguments(packet);
     }
 
+    /// <summary>
+    /// The performance levels this build will send, as distinct from the ones it can parse.
+    /// </summary>
+    /// <remarks>
+    /// <para>This was CPU Low and Medium, GPU Low — the set that had been exercised on the
+    /// reference machine. The owner asked for the rest, and it is their hardware and their power
+    /// ceiling to choose, so CPU High and Boost and GPU Medium and High are now sendable.</para>
+    /// <para>Nothing else is relaxed to allow it. The packet shape is still validated, the write
+    /// is still echo-checked, the thermal ladders still run against the same limits, and firmware
+    /// slowdown and shutdown are untouched. A ceiling the controller will not accept is refused
+    /// by the controller and the echo check catches it.</para>
+    /// <para><b>Overclock is deliberately not here.</b> It is excluded at the owner's request so
+    /// BladeControl cannot interfere with tuning done in XTU. It remains a known value for
+    /// <i>reading</i> — a machine already sitting in Overclock must still be reported accurately
+    /// rather than shown as unknown — but this build will not write it.</para>
+    /// </remarks>
     private static bool HasPolicyAllowedLevelWriteArguments(RazerPacket packet)
     {
         ReadOnlySpan<byte> arguments = packet.Arguments;
         bool isAllowedCpu =
             arguments[1] == (byte)RazerPerformanceCluster.Cpu &&
-            (arguments[2] == RazerCpuPerformanceLevel.Low.Value ||
-             arguments[2] == RazerCpuPerformanceLevel.Medium.Value);
+            arguments[2] != RazerCpuPerformanceLevel.Overclock.Value;
         bool isAllowedGpu =
-            arguments[1] == (byte)RazerPerformanceCluster.Gpu &&
-            arguments[2] == RazerGpuPerformanceLevel.Low.Value;
+            arguments[1] == (byte)RazerPerformanceCluster.Gpu;
 
         return HasKnownLevelWriteArguments(packet) &&
             (isAllowedCpu || isAllowedGpu);
