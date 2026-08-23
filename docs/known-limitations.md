@@ -215,12 +215,10 @@ release cycle for a layering improvement with no safety consequence.
   throughout every session run here, and manufacturing a thermal emergency to reach them is
   deliberately out of scope. The CPU ladders have been exercised; the GPU ones are tested only
   against synthetic samples.
-- Behaviour across a reboot has not been exercised: the service is `AUTO_START`, but a cold boot
-  into a session has not been observed end to end.
-- **The mid-session performance-mode handoff has not been exercised on hardware.** Multi-mode
-  ownership itself was verified live — a full session ran in Silent + Manual — but the check that
-  ends a session when the mode changes underneath it is covered by unit tests only. It should be
-  confirmed by starting Dynamic and then changing mode from outside the session.
+- **The mid-session performance-mode handoff is still unexercised on hardware.** Triggering it
+  needs the mode changed from *outside* a running session — a keyboard shortcut or vendor
+  software — which cannot be produced from here, because the ownership gate correctly refuses a
+  second writer while the runtime holds the fans. Unit-tested only.
 - The portable zip has been unpacked and both executables launched, but only on a machine that
   already had the MSI installed. It has not been run on a clean machine, so nothing here proves
   it is free of a dependency the installed product happened to satisfy.

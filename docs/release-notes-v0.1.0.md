@@ -128,6 +128,7 @@ Razer Blade 16 (RZ09-0483). Qualification fails closed on anything else, so othe
 refused rather than mishandled — but "works on one laptop" is what a pre-release tag
 communicates honestly and a `v0.1.0` tag does not.
 
-**4. Cold-boot validation.** The service is installed `AUTO_START` and restarts on failure, but
-a reboot into a working session has never been observed end to end. It needs a reboot of the
-reference machine, which is the owner's to schedule.
+**4. Cold-boot validation — done.** A real reboot was performed. The service starts unaided
+(delayed auto-start, Running by 166 s), the machine came back in Custom + Auto, qualification
+derived Custom's own limits, a session ran as Custom + Manual, and stop restored the booted
+state. No crash events, no duplicate host, and Dynamic did not resume by itself.
