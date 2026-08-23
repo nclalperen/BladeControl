@@ -1,4 +1,4 @@
-<UserControl x:Class="BladeControl.UI.Views.DashboardView"
+﻿<UserControl x:Class="BladeControl.UI.Views.DashboardView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
@@ -9,11 +9,11 @@
                     Padding="14,11"
                     CornerRadius="{StaticResource PanelCornerRadius}"
                     BorderThickness="1"
-                    Background="{StaticResource DangerBackgroundBrush}"
-                    BorderBrush="{StaticResource DangerBrush}"
+                    Background="{Binding RuntimeAlertTone, Converter={StaticResource StatusToneBrushConverter}, ConverterParameter=Background}"
+                    BorderBrush="{Binding RuntimeAlertTone, Converter={StaticResource StatusToneBrushConverter}}"
                     Visibility="{Binding HasRuntimeAlert, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <TextBlock Text="{Binding RuntimeAlert}"
-                           Foreground="{StaticResource DangerBrush}"
+                           Foreground="{Binding RuntimeAlertTone, Converter={StaticResource StatusToneBrushConverter}}"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap" />
             </Border>

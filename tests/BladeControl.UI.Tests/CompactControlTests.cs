@@ -348,6 +348,49 @@ public sealed class CompactControlTests
         }
     }
 
+    /// <summary>
+    /// The full app's emergency banner reads as safe-but-latched, not as a fault.
+    /// </summary>
+    /// <remarks>
+    /// The banner was hardcoded to the danger palette, so an emergency handoff rendered in red
+    /// while its own text said "the machine is safe" — the colour contradicting the sentence.
+    /// Protection having worked is not protection having failed. A genuine fault stays red.
+    /// </remarks>
+    [TestMethod]
+    public async Task EmergencyHandoffBannerIsWarningAndAFaultStaysDanger()
+    {
+        (ShellViewModel handoff, _) = await CreateOnlineShellAsync("EmergencyHandoff");
+        try
+        {
+            Assert.IsTrue(handoff.Dashboard.HasRuntimeAlert);
+            Assert.AreEqual(StatusTone.Warning, handoff.Dashboard.RuntimeAlertTone);
+
+            string alert = handoff.Dashboard.RuntimeAlert!;
+            StringAssert.Contains(alert, "firmware owns cooling");
+            StringAssert.Contains(alert, "service is still running");
+            StringAssert.Contains(alert, "will not resume by itself");
+        }
+        finally
+        {
+            handoff.Dispose();
+        }
+
+        (ShellViewModel faulted, _) = await CreateOnlineShellAsync(configure: fake =>
+        {
+            fake.Status = RuntimeUiSampleData.Status(
+                state: "Faulted",
+                lastFailureReason: "Razer HID transport closed unexpectedly.");
+        });
+        try
+        {
+            Assert.AreEqual(StatusTone.Danger, faulted.Dashboard.RuntimeAlertTone);
+        }
+        finally
+        {
+            faulted.Dispose();
+        }
+    }
+
     // --- The FAN tile is the part most able to lie ----------------------------------------
 
     /// <summary>

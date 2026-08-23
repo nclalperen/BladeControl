@@ -1320,3 +1320,31 @@ Two other probes of mine misfired in the same minutes: `Split(' ')[0]` on an `Im
 containing "Program Files" reported the service binary missing, and the earlier PawnIO check
 looked in `System32\drivers` for an INF-installed driver. Neither was a real defect. Every
 "failure" found in this cold-boot pass was mine, and the system under test was correct each time.
+
+## The full app's emergency banner said one thing and looked like another
+
+The compact window got a dedicated emergency panel; the full app was left with the generic
+runtime-alert banner, and auditing it against what was actually asked for turned up two
+problems.
+
+**The colour contradicted the sentence.** The banner was hardcoded to the danger palette, so an
+emergency handoff rendered in red while its own text read "The machine is safe." Protection
+having worked is not protection having failed, and that distinction was already drawn in
+`Display.EmergencyHandoff`, which had been moved to Warning earlier for exactly this reason. The
+banner had not followed. It now takes its tone from the state: Warning for a handoff, Danger for
+a fault, because a fault is a fault.
+
+**It left out the two things a person actually needs.** The wording said what happened and to
+restart, but not that the service is still running, nor that Dynamic will not resume on its own.
+Both matter: without the first, "handed back to firmware" reads as though BladeControl has died;
+without the second, waiting looks like a reasonable option when nothing is going to happen.
+
+Both are covered by a test that also pins a genuine fault staying red, so the two cannot drift
+back together.
+
+### Compact window sizing
+
+Not visually confirmed — screen access was declined. The risk is bounded by construction: the
+window is `SizeToContent="Height"` with `MaxHeight="596"` and its content sits in a
+`ScrollViewer` capped at 490, so added content scrolls rather than clips. That is a reason not to
+worry about truncation, not a substitute for looking at it.

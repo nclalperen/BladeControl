@@ -285,8 +285,10 @@ public sealed class DashboardViewModel : PageViewModel
                 // untrue by the time this state is reported and needlessly alarming. The
                 // "Emergency handoff" lead is kept: it is the term users and support search for.
                 return "Emergency handoff: a thermal limit was reached and cooling was handed " +
-                    "back to firmware Auto. The machine is safe. Restart the runtime to resume " +
-                    "thermal control.";
+                    "back to firmware Auto. The machine is safe and firmware owns cooling. " +
+                    "The service is still running, but the thermal session has ended and " +
+                    "Dynamic will not resume by itself — start it again deliberately once the " +
+                    "machine has cooled.";
             }
 
             if (string.Equals(Status.State, "Faulted", StringComparison.Ordinal))
@@ -299,6 +301,21 @@ public sealed class DashboardViewModel : PageViewModel
     }
 
     public bool HasRuntimeAlert => !string.IsNullOrEmpty(RuntimeAlert);
+
+    /// <summary>How loudly to render the alert. Not everything in this banner is a fault.</summary>
+    /// <remarks>
+    /// An emergency handoff is a latched but <i>safe</i> state: the ladder did its job, firmware
+    /// owns cooling, and nothing is broken. The banner was hardcoded to the danger palette, so it
+    /// rendered in red while its own text said "the machine is safe" — the colour contradicting
+    /// the sentence. Protection having worked is not the same as protection having failed, and
+    /// this is the same distinction already drawn in <c>Display.EmergencyHandoff</c>.
+    /// <para>A fault stays danger-red, because a fault is a fault.</para>
+    /// </remarks>
+    public StatusTone RuntimeAlertTone =>
+        string.Equals(Status?.State, "EmergencyHandoff", StringComparison.Ordinal) &&
+        string.IsNullOrWhiteSpace(Status?.LastFailureReason)
+            ? StatusTone.Warning
+            : StatusTone.Danger;
 
     private RuntimeStatusDto? Status => Connection.Status;
 
@@ -331,7 +348,7 @@ public sealed class DashboardViewModel : PageViewModel
             nameof(CustomButtonLabel),
             nameof(ProfileBlockedReason), nameof(HasProfileBlockedReason),
             nameof(StartBlockedReason), nameof(HasStartBlockedReason),
-            nameof(RuntimeAlert), nameof(HasRuntimeAlert));
+            nameof(RuntimeAlert), nameof(HasRuntimeAlert), nameof(RuntimeAlertTone));
         ApplyBalancedCommand.RaiseCanExecuteChanged();
         ApplySilentCommand.RaiseCanExecuteChanged();
         ApplyCustomCommand.RaiseCanExecuteChanged();
