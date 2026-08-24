@@ -207,8 +207,12 @@
                                   AutoGenerateColumns="False"
                                   Height="250">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Temperature (°C)" Width="*" Binding="{Binding TemperatureCelsius, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat=0.#}" />
-                                <DataGridTextColumn Header="Target (RPM)" Width="*" Binding="{Binding Rpm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <DataGridTextColumn Header="Temperature (°C)" Width="*"
+                                                    EditingElementStyle="{StaticResource DataGridEditorTextBoxStyle}"
+                                                    Binding="{Binding TemperatureCelsius, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat=0.#}" />
+                                <DataGridTextColumn Header="Target (RPM)" Width="*"
+                                                    EditingElementStyle="{StaticResource DataGridEditorTextBoxStyle}"
+                                                    Binding="{Binding Rpm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <DataGridTextColumn Header="Validation" Width="2*" IsReadOnly="True" Binding="{Binding Error}" />
                             </DataGrid.Columns>
                         </DataGrid>

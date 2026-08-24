@@ -2,8 +2,10 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using BladeControl.UI.Controls;
 
 namespace BladeControl.UI.Tests;
@@ -20,7 +22,7 @@ public sealed class DesignSystemTests
     private static readonly string[] RequiredBrushKeys =
     [
         "WindowBackgroundBrush", "SurfaceBrush", "SurfaceRaisedBrush", "SurfaceHoverBrush",
-        "BorderBrush", "BorderStrongBrush",
+        "TransparentBrush", "BorderBrush", "BorderStrongBrush", "DangerBorderBrush",
         "TextPrimaryBrush", "TextSecondaryBrush", "TextMutedBrush",
         "AccentBrush", "AccentSoftBrush",
         "GoodBrush", "WarningBrush", "DangerBrush", "NeutralBrush", "MutedBrush",
@@ -87,13 +89,19 @@ public sealed class DesignSystemTests
     /// falls back to the system default in a dark application.
     /// </summary>
     /// <remarks>
-    /// The same defect as the ComboBox popup above, found twice more: ScrollBar and CheckBox
-    /// were never templated. WPF then drew the system scrollbar — a near-white track with
-    /// stepper buttons, on every scrolling page — and the system checkbox glyph, a white square,
-    /// against surfaces around #131815. Recolouring alone is not enough for these two: a
-    /// CheckBox style that sets only Foreground leaves the box itself system-drawn, which is
-    /// exactly what SubtleCheckBoxStyle used to do. So this asserts a Template, not merely the
-    /// presence of a style.
+    /// WPF compound controls create several more controls inside their templates and popup
+    /// trees. The failures caught here have all rendered as system-white chrome: scrollbar
+    /// tracks, checkbox glyphs, tooltip and context-menu surfaces, the Expander disclosure
+    /// button, the closed ComboBox, and the DataGrid editor and headers. Recolouring the outer
+    /// owner cannot reach those parts, so this asserts a Template rather than merely a style.
+    /// <para>ScrollViewer is deliberately absent from the list. It draws no chrome of its own:
+    /// what a user sees are its ScrollBars, templated above, plus the small square where a
+    /// vertical and a horizontal bar meet. Every ScrollViewer in this application sets
+    /// <c>HorizontalScrollBarVisibility="Disabled"</c>, so that square is unreachable. A
+    /// template was written for it and then removed — giving the bar its own grid column
+    /// narrowed the content enough that a Diagnostics label ran into its own value, which is a
+    /// visible defect traded for chrome nobody can see. If a surface ever scrolls horizontally,
+    /// template it then, and check the layout when doing so.</para>
     /// </remarks>
     [TestMethod]
     public void EveryChromeBearingControlIsTemplatedAndNotLeftToSystemDefaults() =>
@@ -103,7 +111,11 @@ public sealed class DesignSystemTests
 
             Type[] mustBeTemplated =
             [
-                typeof(ScrollBar), typeof(CheckBox), typeof(Slider)
+                typeof(ScrollBar),
+                typeof(CheckBox), typeof(Slider), typeof(ToggleButton),
+                typeof(TextBox), typeof(ComboBox), typeof(ComboBoxItem), typeof(Expander),
+                typeof(ToolTip), typeof(ContextMenu), typeof(MenuItem), typeof(Separator),
+                typeof(DataGridColumnHeader), typeof(DataGridRowHeader), typeof(DataGridCell)
             ];
 
             foreach (Type control in mustBeTemplated)
@@ -111,8 +123,8 @@ public sealed class DesignSystemTests
                 var style = theme[control] as Style;
                 Assert.IsNotNull(
                     style,
-                    $"{control.Name} has no implicit style, so it renders with system chrome " +
-                    "that is light-on-light against this theme's surfaces.");
+                    $"{control.Name} has no implicit style, so it renders with light system " +
+                    "chrome against this theme's dark surfaces.");
 
                 bool templated = style!.Setters.OfType<Setter>().Any(
                     setter => setter.Property == Control.TemplateProperty);
@@ -142,6 +154,186 @@ public sealed class DesignSystemTests
             typeof(CheckBox),
             subtle.BasedOn!.TargetType,
             "SubtleCheckBoxStyle must extend the CheckBox style, not some other control's.");
+    });
+
+    /// <summary>
+    /// The DataGrid editor must opt back into the implicit TextBox style because WPF assigns
+    /// DataGridTextColumn.DefaultEditingElementStyle directly and otherwise skips it.
+    /// </summary>
+    /// <remarks>
+    /// This catches the actual curve-editor failure: entering a cell created a stock white
+    /// TextBox, and conversion failures used the stock square validation outline. A keyed style
+    /// that copied only colours would still lose both templates, so the BasedOn link is the
+    /// discriminating assertion.
+    /// </remarks>
+    [TestMethod]
+    public void DataGridEditorVariantKeepsTheThemedTextBoxAndValidationChrome() =>
+        OnStaThread(() =>
+        {
+            ResourceDictionary theme = LoadTheme();
+            var textBox = (Style)theme[typeof(TextBox)];
+            var editor = theme["DataGridEditorTextBoxStyle"] as Style;
+
+            Assert.IsNotNull(editor, "The curve editor needs a keyed in-cell TextBox style.");
+            Assert.AreSame(
+                textBox,
+                editor!.BasedOn,
+                "DataGridEditorTextBoxStyle must extend the implicit TextBox style so WPF's " +
+                "sealed light default cannot replace its template.");
+            Assert.IsInstanceOfType<ControlTemplate>(
+                EffectiveSetterValue(editor, Control.TemplateProperty),
+                "The in-cell editor must retain the dark TextBox template.");
+            Assert.IsInstanceOfType<ControlTemplate>(
+                EffectiveSetterValue(editor, Validation.ErrorTemplateProperty),
+                "Invalid numeric input must retain the themed validation outline.");
+        });
+
+    /// <summary>
+    /// The actual TextBox fallback menu uses private framework subclasses, so implicit styles
+    /// for ContextMenu and MenuItem cannot theme it. The TextBox must provide public controls
+    /// explicitly, with the standard commands still routed to the edited field.
+    /// </summary>
+    [TestMethod]
+    public void TextBoxRightClickMenuUsesThePublicThemedControlsAndKeepsCommandTargets() =>
+        OnStaThread(() =>
+        {
+            ResourceDictionary theme = LoadTheme();
+            var textBox = new TextBox { Text = "editable" };
+            var window = new Window
+            {
+                Width = 260,
+                Height = 120,
+                Content = textBox,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -10_000,
+                Top = -10_000,
+                ShowInTaskbar = false
+            };
+            window.Resources.MergedDictionaries.Add(theme);
+
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                ContextMenu? menu = textBox.ContextMenu;
+                Assert.IsNotNull(
+                    menu,
+                    "A null ContextMenu lets WPF create its private, unthemeable editor menu.");
+                Assert.AreEqual(
+                    typeof(ContextMenu),
+                    menu!.GetType(),
+                    "The real editor menu must use the public ContextMenu type that the theme styles.");
+
+                menu.PlacementTarget = textBox;
+                menu.IsOpen = true;
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+
+                Assert.AreSame(
+                    theme[typeof(ContextMenu)],
+                    menu.Style,
+                    "The opened editor menu must resolve the implicit dark ContextMenu style.");
+
+                MenuItem[] items = menu.Items.OfType<MenuItem>().ToArray();
+                Assert.AreEqual(
+                    3,
+                    menu.Items.Count,
+                    ".NET 8's stock plain-TextBox menu is exactly Cut, Copy and Paste, with no " +
+                    "additional commands or separators.");
+                CollectionAssert.AreEqual(
+                    new object[] { ApplicationCommands.Cut, ApplicationCommands.Copy, ApplicationCommands.Paste },
+                    items.Select(item => item.Command).ToArray(),
+                    "Replacing WPF's private menu must retain the standard editing commands.");
+
+                foreach (MenuItem item in items)
+                {
+                    Assert.AreEqual(
+                        typeof(MenuItem),
+                        item.GetType(),
+                        "Editor commands must use the public MenuItem type that the theme styles.");
+                    Assert.AreSame(
+                        theme[typeof(MenuItem)],
+                        item.Style,
+                        "Every real editor command must resolve the implicit dark MenuItem style.");
+                    Assert.AreSame(
+                        textBox,
+                        item.CommandTarget,
+                        "Cut, Copy and Paste must still target the TextBox across the popup tree.");
+                }
+
+                menu.IsOpen = false;
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+    /// <summary>
+    /// ComboBox owns keyboard focus; its template ToggleButton is only a mouse hit target.
+    /// Leaving that child focusable inserts a second Tab stop for every ComboBox.
+    /// </summary>
+    [TestMethod]
+    public void ComboBoxTemplateContributesExactlyOneKeyboardTabStop() => OnStaThread(() =>
+    {
+        ResourceDictionary theme = LoadTheme();
+        var before = new Button { Content = "Before" };
+        var comboBox = new ComboBox
+        {
+            ItemsSource = new[] { "Alpha", "Beta" },
+            SelectedIndex = 0
+        };
+        var after = new Button { Content = "After" };
+        var panel = new StackPanel();
+        _ = panel.Children.Add(before);
+        _ = panel.Children.Add(comboBox);
+        _ = panel.Children.Add(after);
+
+        var window = new Window
+        {
+            Width = 280,
+            Height = 180,
+            Content = panel,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false
+        };
+        window.Resources.MergedDictionaries.Add(theme);
+
+        try
+        {
+            window.Show();
+            _ = window.Activate();
+            window.UpdateLayout();
+            _ = comboBox.ApplyTemplate();
+
+            var toggle = comboBox.Template.FindName("DropDownToggle", comboBox) as ToggleButton;
+            Assert.IsNotNull(toggle, "The ComboBox template must expose its drop-down toggle.");
+            Assert.IsFalse(toggle!.Focusable, "The template toggle must not steal keyboard focus.");
+            Assert.IsFalse(toggle.IsTabStop, "The template toggle must not add a second Tab stop.");
+            Assert.AreEqual(
+                ClickMode.Press,
+                toggle.ClickMode,
+                "The popup should open on the standard ComboBox press gesture.");
+
+            Assert.IsTrue(before.Focus(), "The focus probe could not focus its leading control.");
+            Assert.IsTrue(
+                before.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next)),
+                "Tab navigation could not move from the leading control.");
+            Assert.AreSame(comboBox, Keyboard.FocusedElement, "The ComboBox must be the next Tab stop.");
+            Assert.IsTrue(
+                comboBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next)),
+                "Tab navigation could not move past the ComboBox.");
+            Assert.AreSame(
+                after,
+                Keyboard.FocusedElement,
+                "Tab must leave the ComboBox in one step instead of stopping on its template child.");
+        }
+        finally
+        {
+            window.Close();
+        }
     });
 
     [TestMethod]
