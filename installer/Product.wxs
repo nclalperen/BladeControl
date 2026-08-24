@@ -87,6 +87,7 @@
     <Feature Id="Main" Title="BladeControl" Level="1" AllowAbsent="no" AllowAdvertise="no">
       <ComponentGroupRef Id="UiFiles" />
       <ComponentGroupRef Id="RuntimeFiles" />
+      <ComponentGroupRef Id="CliFiles" />
       <ComponentGroupRef Id="ProductComponents" />
     </Feature>
 
@@ -98,12 +99,14 @@
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="BladeControl">
         <!--
-          The runtime service lives in its own subdirectory. Both executables are published
-          self-contained, so a single flat folder would collide on ~240 identical runtime
-          assemblies; separate trees keep each app's dependency closure exactly as published
-          and verified.
+          The runtime service and diagnostic CLI live in their own subdirectories. All three
+          executables are published self-contained, so a single flat folder would collide on
+          ~240 identical runtime assemblies; separate trees keep each app's dependency closure
+          exactly as published and verified. "Diagnostics" names the CLI's user-facing purpose
+          without implying that the installer placed it on the machine-wide PATH.
         -->
         <Directory Id="RUNTIMEFOLDER" Name="Runtime" />
+        <Directory Id="CLIFOLDER" Name="Diagnostics" />
       </Directory>
     </StandardDirectory>
 

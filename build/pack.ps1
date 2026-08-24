@@ -7,7 +7,7 @@
     assets attached to a GitHub Release are built the same way they were built locally.
 
     Produces, under artifacts/:
-        publish/ui, publish/service   self-contained x64 trees
+        publish/ui, publish/service, publish/cli   self-contained x64 trees
         BladeControl-<v>-win-x64.msi  the installer
         BladeControl-<v>-win-x64-portable.zip
         BladeControl-<v>-win-x64-symbols.zip
@@ -104,6 +104,11 @@ Write-Step 'Publishing BladeControl.Service (self-contained x64)'
     @publishArgs -o (Join-Path $publishRoot 'service')
 if ($LASTEXITCODE -ne 0) { throw 'Service publish failed.' }
 
+Write-Step 'Publishing BladeControl.Cli (self-contained x64)'
+& dotnet publish (Join-Path $repoRoot 'src/BladeControl.Cli/BladeControl.Cli.csproj') `
+    @publishArgs -o (Join-Path $publishRoot 'cli')
+if ($LASTEXITCODE -ne 0) { throw 'CLI publish failed.' }
+
 # --- Guard against shipping development or test artifacts ---------------------------------
 Write-Step 'Auditing publish output'
 $forbidden = Get-ChildItem -Recurse -File $publishRoot | Where-Object {
@@ -113,13 +118,17 @@ if ($forbidden) {
     $forbidden | ForEach-Object { Write-Host "  UNEXPECTED: $($_.FullName)" -ForegroundColor Red }
     throw 'Test or development artifacts found in publish output.'
 }
-foreach ($required in @('ui/BladeControl.UI.exe', 'service/BladeControl.Service.exe')) {
+foreach ($required in @(
+    'ui/BladeControl.UI.exe',
+    'service/BladeControl.Service.exe',
+    'cli/BladeControl.Cli.exe')) {
     if (-not (Test-Path (Join-Path $publishRoot $required))) {
         throw "Publish output is missing $required."
     }
 }
 Write-Host ('  ui:      {0} files' -f (Get-ChildItem -File (Join-Path $publishRoot 'ui')).Count)
 Write-Host ('  service: {0} files' -f (Get-ChildItem -File (Join-Path $publishRoot 'service')).Count)
+Write-Host ('  cli:     {0} files' -f (Get-ChildItem -File (Join-Path $publishRoot 'cli')).Count)
 
 # --- Separate symbols so the installer ships binaries only --------------------------------
 Write-Step 'Collecting symbols'
@@ -142,6 +151,8 @@ New-Item -ItemType Directory -Force -Path $portableStage | Out-Null
 Copy-Item -Recurse (Join-Path $publishRoot 'ui/*') $portableStage
 New-Item -ItemType Directory -Force -Path (Join-Path $portableStage 'Runtime') | Out-Null
 Copy-Item -Recurse (Join-Path $publishRoot 'service/*') (Join-Path $portableStage 'Runtime')
+New-Item -ItemType Directory -Force -Path (Join-Path $portableStage 'Diagnostics') | Out-Null
+Copy-Item -Recurse (Join-Path $publishRoot 'cli/*') (Join-Path $portableStage 'Diagnostics')
 Copy-Item (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') $portableStage
 # GPL-3.0 requires the licence text to accompany the binaries it covers.
 Copy-Item (Join-Path $repoRoot 'LICENSE') (Join-Path $portableStage 'LICENSE.txt')

@@ -251,8 +251,10 @@ release cycle for a layering improvement with no safety consequence.
 - **Recovery from an emergency handoff is deliberate.** The runtime latches and will not resume
   on its own; a person restarts it. This is intentional — an automatic retry after a thermal
   emergency is how you get a loop.
-- The MSI installs the service and the GUI. The diagnostic CLI is currently built from source
-  and not shipped, so field diagnosis of an installed machine needs the repository.
+- The MSI installs the service, GUI and diagnostic CLI. The portable archive also carries the
+  CLI under `Diagnostics\`; neither package adds it to the machine-wide `PATH`. The shipped
+  command surface is not read-only: it includes direct hardware writes and self-tests as well
+  as status and diagnostic commands.
 
 ---
 
@@ -266,6 +268,7 @@ release cycle for a layering improvement with no safety consequence.
   needs the mode changed from *outside* a running session — a keyboard shortcut or vendor
   software — which cannot be produced from here, because the ownership gate correctly refuses a
   second writer while the runtime holds the fans. Unit-tested only.
-- The portable zip has been unpacked and both executables launched, but only on a machine that
-  already had the MSI installed. It has not been run on a clean machine, so nothing here proves
-  it is free of a dependency the installed product happened to satisfy.
+- The portable zip's UI and runtime executables have been launched, but only on a machine that
+  already had the MSI installed. The newly added CLI has had its `--help` path exercised from
+  the publish tree, not from an unpacked archive on a clean machine. Nothing here proves any of
+  the three applications is free of a dependency the installed product happened to satisfy.

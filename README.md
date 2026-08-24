@@ -110,6 +110,8 @@ single elevation prompt. That installs:
 - the application under `%ProgramFiles%\BladeControl\`;
 - the **BladeControl Runtime** Windows service, started automatically with Windows (delayed
   start, so hardware initialisation does not compete with the boot storm);
+- the diagnostic CLI under `%ProgramFiles%\BladeControl\Diagnostics\` (the installer does not
+  add it to the machine-wide `PATH`);
 - a Start Menu shortcut and normal Installed Apps metadata;
 - sign-in launch for the installing user, which can be turned off in the panel's Settings or
   from Task Manager's Startup tab.

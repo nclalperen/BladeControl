@@ -27,11 +27,21 @@ BladeControl/
     BladeControl.UI.exe          user interface (no elevation required)
     Runtime/
         BladeControl.Service.exe runtime host — owns all hardware access
+    Diagnostics/
+        BladeControl.Cli.exe     diagnostic and development command line
     THIRD-PARTY-NOTICES.md
     README-PORTABLE.md           this file
 ```
 
-Both trees are self-contained x64 builds; no .NET runtime installation is required.
+All three application trees are self-contained x64 builds; no .NET runtime installation is
+required. They stay separate because flattening self-contained applications would make their
+dependency files collide.
+
+The CLI is not a read-only viewer. Alongside status and diagnostic commands, it contains direct
+hardware writes, thermal-session operations and hardware self-tests. Shipping the portable
+archive does not restrict that development surface. Inspect the output of
+`Diagnostics\BladeControl.Cli.exe --help` before using it, and invoke write-capable commands only
+deliberately.
 
 ## Running the runtime in the foreground
 
