@@ -178,7 +178,11 @@ public sealed class ShellViewModel : ObservableObject, IDisposable, IAsyncDispos
             ? StatusTone.Warning
             : StatusTone.Danger;
 
-    public string RuntimeStateLabel => Connection.RuntimeStateName ?? "No state";
+    public string RuntimeStateLabel => Display.SessionObservation(
+        Connection.IsOnline,
+        Connection.RuntimeStateName) == SessionObservationScope.LastReported
+        ? $"Last reported · {Connection.RuntimeStateName}"
+        : Display.Text(Connection.RuntimeStateName);
 
     public bool HasConnectionNotice => IsDesignPreview ||
         Connection.State != RuntimeConnectionState.Online ||

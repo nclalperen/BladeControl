@@ -336,7 +336,8 @@ public sealed class CompactControlTests
             fake.Status = RuntimeUiSampleData.Status(
                 state: "Stopped",
                 scheduler: RuntimeUiSampleData.Scheduler(completedCycles: 0),
-                schedulerHealth: "Healthy");
+                schedulerHealth: "Healthy",
+                health: new TelemetryHealthDto("Healthy", "Last read succeeded.", true));
         });
         using var compact = new CompactControlViewModel(shell);
         try
@@ -345,6 +346,17 @@ public sealed class CompactControlTests
             Assert.AreEqual("SCHEDULER", shell.Dashboard.SchedulerLabel);
             StringAssert.Contains(shell.Dashboard.SchedulerHealth, "No thermal session");
             Assert.AreNotEqual("Healthy", shell.Dashboard.SchedulerHealth);
+            Assert.AreEqual("TELEMETRY", shell.Dashboard.TelemetryLabel);
+            Assert.AreEqual(Display.NoSessionTelemetry, shell.Dashboard.TelemetryHealth);
+            Assert.AreEqual(
+                Display.NoSessionTelemetryDetail,
+                shell.Dashboard.TelemetryHealthDetail);
+            Assert.AreEqual(StatusTone.Muted, shell.Dashboard.TelemetryHealthTone);
+            Assert.AreEqual(Display.NoSessionTelemetry, shell.FansThermal.TelemetryHealth);
+            Assert.AreEqual(
+                Display.NoSessionTelemetryDetail,
+                shell.FansThermal.TelemetryHealthDetail);
+            Assert.AreEqual(StatusTone.Muted, shell.FansThermal.TelemetryHealthTone);
         }
         finally
         {
@@ -425,7 +437,7 @@ public sealed class CompactControlTests
         }
     }
 
-    /// <summary>A fixed target is shown as a target, never as a measured speed.</summary>
+    /// <summary>An unapplied fixed target is shown as a selection, never current fan state.</summary>
     [TestMethod]
     public async Task FixedModeLabelsTheNumberAsATargetNotASpeed()
     {
@@ -438,7 +450,7 @@ public sealed class CompactControlTests
 
             Assert.AreEqual("FAN", compact.FanHeading);
             StringAssert.Contains(compact.FanValue, "3");
-            Assert.AreEqual("target", compact.FanCaption);
+            Assert.AreEqual("selected target · not applied", compact.FanCaption);
             Assert.IsFalse(
                 compact.FanCaption.Contains("RPM", StringComparison.OrdinalIgnoreCase),
                 "No measured-speed claim: nothing here is a tachometer reading.");

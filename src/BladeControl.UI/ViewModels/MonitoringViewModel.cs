@@ -91,6 +91,7 @@ public sealed class MonitoringViewModel : PageViewModel
     private readonly TelemetryHistory _history;
     private int _windowSeconds = 120;
     private bool _presentationActive;
+    private TelemetryOrigin _latestAcceptedOrigin;
 
     public MonitoringViewModel(
         RuntimeConnection connection,
@@ -193,12 +194,16 @@ public sealed class MonitoringViewModel : PageViewModel
     public string SampleCountLabel =>
         $"{_history.SampleCount} samples retained (nothing written to disk)";
 
-    public string SourceLabel => Connection.TelemetryOrigin switch
+    public string SourceLabel => _latestAcceptedOrigin switch
     {
-        TelemetryOrigin.ThermalSession => "Source: authoritative thermal-session samples",
-        TelemetryOrigin.ProviderSample => "Source: provider-only Runtime Core samples",
-        TelemetryOrigin.DiagnosticSnapshot => "Source: on-demand diagnostic acquisitions",
-        _ => "Source: waiting for the first runtime sample"
+        TelemetryOrigin.ThermalSession =>
+            "Latest sample: authoritative thermal-session sample",
+        TelemetryOrigin.ProviderSample =>
+            "Latest sample: provider-only Runtime Core sample",
+        TelemetryOrigin.DiagnosticSnapshot =>
+            "Latest sample: on-demand diagnostic acquisition",
+        _ when _history.SampleCount > 0 => "Latest sample: source unavailable",
+        _ => "Latest sample: waiting for the first runtime sample"
     };
 
     public bool IsStale => !Connection.IsOnline || Connection.IsTelemetryStale;
@@ -210,9 +215,9 @@ public sealed class MonitoringViewModel : PageViewModel
     public void Clear()
     {
         _history.Clear();
+        _latestAcceptedOrigin = TelemetryOrigin.None;
         InvalidateCharts();
-        Raise(nameof(SampleCount));
-        Raise(nameof(SampleCountLabel));
+        RaiseAll(nameof(SourceLabel), nameof(SampleCount), nameof(SampleCountLabel));
     }
 
     public override void Refresh() =>
@@ -238,15 +243,30 @@ public sealed class MonitoringViewModel : PageViewModel
     /// <summary>Records a sample. Public so tests can drive history without a live runtime.</summary>
     public void Append(ThermalTelemetrySampleDto sample)
     {
-        if (!_history.Append(sample, Connection.Status?.CurrentEffectiveFanTargetRpm))
+        // Telemetry continues outside a session, but a target retained by a transition or
+        // terminal safety state is not current. Store a gap rather than extending that last
+        // command across the chart after firmware took over or ownership became uncertain.
+        int? currentTarget = Display.HasCurrentFanTarget(
+            Connection.IsOnline,
+            Connection.RuntimeStateName,
+            Connection.Status?.CurrentProfile)
+            ? Connection.Status?.CurrentEffectiveFanTargetRpm
+            : null;
+        if (!_history.Append(sample, currentTarget))
         {
             return;
         }
 
+        // TelemetryOrigin describes the connection's most recent response, which may be a
+        // duplicate or delayed sample that history deliberately refused. Capture it only after
+        // the point is accepted so the provenance label describes the chart rather than a
+        // response that never reached it.
+        _latestAcceptedOrigin = Connection.TelemetryOrigin;
+
         if (_presentationActive)
         {
             InvalidateCharts();
-            RaiseAll(nameof(SampleCount), nameof(SampleCountLabel));
+            RaiseAll(nameof(SourceLabel), nameof(SampleCount), nameof(SampleCountLabel));
         }
     }
 

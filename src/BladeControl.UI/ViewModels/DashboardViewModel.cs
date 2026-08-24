@@ -17,7 +17,7 @@ public sealed class DashboardViewModel : PageViewModel
             lifetime,
             "Dashboard",
             "Dashboard",
-            "Live machine state reported by Runtime Core",
+            "Machine state reported by Runtime Core",
             Icons.Dashboard)
     {
         _performance = performance ?? throw new ArgumentNullException(nameof(performance));
@@ -93,50 +93,109 @@ public sealed class DashboardViewModel : PageViewModel
         _ => StatusTone.Danger
     };
 
-    public string RuntimeState => Display.Text(Connection.RuntimeStateName);
+    public string RuntimeState => !Connection.IsOnline &&
+        !string.IsNullOrWhiteSpace(Connection.RuntimeStateName)
+        ? $"Last reported · {Connection.RuntimeStateName}"
+        : Display.Text(Connection.RuntimeStateName);
 
-    public StatusTone RuntimeStateTone => Display.RuntimeStateTone(Connection.RuntimeStateName);
+    public StatusTone RuntimeStateTone => Connection.IsOnline
+        ? Display.RuntimeStateTone(Connection.RuntimeStateName)
+        : StatusTone.Muted;
 
-    public string RuntimeStateDescription =>
-        Display.RuntimeStateDescription(Connection.RuntimeStateName);
+    public string RuntimeStateDescription => !Connection.IsOnline
+        ? string.IsNullOrWhiteSpace(Connection.RuntimeStateName)
+            ? "Runtime Core is offline; no runtime state has been reported."
+            : "Runtime Core is offline; this is the last state it reported."
+        : Display.RuntimeStateDescription(
+            Connection.RuntimeStateName,
+            Status?.CurrentProfile);
 
     /// <summary>True when the runtime has served no thermal session since it started.</summary>
     /// <remarks>
     /// Distinct from stopped. A stopped runtime that ran a session has a last session to report;
     /// one that has never run a session does not, and labelling its zeroes "LAST SESSION
-    /// SCHEDULER ... Healthy" describes a session that never happened. The completed-cycle count
-    /// is the marker: a session that ran produced cycles.
+    /// SCHEDULER ... Healthy" describes a session that never happened. Active transition/state,
+    /// SessionId, and completed cycles are all evidence: the latter retains compatibility with
+    /// a status that has measurements but no ID.
     /// </remarks>
-    public bool HasNoSessionHistory => Status?.Scheduler is null ||
-        Status.Scheduler.CompletedCycles == 0;
+    public bool HasNoSessionHistory => Status is not null &&
+        !Display.HasThermalSessionEvidence(Status);
 
-    public string SchedulerHealth => HasNoSessionHistory
-        ? "No thermal session since the runtime started"
-        : Display.Text(Status?.SchedulerHealth);
+    public string SchedulerHealth => Status is null
+        ? Display.Unavailable
+        : HasNoSessionHistory
+        ? Observation == SessionObservationScope.LastReported
+            ? "Last reported · no thermal session since runtime start"
+            : "No thermal session since the runtime started"
+        : !HasSchedulerMeasurements
+            ? "No scheduler cycle has completed yet"
+            : Display.Text(Status?.SchedulerHealth);
 
     public string SchedulerLabel => HasNoSessionHistory
-        ? "SCHEDULER"
-        : IsStopped ? "LAST SESSION SCHEDULER" : "SCHEDULER";
+        ? Observation == SessionObservationScope.LastReported
+            ? "LAST REPORTED SCHEDULER"
+            : "SCHEDULER"
+        : Observation switch
+        {
+            SessionObservationScope.Current => "SCHEDULER",
+            SessionObservationScope.Starting => "SCHEDULER · SESSION STARTING",
+            SessionObservationScope.Stopping => "SCHEDULER · SESSION STOPPING",
+            SessionObservationScope.LastReported => "LAST REPORTED SCHEDULER",
+            SessionObservationScope.LastSession => "LAST SESSION SCHEDULER",
+            _ => "SCHEDULER"
+        };
 
-    public StatusTone SchedulerHealthTone => HasNoSessionHistory || IsStopped
+    public StatusTone SchedulerHealthTone =>
+        Status is null || HasNoSessionHistory || !HasSchedulerMeasurements ||
+        Observation != SessionObservationScope.Current
         ? StatusTone.Muted
         : Display.SchedulerTone(Status?.SchedulerHealth);
 
-    public string TelemetryHealth => Status?.TelemetryHealth is { } health
+    public string TelemetryHealth => Status is null
+        ? Display.Unavailable
+        : HasNoSessionHistory
+        ? Observation == SessionObservationScope.LastReported
+            ? Display.LastReportedNoSessionTelemetry
+            : Display.NoSessionTelemetry
+        : Status?.TelemetryHealth is { } health
         ? health.IsHealthy ? "Healthy" : health.Kind
         : Display.Unavailable;
 
-    public string? TelemetryHealthDetail => Status?.TelemetryHealth?.Reason;
+    public string? TelemetryHealthDetail => Status is null
+        ? null
+        : HasNoSessionHistory
+        ? Observation == SessionObservationScope.LastReported
+            ? Display.LastReportedNoSessionTelemetryDetail
+            : Display.NoSessionTelemetryDetail
+        : Status?.TelemetryHealth?.Reason;
 
-    public string TelemetryLabel => IsStopped ? "LAST SESSION TELEMETRY" : "TELEMETRY";
+    public string TelemetryLabel => HasNoSessionHistory
+        ? Observation == SessionObservationScope.LastReported
+            ? "LAST REPORTED TELEMETRY"
+            : "TELEMETRY"
+        : Observation switch
+        {
+            SessionObservationScope.Current => "TELEMETRY",
+            SessionObservationScope.Starting => "TELEMETRY · SESSION STARTING",
+            SessionObservationScope.Stopping => "TELEMETRY · SESSION STOPPING",
+            SessionObservationScope.LastReported => "LAST REPORTED TELEMETRY",
+            SessionObservationScope.LastSession => "LAST SESSION TELEMETRY",
+            _ => "TELEMETRY"
+        };
 
-    public StatusTone TelemetryHealthTone => IsStopped
+    public StatusTone TelemetryHealthTone => Status is null || HasNoSessionHistory ||
+        Observation != SessionObservationScope.Current
         ? StatusTone.Muted
         : Display.HealthTone(Status?.TelemetryHealth);
 
-    public string ThermalSession => Display.ThermalSession(Connection.RuntimeStateName);
+    public string ThermalSession => !Connection.IsOnline &&
+        !string.IsNullOrWhiteSpace(Connection.RuntimeStateName)
+        ? $"Last reported · {Display.ThermalSession(Connection.RuntimeStateName)}"
+        : Display.ThermalSession(Connection.RuntimeStateName);
 
-    public StatusTone ThermalSessionTone => Display.RuntimeStateTone(Connection.RuntimeStateName);
+    public StatusTone ThermalSessionTone => Connection.IsOnline
+        ? Display.RuntimeStateTone(Connection.RuntimeStateName)
+        : StatusTone.Muted;
 
     public string SessionId => Status?.SessionId is { } id
         ? id.ToString("D")
@@ -144,65 +203,54 @@ public sealed class DashboardViewModel : PageViewModel
 
     /// <summary>Freshness label. Stale telemetry is never presented as live.</summary>
     public string TelemetryFreshness
+        => TelemetryFreshnessPresentation.Text;
+
+    public StatusTone TelemetryFreshnessTone => TelemetryFreshnessPresentation.Tone;
+
+    // Cooling ---------------------------------------------------------------
+    public string FanTarget => Display.HasCurrentFanTarget(
+        Connection.IsOnline,
+        Connection.RuntimeStateName,
+        Status?.CurrentProfile)
+        ? Display.Rpm(Status?.CurrentEffectiveFanTargetRpm)
+        : Display.Unavailable;
+
+    public string FanTargetDetail
     {
         get
         {
-            if (Telemetry is null)
+            if (!Display.HasCurrentFanTarget(
+                    Connection.IsOnline,
+                    Connection.RuntimeStateName,
+                    Status?.CurrentProfile))
             {
-                return "No telemetry yet";
+                if (!Connection.IsOnline)
+                {
+                    return "No current target — Runtime Core is offline.";
+                }
+
+                return Connection.RuntimeStateName switch
+                {
+                    "EmergencyHandoff" =>
+                        "No current target — firmware Auto owns cooling.",
+                    "Faulted" =>
+                        "No current target — cooling ownership is uncertain; check Diagnostics.",
+                    "Starting" or "Stopping" =>
+                        "No current target is shown while cooling ownership is changing.",
+                    _ => "No current fan target is available."
+                };
             }
 
-            if (IsStopped && Connection.IsTelemetryStale)
+            if (Status?.CurrentEffectiveFanTargetRpm is not null)
             {
-                return "Last session telemetry · Stopped";
+                return "Target commanded by Runtime Core.";
             }
 
-            if (!Connection.IsOnline)
-            {
-                return "Last known — Runtime Core offline";
-            }
-
-            TimeSpan? age = Connection.TelemetryAge;
-            if (Connection.IsTelemetryStale)
-            {
-                return age is { } value
-                    ? $"Stale — {value.TotalSeconds:0} s old"
-                    : "Stale";
-            }
-
-            // A fresh sample without a running session is a monitoring read, not a live
-            // session, and saying "Live" beside a runtime state of "Stopped" reads as though
-            // BladeControl were still driving the fans. The age is still reported because it is
-            // true and useful; only the claim changes. "Monitoring" is the word the compact
-            // panel already uses for this exact state, so the two surfaces agree.
-            if (!Display.IsLiveSession(Connection.RuntimeStateName))
-            {
-                return age is { } idle
-                    ? $"Monitoring — {idle.TotalSeconds:0} s old"
-                    : "Monitoring";
-            }
-
-            // Where a live sample came from is real information, but it is engineering
-            // vocabulary: "provider-only sample" tells a user nothing they can act on, and the
-            // distinction between acquisition routes is a debugging concern. The dashboard
-            // answers is-it-live and how-old; Diagnostics carries the provenance.
-            return age is { } live
-                ? $"Live — {live.TotalSeconds:0} s old"
-                : "Live";
+            return Display.IsLiveSession(Connection.RuntimeStateName)
+                ? "Runtime Core has not reported a commanded target."
+                : "Runtime Core reports a Fixed profile but no commanded target.";
         }
     }
-
-    public StatusTone TelemetryFreshnessTone => Telemetry is null
-        ? StatusTone.Muted
-        : !Display.IsLiveSession(Connection.RuntimeStateName) ? StatusTone.Muted
-        : Connection.IsTelemetryStale ? StatusTone.Warning : StatusTone.Good;
-
-    // Cooling ---------------------------------------------------------------
-    public string FanTarget => Display.Rpm(Status?.CurrentEffectiveFanTargetRpm);
-
-    public string FanTargetDetail => Status?.CurrentEffectiveFanTargetRpm is null
-        ? "No commanded target — firmware Auto owns the fans."
-        : "Target commanded by Runtime Core.";
 
     /// <summary>
     /// Firmware fan mode as reported by the last Razer watchdog check. This is the
@@ -224,17 +272,27 @@ public sealed class DashboardViewModel : PageViewModel
         }
     }
 
-    public string FirmwareFanModeLabel => IsStopped
-        ? "LAST WATCHDOG OBSERVATION"
-        : "FIRMWARE MODE";
+    public string FirmwareFanModeLabel => Status?.LastRazerWatchdogState is null ||
+        Observation == SessionObservationScope.Current
+        ? "FIRMWARE MODE"
+        : "LAST WATCHDOG OBSERVATION";
 
-    public string FirmwareFan1Value => Display.FirmwareFanValue(Connection.Fan?.Fan1Rpm ?? 0);
+    public string FirmwareFan1Value => Display.HasCurrentCoolingSnapshot(
+        Connection.IsOnline,
+        Connection.RuntimeStateName)
+        ? Display.FirmwareFanValue(Connection.Fan?.Fan1Rpm ?? 0)
+        : Display.Unavailable;
 
-    public string FirmwareFan2Value => Display.FirmwareFanValue(Connection.Fan?.Fan2Rpm ?? 0);
+    public string FirmwareFan2Value => Display.HasCurrentCoolingSnapshot(
+        Connection.IsOnline,
+        Connection.RuntimeStateName)
+        ? Display.FirmwareFanValue(Connection.Fan?.Fan2Rpm ?? 0)
+        : Display.Unavailable;
 
     // Performance -----------------------------------------------------------
-    public string PerformanceMode =>
-        Display.Text(Connection.Performance?.Mode.Zone1PerformanceMode);
+    public string PerformanceMode => !Connection.IsOnline && Connection.Performance is not null
+        ? $"Last reported · {Display.Text(Connection.Performance.Mode.Zone1PerformanceMode)}"
+        : Display.Text(Connection.Performance?.Mode.Zone1PerformanceMode);
 
     public string CpuPerformanceLevel => Display.Text(Connection.Performance?.CpuLevel);
 
@@ -266,53 +324,9 @@ public sealed class DashboardViewModel : PageViewModel
     public bool HasStartBlockedReason => !string.IsNullOrEmpty(StartBlockedReason);
 
     /// <summary>Set when Runtime Core reports an emergency handoff or a fault.</summary>
-    public string? RuntimeAlert
-    {
-        get
-        {
-            if (Status is null)
-            {
-                return null;
-            }
+    public string? RuntimeAlert => RuntimeAlertPresentation.Text;
 
-            if (!string.IsNullOrWhiteSpace(Status.EmergencyStatus))
-            {
-                return $"Emergency handoff: {Status.EmergencyStatus}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(Status.LastFailureReason))
-            {
-                return $"Runtime failure: {Status.LastFailureReason}";
-            }
-
-            // A refused start is deliberately not an alert. It is already reported by the
-            // operation that was refused, in that operation's own status message, and the
-            // runtime is Stopped and healthy. Raising a second banner for it duplicated the
-            // text and called a safe refusal a failure.
-
-            if (string.Equals(Status.State, "EmergencyHandoff", StringComparison.Ordinal))
-            {
-                // Say what happened, that the machine is safe, and what to do — in that order.
-                // The previous wording described the handoff as still happening, which is both
-                // untrue by the time this state is reported and needlessly alarming. The
-                // "Emergency handoff" lead is kept: it is the term users and support search for.
-                return "Emergency handoff: a thermal limit was reached and cooling was handed " +
-                    "back to firmware Auto. The machine is safe and firmware owns cooling. " +
-                    "The service is still running, but the thermal session has ended and " +
-                    "Dynamic will not resume by itself — start it again deliberately once the " +
-                    "machine has cooled.";
-            }
-
-            if (string.Equals(Status.State, "Faulted", StringComparison.Ordinal))
-            {
-                return "Runtime Core is faulted. Open Diagnostics before attempting recovery.";
-            }
-
-            return null;
-        }
-    }
-
-    public bool HasRuntimeAlert => !string.IsNullOrEmpty(RuntimeAlert);
+    public bool HasRuntimeAlert => RuntimeAlertPresentation.Text is not null;
 
     /// <summary>How loudly to render the alert. Not everything in this banner is a fault.</summary>
     /// <remarks>
@@ -323,18 +337,141 @@ public sealed class DashboardViewModel : PageViewModel
     /// this is the same distinction already drawn in <c>Display.EmergencyHandoff</c>.
     /// <para>A fault stays danger-red, because a fault is a fault.</para>
     /// </remarks>
-    public StatusTone RuntimeAlertTone =>
-        string.Equals(Status?.State, "EmergencyHandoff", StringComparison.Ordinal) &&
-        string.IsNullOrWhiteSpace(Status?.LastFailureReason)
-            ? StatusTone.Warning
-            : StatusTone.Danger;
+    public StatusTone RuntimeAlertTone => RuntimeAlertPresentation.Tone;
 
     private RuntimeStatusDto? Status => Connection.Status;
 
     private ThermalTelemetrySampleDto? Telemetry => Connection.Telemetry;
 
-    private bool IsStopped =>
-        string.Equals(Connection.RuntimeStateName, "Stopped", StringComparison.Ordinal);
+    private SessionObservationScope Observation => Display.SessionObservation(
+        Connection.IsOnline,
+        Connection.RuntimeStateName);
+
+    private bool IsHistoricalSession =>
+        Observation != SessionObservationScope.Current;
+
+    private bool HasSchedulerMeasurements =>
+        Status?.Scheduler is { CompletedCycles: > 0 };
+
+    private (string? Text, StatusTone Tone) RuntimeAlertPresentation
+    {
+        get
+        {
+            if (Status is null)
+            {
+                return (null, StatusTone.Muted);
+            }
+
+            if (!Connection.IsOnline)
+            {
+                if (!string.IsNullOrWhiteSpace(Status.EmergencyStatus))
+                {
+                    return ($"Last reported emergency handoff: {Status.EmergencyStatus} " +
+                        "Runtime Core is offline.", StatusTone.Muted);
+                }
+
+                if (!string.IsNullOrWhiteSpace(Status.LastFailureReason))
+                {
+                    return ($"Last reported runtime failure: {Status.LastFailureReason} " +
+                        "Runtime Core is offline.", StatusTone.Muted);
+                }
+
+                return Status.State switch
+                {
+                    "EmergencyHandoff" =>
+                        ("Last reported runtime state: Emergency handoff. Runtime Core is " +
+                            "offline.", StatusTone.Muted),
+                    "Faulted" =>
+                        ("Last reported runtime state: Faulted. Runtime Core is offline.",
+                            StatusTone.Muted),
+                    _ => (null, StatusTone.Muted)
+                };
+            }
+
+            if (!string.IsNullOrWhiteSpace(Status.EmergencyStatus))
+            {
+                StatusTone tone = Display.RuntimeStateTone(Status.State);
+                return ($"Emergency handoff: {Status.EmergencyStatus}",
+                    tone is StatusTone.Warning or StatusTone.Danger
+                        ? tone
+                        : StatusTone.Warning);
+            }
+
+            if (!string.IsNullOrWhiteSpace(Status.LastFailureReason))
+            {
+                return ($"Runtime failure: {Status.LastFailureReason}", StatusTone.Danger);
+            }
+
+            // A refused start is deliberately not an alert. It is already reported by the
+            // operation that was refused, in that operation's own status message, and the
+            // runtime is Stopped and healthy. Raising a second banner for it duplicated the
+            // text and called a safe refusal a failure.
+            return Status.State switch
+            {
+                // Say what happened, that the machine is safe, and what to do — in that order.
+                // This state is only reported after firmware Auto is verified.
+                "EmergencyHandoff" =>
+                    ("Emergency handoff: a thermal limit was reached and cooling was handed " +
+                        "back to firmware Auto. The machine is safe and firmware owns cooling. " +
+                        "The service is still running, but the thermal session has ended and " +
+                        "Dynamic will not resume by itself — start it again deliberately once " +
+                        "the machine has cooled.", Display.RuntimeStateTone(Status.State)),
+                "Faulted" =>
+                    ("Runtime Core is faulted. Open Diagnostics before attempting recovery.",
+                        Display.RuntimeStateTone(Status.State)),
+                _ => (null, StatusTone.Muted)
+            };
+        }
+    }
+
+    private (string Text, StatusTone Tone) TelemetryFreshnessPresentation
+    {
+        get
+        {
+            if (Telemetry is null)
+            {
+                return ("No telemetry yet", StatusTone.Muted);
+            }
+
+            if (!Connection.IsOnline)
+            {
+                return ("Last known — Runtime Core offline", StatusTone.Muted);
+            }
+
+            TimeSpan? age = Connection.TelemetryAge;
+            if (Connection.IsTelemetryStale)
+            {
+                if (IsHistoricalSession)
+                {
+                    return ($"Last known telemetry · " +
+                        $"{Display.ThermalSession(Connection.RuntimeStateName)}",
+                        StatusTone.Muted);
+                }
+
+                return (age is { } value
+                    ? $"Stale — {value.TotalSeconds:0} s old"
+                    : "Stale", StatusTone.Warning);
+            }
+
+            // A fresh sample without a running session is a monitoring read, not a live
+            // session. The age is still reported because it is true and useful; only the
+            // ownership claim changes. "Monitoring" is already used by the compact panel for
+            // this exact state, so the two surfaces keep one word for one fact.
+            if (IsHistoricalSession)
+            {
+                return (age is { } idle
+                    ? $"Monitoring — {idle.TotalSeconds:0} s old"
+                    : "Monitoring", StatusTone.Muted);
+            }
+
+            // Where a live sample came from is real information, but it is engineering
+            // vocabulary: the dashboard answers is-it-live and how-old; Diagnostics carries
+            // the provenance.
+            return (age is { } live
+                ? $"Live — {live.TotalSeconds:0} s old"
+                : "Live", StatusTone.Good);
+        }
+    }
 
     public override void Refresh()
     {
@@ -402,7 +539,7 @@ public sealed class DashboardViewModel : PageViewModel
             RuntimeStatusDto status = await client
                 .StartThermalControlAsync("default", token).ConfigureAwait(false);
             Connection.AcceptCommandStatus(status);
-            return string.Equals(status.State, "Running", StringComparison.Ordinal)
+            return Display.IsLiveSession(status.State)
                 ? RuntimeCommandOutcome.Ok(
                     "Dynamic cooling started on the built-in curve.")
                 : RuntimeCommandOutcome.Fail(

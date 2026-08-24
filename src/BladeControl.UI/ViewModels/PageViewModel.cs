@@ -5,7 +5,9 @@ namespace BladeControl.UI.ViewModels;
 
 public abstract class PageViewModel : ObservableObject
 {
+    private static long s_statusRevision;
     private string? _statusMessage;
+    private long _statusMessageRevision;
     private bool _statusIsError;
     private bool _isSelected;
 
@@ -66,12 +68,22 @@ public abstract class PageViewModel : ObservableObject
         get => _statusMessage;
         protected set
         {
-            if (Set(ref _statusMessage, value))
+            if (!string.Equals(_statusMessage, value, StringComparison.Ordinal))
             {
+                _statusMessage = value;
+                AdvanceStatusRevision();
+                Raise();
                 Raise(nameof(HasStatusMessage));
             }
         }
     }
+
+    /// <summary>
+    /// Application-wide presentation order for page operation messages. Compact mode projects
+    /// results from more than one page, so page priority cannot tell it which result happened
+    /// most recently.
+    /// </summary>
+    public long StatusMessageRevision => _statusMessageRevision;
 
     public bool StatusIsError
     {
@@ -95,8 +107,22 @@ public abstract class PageViewModel : ObservableObject
 
     public void ClearStatus()
     {
-        StatusMessage = null;
+        bool hadMessage = _statusMessage is not null;
+        _statusMessage = null;
+        AdvanceStatusRevision();
+        if (hadMessage)
+        {
+            Raise(nameof(StatusMessage));
+            Raise(nameof(HasStatusMessage));
+        }
+
         StatusIsError = false;
+    }
+
+    private void AdvanceStatusRevision()
+    {
+        _statusMessageRevision = Interlocked.Increment(ref s_statusRevision);
+        Raise(nameof(StatusMessageRevision));
     }
 
     /// <summary>
@@ -109,8 +135,11 @@ public abstract class PageViewModel : ObservableObject
         ClearStatus();
         RuntimeCommandOutcome outcome = await Connection
             .ExecuteAsync(command, Lifetime).ConfigureAwait(true);
-        StatusMessage = outcome.Message;
+        // Publish severity before making the message visible. CompactControlViewModel listens to
+        // each child notification; the opposite order briefly rendered a new failure in the
+        // previous success tone until the second notification arrived.
         StatusIsError = !outcome.Succeeded;
+        StatusMessage = outcome.Message;
         if (Connection.IsOnline)
         {
             await Connection.RefreshProfilesNowAsync(Lifetime).ConfigureAwait(true);

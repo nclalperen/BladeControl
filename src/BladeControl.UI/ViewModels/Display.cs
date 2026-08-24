@@ -13,10 +13,28 @@ public enum StatusTone
     Muted
 }
 
+/// <summary>How a cached session observation relates to the runtime now.</summary>
+public enum SessionObservationScope
+{
+    Unavailable,
+    Current,
+    Starting,
+    Stopping,
+    LastSession,
+    LastReported
+}
+
 /// <summary>Presentation helpers shared by the pages. Formatting only, no runtime logic.</summary>
 public static class Display
 {
     public const string Unavailable = "—";
+    public const string NoSessionTelemetry = "No session telemetry yet";
+    public const string NoSessionTelemetryDetail =
+        "The runtime has not run a thermal session since it started.";
+    public const string LastReportedNoSessionTelemetry =
+        "Last reported · no session telemetry yet";
+    public const string LastReportedNoSessionTelemetryDetail =
+        "Retained status snapshot; no session telemetry had been reported before disconnect.";
 
     public static string Metric(
         TelemetryMetricDto<double>? metric,
@@ -74,7 +92,6 @@ public static class Display
 
     public static StatusTone BooleanTone(bool value) => value ? StatusTone.Good : StatusTone.Danger;
 
-    /// <summary>Tone for a Runtime Core state name.</summary>
     /// <summary>
     /// Runtime state colouring, which distinguishes protection working from protection failing.
     /// </summary>
@@ -114,20 +131,98 @@ public static class Display
     public static bool IsLiveSession(string? state) =>
         string.Equals(state, "Running", StringComparison.Ordinal);
 
-    public static string RuntimeStateDescription(string? state) => state switch
-    {
-        "Stopped" => "Idle — firmware owns cooling.",
-        "Starting" => "Acquiring hardware ownership.",
-        "Running" => "Runtime Core owns cooling.",
-        "Stopping" => "Handing cooling back to firmware.",
-        // Not "in progress": the runtime only reports this state once the handoff is done and
-        // verified. Describing a completed, successful safety action as ongoing reads like the
-        // machine is still in trouble when it is already safe.
-        "EmergencyHandoff" =>
-            "Firmware Auto owns cooling after a thermal emergency. Restart to resume.",
-        "Faulted" => "Runtime Core faulted; check Diagnostics.",
-        _ => "Unknown runtime state."
-    };
+    /// <summary>Whether status contains evidence that a thermal session exists or existed.</summary>
+    public static bool HasThermalSessionEvidence(RuntimeStatusDto? status) => status is not null &&
+        (status.State is "Starting" or "Running" or "Stopping" ||
+            status.SessionId is not null ||
+            status.Scheduler is { CompletedCycles: > 0 });
+
+    /// <summary>
+    /// Classifies session-derived values without mistaking a retained state for a current one.
+    /// </summary>
+    /// <remarks>
+    /// RuntimeConnection deliberately keeps the last status snapshot when transport is lost.
+    /// State alone therefore cannot make an observation current: an offline snapshot whose
+    /// retained state says Running is still only the last thing the UI received. Starting and
+    /// Stopping are kept distinct because "not current" does not mean "the last session ended".
+    /// </remarks>
+    public static SessionObservationScope SessionObservation(
+        bool isOnline,
+        string? state) => string.IsNullOrWhiteSpace(state)
+            ? SessionObservationScope.Unavailable
+            : !isOnline
+            ? SessionObservationScope.LastReported
+            : state switch
+            {
+                "Running" => SessionObservationScope.Current,
+                "Starting" => SessionObservationScope.Starting,
+                "Stopping" => SessionObservationScope.Stopping,
+                "Stopped" or "Faulted" or "EmergencyHandoff" =>
+                    SessionObservationScope.LastSession,
+                _ => SessionObservationScope.Unavailable
+            };
+
+    /// <summary>Whether the Dynamic controls represent a session being acquired or running.</summary>
+    /// <remarks>
+    /// Starting belongs here so the UI does not offer a second start while ownership acquisition
+    /// is in progress. It deliberately does not belong to <see cref="IsLiveSession"/>: a
+    /// transition can be engaged without making its retained telemetry current.
+    /// </remarks>
+    public static bool IsDynamicSessionEngaged(bool isOnline, string? state) =>
+        isOnline && (state is "Starting" or "Running");
+
+    /// <summary>
+    /// Whether the runtime's effective target still describes a command that is in force.
+    /// </summary>
+    /// <remarks>
+    /// A target can be current while Running (dynamic control) or while authoritative status
+    /// identifies a standalone Fixed profile in Stopped. Starting and Stopping are ownership
+    /// transitions, while Faulted and
+    /// EmergencyHandoff can retain the last numeric target after cooling has become uncertain or
+    /// returned to firmware. Showing that retained number under a current-target heading would
+    /// turn history into state, so those cases deliberately render no target.
+    /// </remarks>
+    public static bool HasCurrentFanTarget(
+        bool isOnline,
+        string? state,
+        string? currentProfile) => isOnline &&
+        (state is "Running" ||
+            state is "Stopped" &&
+            string.Equals(currentProfile, "Fan/Fixed", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether an untimestamped direct fan/profile read may be shown as stable-state context.
+    /// </summary>
+    /// <remarks>
+    /// During Running it can lag the controller's authoritative target, and transitions or a
+    /// transport loss can retain it after ownership changes. Stable online Stopped is the only
+    /// state where pages without an explicit snapshot label may show it.
+    /// </remarks>
+    public static bool HasCurrentCoolingSnapshot(bool isOnline, string? state) =>
+        isOnline && state is "Stopped";
+
+    public static string RuntimeStateDescription(
+        string? state,
+        string? currentProfile = null) => state switch
+        {
+            // Stopped means there is no dynamic thermal session. It does not by itself identify
+            // fan ownership: the runtime deliberately supports a standalone Fixed profile while
+            // remaining Stopped. CurrentProfile is part of the authoritative status snapshot;
+            // the separately fetched fan profile has no timestamp and cannot prove ownership.
+            "Stopped" when string.Equals(currentProfile, "Fan/Fixed", StringComparison.Ordinal) =>
+                "Idle — Runtime Core holds a Fixed fan target.",
+            "Stopped" => "Idle — no dynamic thermal session.",
+            "Starting" => "Acquiring hardware ownership.",
+            "Running" => "Runtime Core owns cooling.",
+            "Stopping" => "Handing cooling back to firmware.",
+            // Not "in progress": the runtime only reports this state once the handoff is done and
+            // verified. Describing a completed, successful safety action as ongoing reads like the
+            // machine is still in trouble when it is already safe.
+            "EmergencyHandoff" =>
+                "Firmware Auto owns cooling after a thermal emergency. Restart to resume.",
+            "Faulted" => "Runtime Core faulted; check Diagnostics.",
+            _ => "Unknown runtime state."
+        };
 
     /// <summary>
     /// Thermal session presentation derived from the runtime state, kept separate from the

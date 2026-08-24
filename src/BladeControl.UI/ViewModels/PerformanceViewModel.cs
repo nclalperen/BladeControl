@@ -169,13 +169,22 @@ public sealed class PerformanceViewModel : PageViewModel
         ? $"Custom · CPU {_selectedCpuLevel} · GPU {_selectedGpuLevel}"
         : _selectedMode;
 
-    public string CurrentSummary => _hasCurrentState
-        ? !string.Equals(_currentMode, _currentZone2Mode, StringComparison.Ordinal)
-            ? $"Zone 1 {_currentMode} · Zone 2 {_currentZone2Mode}"
-            : string.Equals(_currentMode, "Custom", StringComparison.Ordinal)
-            ? $"Custom · CPU {_currentCpuLevel} · GPU {_currentGpuLevel}"
-            : _currentMode
-        : Display.Unavailable;
+    public string CurrentSummary
+    {
+        get
+        {
+            string summary = !_hasCurrentState
+                ? Display.Unavailable
+                : !string.Equals(_currentMode, _currentZone2Mode, StringComparison.Ordinal)
+                    ? $"Zone 1 {_currentMode} · Zone 2 {_currentZone2Mode}"
+                    : string.Equals(_currentMode, "Custom", StringComparison.Ordinal)
+                        ? $"Custom · CPU {_currentCpuLevel} · GPU {_currentGpuLevel}"
+                        : _currentMode;
+            return !Connection.IsOnline && _hasCurrentState
+                ? $"Last reported · {summary}"
+                : summary;
+        }
+    }
 
     public bool HasPendingChanges => _hasCurrentState &&
         (!string.Equals(_currentMode, _currentZone2Mode, StringComparison.Ordinal) ||

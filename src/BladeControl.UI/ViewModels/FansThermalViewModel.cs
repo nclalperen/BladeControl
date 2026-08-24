@@ -178,31 +178,56 @@ public sealed class FansThermalViewModel : PageViewModel
     public string FixedSummary => $"Fan 1 {_fan1Target:N0} RPM · Fan 2 {_fan2Target:N0} RPM";
 
     // Live state ------------------------------------------------------------
-    public string EffectiveFanTarget => Display.Rpm(Connection.Status?.CurrentEffectiveFanTargetRpm);
-
-    public string ActiveCurve => Display.Text(Connection.Status?.CurrentProfile);
-
-    public string ThermalSession => Display.ThermalSession(Connection.RuntimeStateName);
-
-    public StatusTone ThermalSessionTone => Display.RuntimeStateTone(Connection.RuntimeStateName);
-
-    public string TelemetryHealth => Connection.Status?.TelemetryHealth is { } health
-        ? health.IsHealthy ? "Healthy" : health.Kind
+    public string EffectiveFanTarget => Display.HasCurrentFanTarget(
+        Connection.IsOnline,
+        Connection.RuntimeStateName,
+        Connection.Status?.CurrentProfile)
+        ? Display.Rpm(Connection.Status?.CurrentEffectiveFanTargetRpm)
         : Display.Unavailable;
 
-    public string? TelemetryHealthDetail => Connection.Status?.TelemetryHealth?.Reason;
+    public string ActiveCurve => Display.HasCurrentFanTarget(
+        Connection.IsOnline,
+        Connection.RuntimeStateName,
+        Connection.Status?.CurrentProfile)
+        ? Display.Text(Connection.Status?.CurrentProfile)
+        : Display.Unavailable;
 
-    public StatusTone TelemetryHealthTone => Display.HealthTone(Connection.Status?.TelemetryHealth);
+    public string ThermalSession => !Connection.IsOnline &&
+        !string.IsNullOrWhiteSpace(Connection.RuntimeStateName)
+        ? $"Last reported · {Display.ThermalSession(Connection.RuntimeStateName)}"
+        : Display.ThermalSession(Connection.RuntimeStateName);
+
+    public StatusTone ThermalSessionTone => Connection.IsOnline
+        ? Display.RuntimeStateTone(Connection.RuntimeStateName)
+        : StatusTone.Muted;
+
+    public string TelemetryHealth => TelemetryHealthPresentation.Text;
+
+    public string? TelemetryHealthDetail => Connection.Status is null
+        ? null
+        : !Display.HasThermalSessionEvidence(Connection.Status)
+        ? Observation == SessionObservationScope.LastReported
+            ? Display.LastReportedNoSessionTelemetryDetail
+            : Display.NoSessionTelemetryDetail
+        : Connection.Status?.TelemetryHealth?.Reason;
+
+    public StatusTone TelemetryHealthTone => TelemetryHealthPresentation.Tone;
 
     /// <summary>
     /// The firmware's own fan report. The Razer 0x0D81 field has not been proven to be a
     /// physical tachometer, so it is labelled as a firmware-reported value throughout.
     /// </summary>
-    public string FirmwareFan1Value => Display.FirmwareFanValue(Connection.Fan?.Fan1Rpm ?? 0);
+    public string FirmwareFan1Value => HasCurrentCoolingSnapshot
+        ? Display.FirmwareFanValue(Connection.Fan?.Fan1Rpm ?? 0)
+        : Display.Unavailable;
 
-    public string FirmwareFan2Value => Display.FirmwareFanValue(Connection.Fan?.Fan2Rpm ?? 0);
+    public string FirmwareFan2Value => HasCurrentCoolingSnapshot
+        ? Display.FirmwareFanValue(Connection.Fan?.Fan2Rpm ?? 0)
+        : Display.Unavailable;
 
-    public string FirmwareFanMode => Display.Text(Connection.Fan?.Mode.Zone1FanMode);
+    public string FirmwareFanMode => HasCurrentCoolingSnapshot
+        ? Display.Text(Connection.Fan?.Mode.Zone1FanMode)
+        : Display.Unavailable;
 
     public string? ProfileBlockedReason => Connection.StaticProfileBlockedReason;
 
@@ -219,10 +244,12 @@ public sealed class FansThermalViewModel : PageViewModel
 
     public override void Refresh()
     {
-        if (!_modeInitialized && Connection.Fan is { } fan)
+        if (!_modeInitialized && Connection.IsOnline && Connection.Fan is { } fan)
         {
             _modeInitialized = true;
-            Mode = Connection.RuntimeStateName is "Running" or "Starting"
+            Mode = Display.IsDynamicSessionEngaged(
+                Connection.IsOnline,
+                Connection.RuntimeStateName)
                 ? CoolingMode.DynamicCurve
                 : string.Equals(fan.Mode.Zone1FanMode, "Auto", StringComparison.Ordinal)
                     ? CoolingMode.FirmwareAuto
@@ -306,7 +333,7 @@ public sealed class FansThermalViewModel : PageViewModel
             RuntimeStatusDto status = await client
                 .StartThermalControlAsync("default", token).ConfigureAwait(false);
             Connection.AcceptCommandStatus(status);
-            return string.Equals(status.State, "Running", StringComparison.Ordinal)
+            return Display.IsLiveSession(status.State)
                 ? RuntimeCommandOutcome.Ok("Dynamic cooling started on the built-in curve.")
                 : RuntimeCommandOutcome.Fail(
                     status.LastFailureReason ??
@@ -323,6 +350,53 @@ public sealed class FansThermalViewModel : PageViewModel
                 ? RuntimeCommandOutcome.Ok(result.Message)
                 : RuntimeCommandOutcome.Fail(result.Message);
         }).ConfigureAwait(true);
+
+    private (string Text, StatusTone Tone) TelemetryHealthPresentation
+    {
+        get
+        {
+            TelemetryHealthDto? health = Connection.Status?.TelemetryHealth;
+            if (Connection.Status is null)
+            {
+                return (Display.Unavailable, StatusTone.Muted);
+            }
+
+            if (!Display.HasThermalSessionEvidence(Connection.Status))
+            {
+                return Observation == SessionObservationScope.LastReported
+                    ? (Display.LastReportedNoSessionTelemetry, StatusTone.Muted)
+                    : (Display.NoSessionTelemetry, StatusTone.Muted);
+            }
+
+            if (health is null)
+            {
+                return (Display.Unavailable, StatusTone.Muted);
+            }
+
+            string text = health.IsHealthy ? "Healthy" : health.Kind;
+            return Observation switch
+            {
+                SessionObservationScope.Current => (text, Display.HealthTone(health)),
+                SessionObservationScope.Starting =>
+                    ($"Retained while session starts · {text}", StatusTone.Muted),
+                SessionObservationScope.Stopping =>
+                    ($"Retained while session stops · {text}", StatusTone.Muted),
+                SessionObservationScope.LastReported =>
+                    ($"Last reported · {text}", StatusTone.Muted),
+                SessionObservationScope.LastSession =>
+                    ($"Last session · {text}", StatusTone.Muted),
+                _ => (Display.Unavailable, StatusTone.Muted)
+            };
+        }
+    }
+
+    private SessionObservationScope Observation => Display.SessionObservation(
+        Connection.IsOnline,
+        Connection.RuntimeStateName);
+
+    private bool HasCurrentCoolingSnapshot => Display.HasCurrentCoolingSnapshot(
+        Connection.IsOnline,
+        Connection.RuntimeStateName);
 
     private static RuntimeCommandOutcome Describe(RuntimeCommandResultDto result, string success)
     {
