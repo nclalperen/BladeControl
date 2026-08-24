@@ -19,6 +19,13 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   after, and wall-clock time spent in acquisition fell from roughly 41% to 22%. Sessions are
   unaffected — a running session serves its own authoritative samples and never reached this
   path — and neither qualification nor the diagnostic snapshot nor the control loop share it.
+- **The IPC dispatcher could strand a linked cancellation source on the host token.** Starting a
+  session replaced the source without disposing what was there, and stopping one cleared it only
+  on the success path — the clear sat after two awaits and outside any `finally`, so a stop that
+  threw left a source behind for the next start to strand. A linked source registers a callback
+  on the token it links to, and the host token lives as long as the service, so each stranded
+  source stayed rooted for the life of a process meant to run for months. Both paths now dispose,
+  and the stop path clears in a `finally` and only clears the session it actually stopped.
 
 ## [0.1.3] — 2026-08-24
 

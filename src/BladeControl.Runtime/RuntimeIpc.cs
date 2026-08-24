@@ -228,6 +228,13 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
             }
 
             _runtime.StartThermalControl();
+
+            // A previous session's source can still be here when a stop failed partway through,
+            // and overwriting it would strand its registration on the host token. That token
+            // lives as long as the service does, so a linked source that is never disposed is
+            // never collected either — small, permanent, and accumulating across restarts of a
+            // session in a process designed to run for months.
+            _thermalCancellation?.Dispose();
             _thermalCancellation = CancellationTokenSource.CreateLinkedTokenSource(hostCancellation);
             _thermalTask = Task.Run(
                 async () => await _runtime.RunScheduledAsync(_thermalCancellation.Token)
@@ -249,17 +256,35 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
             cancellation?.Cancel();
         }
 
-        if (task is not null)
+        ThermalSessionResult? result;
+        try
         {
-            await task.ConfigureAwait(false);
-        }
+            if (task is not null)
+            {
+                await task.ConfigureAwait(false);
+            }
 
-        ThermalSessionResult? result = await _runtime.StopThermalControlAsync().ConfigureAwait(false);
-        lock (_sync)
+            result = await _runtime.StopThermalControlAsync().ConfigureAwait(false);
+        }
+        finally
         {
-            _thermalTask = null;
-            _thermalCancellation?.Dispose();
-            _thermalCancellation = null;
+            // In a finally because the session is over either way. Leaving the source behind on
+            // a failed stop is what allowed it to be overwritten and stranded later, and
+            // leaving the completed task behind makes a subsequent stop await a task belonging
+            // to a session that has already ended.
+            lock (_sync)
+            {
+                if (ReferenceEquals(_thermalTask, task))
+                {
+                    _thermalTask = null;
+                }
+
+                if (ReferenceEquals(_thermalCancellation, cancellation))
+                {
+                    _thermalCancellation?.Dispose();
+                    _thermalCancellation = null;
+                }
+            }
         }
 
         RuntimeStatus status = _runtime.GetStatus();
