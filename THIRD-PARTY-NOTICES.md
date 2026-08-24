@@ -85,7 +85,7 @@ LHM types. BladeControl's own relationship to PawnIO is limited to "is it instal
 signed, what version" — i.e. inspection of a system component, not use of its programming
 interfaces.
 
-**Why bundling is refused for v0.1.1.** Four independent reasons, any one sufficient:
+**Why bundling is refused for v0.1.3.** Four independent reasons, any one sufficient:
 
 - *Licence entanglement.* Redistributing PawnIO would make BladeControl a distributor of
   GPL-2.0 code, with the corresponding source-availability obligations, and would raise a

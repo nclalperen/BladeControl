@@ -250,7 +250,13 @@ public sealed class WindowsTelemetrySession : ITelemetryProvider, IControlTeleme
             GpuTemperatureSupported = gpu?.TemperatureCelsius.IsSupported == true,
             GpuThermalLimits = _gpuThermalLimits,
             GpuThermalLimitDiagnostic = _gpuThermalLimitDiagnostic,
-            GpuPowerSupported = gpu?.PowerWatts.IsSupported == true,
+            // Matches the CPU power test below rather than asking only whether the driver
+            // declined with NotSupported. NVML can answer a power query with a generic failure
+            // — observed as Unknown (999) from the LocalSystem service on this hardware while
+            // temperature and clocks answer normally — and IsSupported stays true through that,
+            // so Diagnostics reported "Power: Yes" for a value that never arrives. A capability
+            // flag has to mean "a reading is available", not "the driver did not rule it out".
+            GpuPowerSupported = gpu?.PowerWatts is { IsValid: true, HasValue: true },
             LibreHardwareMonitorVersion = _cpu?.LibraryVersion ??
             $"{PinnedLibreHardwareMonitorVersion} (provider unavailable)",
             PawnIoAvailable = _cpu?.PawnIoInstalled == true,

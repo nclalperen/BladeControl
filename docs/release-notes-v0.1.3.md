@@ -1,7 +1,7 @@
-# BladeControl v0.1.1 — release notes
+# BladeControl v0.1.3 — release notes
 
-First tagged release. Fan, performance and thermal control for the Razer Blade 16, as a Windows
-service that owns the hardware plus a desktop panel that talks to it over local IPC.
+Bug-fix release over v0.1.1. Fan, performance and thermal control for the Razer Blade 16, as a
+Windows service that owns the hardware plus a desktop panel that talks to it over local IPC.
 
 **Read [known limitations](known-limitations.md) before installing.** The short version: this is
 validated on exactly one laptop model, physical fan RPM is not available on that hardware, and
@@ -96,6 +96,29 @@ GPL-3.0. See [LICENSE](../LICENSE).
 The licence is conveyed with the binaries, as GPL-3.0 sections 4 through 6 require: the MSI
 installs `LICENSE.txt`, the portable zip carries it, and the installer's licence dialog presents
 the GPL text rather than a summary.
+
+---
+
+## Fixed in this release
+
+Four defects, all found by reading the shipped 0.1.1 interface against the hardware it was
+describing rather than by a crash report:
+
+- **Telemetry said "Live" while nothing was running.** The dashboard showed "Live — 1 s old"
+  beside a runtime state of "Stopped", on a machine where firmware owned the fans. The sample
+  genuinely was one second old — the interface polls while idle — but freshness and ownership
+  are different claims. Idle states now read "Monitoring"; the age is still shown.
+- **The compact panel had the same defect for the other states.** It special-cased Stopped
+  alone, so Faulted and EmergencyHandoff still claimed live telemetry after cooling had gone
+  back to firmware. Both surfaces now share one rule: only Running is live.
+- **Scrollbars and checkboxes were drawn by Windows, not by the theme.** Neither had ever been
+  templated, so a near-white system scrollbar appeared on every scrolling page and checkboxes
+  rendered as white squares on near-black surfaces.
+- **Diagnostics claimed GPU power was available when it never arrives.** The capability flag
+  asked whether the driver had explicitly declined, not whether a reading existed.
+
+See [known limitations](known-limitations.md) for GPU power and utilisation, which the service
+does not receive from NVML at all — measured, documented, and not fixed here.
 
 ---
 

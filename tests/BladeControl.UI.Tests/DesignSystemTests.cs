@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BladeControl.UI.Controls;
@@ -79,6 +80,68 @@ public sealed class DesignSystemTests
             ((SolidColorBrush)closedForeground!.Value).Color,
             ((SolidColorBrush)foreground!.Value).Color,
             "The popup must read the same way as the field it drops out of.");
+    });
+
+    /// <summary>
+    /// Every control that draws its own chrome must carry an implicit style, so none of them
+    /// falls back to the system default in a dark application.
+    /// </summary>
+    /// <remarks>
+    /// The same defect as the ComboBox popup above, found twice more: ScrollBar and CheckBox
+    /// were never templated. WPF then drew the system scrollbar — a near-white track with
+    /// stepper buttons, on every scrolling page — and the system checkbox glyph, a white square,
+    /// against surfaces around #131815. Recolouring alone is not enough for these two: a
+    /// CheckBox style that sets only Foreground leaves the box itself system-drawn, which is
+    /// exactly what SubtleCheckBoxStyle used to do. So this asserts a Template, not merely the
+    /// presence of a style.
+    /// </remarks>
+    [TestMethod]
+    public void EveryChromeBearingControlIsTemplatedAndNotLeftToSystemDefaults() =>
+        OnStaThread(() =>
+        {
+            ResourceDictionary theme = LoadTheme();
+
+            Type[] mustBeTemplated =
+            [
+                typeof(ScrollBar), typeof(CheckBox), typeof(Slider)
+            ];
+
+            foreach (Type control in mustBeTemplated)
+            {
+                var style = theme[control] as Style;
+                Assert.IsNotNull(
+                    style,
+                    $"{control.Name} has no implicit style, so it renders with system chrome " +
+                    "that is light-on-light against this theme's surfaces.");
+
+                bool templated = style!.Setters.OfType<Setter>().Any(
+                    setter => setter.Property == Control.TemplateProperty);
+                Assert.IsTrue(
+                    templated,
+                    $"{control.Name} must be templated, not merely recoloured — the parts that " +
+                    "read as bright holes in a dark surface are drawn by the default template.");
+            }
+        });
+
+    /// <summary>
+    /// The keyed checkbox variant must extend the themed one rather than replace it, so it
+    /// keeps the dark box glyph and changes only what "subtle" means.
+    /// </summary>
+    [TestMethod]
+    public void SubtleCheckBoxKeepsTheThemedBoxGlyph() => OnStaThread(() =>
+    {
+        ResourceDictionary theme = LoadTheme();
+
+        var subtle = theme["SubtleCheckBoxStyle"] as Style;
+        Assert.IsNotNull(subtle, "SubtleCheckBoxStyle must exist.");
+        Assert.IsNotNull(
+            subtle!.BasedOn,
+            "SubtleCheckBoxStyle must be BasedOn the implicit CheckBox style. Standing alone " +
+            "it silently drops the template and the system's white box comes back.");
+        Assert.AreEqual(
+            typeof(CheckBox),
+            subtle.BasedOn!.TargetType,
+            "SubtleCheckBoxStyle must extend the CheckBox style, not some other control's.");
     });
 
     [TestMethod]

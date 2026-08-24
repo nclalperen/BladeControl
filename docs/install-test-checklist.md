@@ -27,7 +27,7 @@ Take a VM snapshot before starting. Several steps are only meaningful from a cle
 ## Preparation
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\BladeControl-0.1.1-win-x64.msi
+Get-FileHash -Algorithm SHA256 .\BladeControl-0.1.3-win-x64.msi
 # compare against SHA256SUMS.txt
 ```
 
@@ -44,7 +44,7 @@ Test-Path "$env:LOCALAPPDATA\BladeControl"
 Install with logging throughout, so a failure is diagnosable:
 
 ```powershell
-msiexec /i BladeControl-0.1.1-win-x64.msi /l*v install.log
+msiexec /i BladeControl-0.1.3-win-x64.msi /l*v install.log
 ```
 
 ---
@@ -61,7 +61,7 @@ msiexec /i BladeControl-0.1.1-win-x64.msi /l*v install.log
 - [ ] **No `.pdb` files** anywhere under the install directory.
 - [ ] Start Menu shortcut **BladeControl** exists and launches the compact panel.
 - [ ] Appears in Settings → Apps → Installed apps with publisher *BladeControl Project*,
-      version *0.1.1*, and a working help link.
+      version *0.1.3*, and a working help link.
 - [ ] `install.log` contains no `return value 3`.
 
 ```powershell
@@ -149,7 +149,7 @@ Build a second MSI with a bumped `BladeControlVersionPrefix`, then install it ov
 ## 9. Uninstall
 
 ```powershell
-msiexec /x BladeControl-0.1.1-win-x64.msi /l*v uninstall.log
+msiexec /x BladeControl-0.1.3-win-x64.msi /l*v uninstall.log
 ```
 
 - [ ] On the reference machine with Dynamic running, uninstall stops the runtime through its

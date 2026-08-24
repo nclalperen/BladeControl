@@ -1539,3 +1539,73 @@ Confirmed end-to-end rather than assumed: `Icon.ExtractAssociatedIcon` against t
 to prove the Win32 icon resource is genuinely embedded, not just accepted by MSBuild; a direct
 launch of the built UI to prove the tray icons load at runtime; the full test suite; and
 `dotnet format --verify-no-changes`.
+
+---
+
+## v0.1.3: three defects the screenshots found, and one the screenshots explained
+
+Three reports, one screenshot each, and each turned out to be a different kind of bug.
+
+**"Live — 1 s old" beside a stopped runtime.** The temptation is to call this a labelling
+nit. It is not: the sample really was one second old, because the interface keeps polling the
+provider while idle, so the *freshness* claim was true. What was false was the implied claim
+underneath it — that BladeControl was driving the fans. The dashboard reached its live branch
+whenever the sample was fresh and the state was not Stopped, while the tone property directly
+below it already tested `IsStopped` on its own. The two halves of the same badge disagreed, and
+the colour was right while the word was wrong.
+
+Two things worth recording. First, the compact panel had already solved this correctly and
+called the state "Monitoring snapshot" — the fix was to adopt the wording that already existed,
+not to invent one. Second, generalising the rule from "not Stopped" to "only Running" closed a
+latent case nobody had reported: Faulted and EmergencyHandoff also claimed live telemetry, in
+exactly the situations where cooling had just gone back to firmware. `Display.IsLiveSession`
+now holds that rule once, for both surfaces.
+
+**"Sliders are white."** The fan sliders were not white. Rendering the theme in isolation
+showed them correctly green, enabled and disabled, which meant the report and the code
+disagreed — so the next step was to render the real shell rather than argue with the user.
+`RenderTargetBitmap` over `MainWindow`, page by page, at the same size the window actually
+runs, produced the answer immediately: a near-white system **scrollbar** down the right edge of
+every scrolling page, and white system **checkbox** glyphs. Neither control had ever been
+templated. What the user called a slider was the scrollbar, and they were right that it was
+white.
+
+The instructive part is that this is the third instance of one defect class. `ComboBoxItem`
+was the first, and it already had a test — the popup rendered near-black on near-black. A
+control left to system defaults in a dark application is not merely unstyled, it is
+*inverted*. `SubtleCheckBoxStyle` is the sharpest illustration: it set `Foreground` and
+`FontSize` and looked like styling, but the box glyph a user actually sees is drawn by the
+template, so the white square survived untouched. The new test therefore asserts a
+`Template` setter, not the presence of a style, and asserts that the keyed variant is
+`BasedOn` the themed one rather than standing alone.
+
+**"GPU details are missing."** This one is not fixed, and saying so precisely is the work.
+The service gets temperature and clocks from NVML and gets `NVML_ERROR_UNKNOWN` (999) for
+power and utilization; the CLI, same provider code, same P/Invoke signatures, same machine,
+minutes apart, reads 26.6 W and 0.0 %. Restarting the service ruled out a stale device handle.
+The obvious remaining variable is that one runs as LocalSystem in session 0 and the other does
+not — but the experiment that would confirm it, running the provider as LocalSystem outside the
+service, was not performed, so that stays a hypothesis and the documentation says so.
+
+What *was* a real defect here, and got fixed, is that Diagnostics reported "Power: Yes"
+throughout. `GpuPowerSupported` tested `IsSupported`, which only asks whether the driver
+declined with `NotSupported`; a generic failure leaves it true. The CPU counterpart three lines
+below tested `IsValid && HasValue`. So the capability flag said a value was available while the
+card beside it showed a dash — the panel was contradicting itself again, exactly as the "Live"
+badge had. It now means what the CPU flag means.
+
+`GpuTemperatureSupported` was deliberately left alone despite looking identical. It feeds
+qualification, and a transient failed read must not de-qualify the GPU mid-session; the
+qualifier checks the actual sample separately. Two flags that look the same are not the same
+when one is display and the other is a safety gate.
+
+**Method note.** Rendering the real shell to PNG and reading the pixels, rather than reasoning
+about XAML, found the scrollbar in one step after two wrong hypotheses (disabled-state knob
+colour, then `MutedBrush`). The probe was a throwaway test class, deleted once it had done its
+job — but it is worth remembering that the visual tree can be rendered headlessly and looked
+at, which for a theming defect beats reading the stylesheet.
+
+Two stale README claims surfaced while sweeping versions: that CPU High/Boost and GPU
+Medium/High appear greyed out, which stopped being true when the level policy opened up, and
+that live telemetry includes GPU power and utilisation, which the service does not receive.
+Both corrected.

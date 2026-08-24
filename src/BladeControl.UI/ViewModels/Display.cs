@@ -99,6 +99,21 @@ public static class Display
         _ => StatusTone.Muted
     };
 
+    /// <summary>
+    /// Whether a thermal session is actually running, and therefore whether telemetry may be
+    /// presented as live session data.
+    /// </summary>
+    /// <remarks>
+    /// Only Running qualifies. The UI keeps polling the provider while idle, so a sample can be
+    /// genuinely one second old with no session behind it — that freshness is real and worth
+    /// reporting, but calling it "Live" beside a runtime state of "Stopped" invites exactly the
+    /// wrong reading, that BladeControl is still driving the fans. Stopped, Faulted and
+    /// EmergencyHandoff are all states where it is not, and the distinction is what
+    /// known-limitations.md promises: only a Running session reports current readings.
+    /// </remarks>
+    public static bool IsLiveSession(string? state) =>
+        string.Equals(state, "Running", StringComparison.Ordinal);
+
     public static string RuntimeStateDescription(string? state) => state switch
     {
         "Stopped" => "Idle — firmware owns cooling.",

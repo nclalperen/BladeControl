@@ -42,8 +42,11 @@ Running on unvalidated hardware is at your own risk. See [Safety architecture](#
   Dragging a slider performs no hardware write; only an explicit Apply does.
 - **Closed-loop thermal control** — a runtime-owned curve with hysteresis and rate limiting,
   gated behind a fresh authoritative qualification before it will enter Manual fan mode.
-- **Live telemetry** — CPU package and GPU temperature, power, utilisation and clocks, read
-  through the runtime's providers, with in-memory history graphs. Nothing is written to disk.
+- **Live telemetry** — CPU package temperature, power and utilisation, and GPU temperature and
+  clocks, read through the runtime's providers, with in-memory history graphs. Nothing is
+  written to disk. GPU power and utilisation are not among them: NVML refuses those two to the
+  service, and they are reported as unavailable rather than guessed — see
+  [known limitations](docs/known-limitations.md).
 - **Diagnostics** — provider qualification, PawnIO provenance, watchdog observations,
   scheduler statistics and the runtime event stream.
 
@@ -85,9 +88,11 @@ under firmware Auto it shows nothing at all: there is no BladeControl target the
 one is a leftover from a mode you have already left. The heading changes to `FIRMWARE AUTO` to
 say who is in charge.
 
-Performance levels the protocol models but this build will not send — CPU High, Boost, Overclock
-and GPU Medium, High — appear greyed rather than hidden, with the reason on their tooltip. An
-absent control looks like hardware that lacks the feature; a disabled one tells the truth.
+The full CPU (Low, Medium, High, Boost) and GPU (Low, Medium, High) range is selectable.
+Overclock is the one level this build will not send — it is withheld so BladeControl cannot
+interfere with tuning done in XTU — and it appears greyed rather than hidden, with the reason
+on its tooltip. An absent control looks like hardware that lacks the feature; a disabled one
+tells the truth. A machine already sitting in Overclock is still read and reported accurately.
 
 One fan control is offered, not two. The machine has two fans and the runtime addresses and
 verifies each zone separately, but setting them independently is a decision with no basis and an
@@ -229,7 +234,7 @@ Stop the installed service first — only one host may own the hardware.
 
 | Document | Contents |
 |---|---|
-| [docs/release-notes-v0.1.1.md](docs/release-notes-v0.1.1.md) | What is in this release and what it deliberately does not claim |
+| [docs/release-notes-v0.1.3.md](docs/release-notes-v0.1.3.md) | What is in this release and what it deliberately does not claim |
 | [docs/safety-model.md](docs/safety-model.md) | What the software will and will not do to your cooling, and why |
 | [docs/known-limitations.md](docs/known-limitations.md) | Measured limits, unavailable data, and what is not yet done |
 | [docs/engineering-log.md](docs/engineering-log.md) | Chronological record of changes, evidence and rejected hypotheses |

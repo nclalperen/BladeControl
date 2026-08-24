@@ -8,6 +8,40 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 Nothing yet.
 
+## [0.1.3] — 2026-08-24
+
+Bug fixes found by reading the shipped 0.1.1 interface against the hardware it was
+describing.
+
+### Fixed
+
+- **Telemetry was labelled "Live" while no session was running.** The dashboard reached its
+  live branch whenever a sample was fresh and the state was not Stopped, so a machine with
+  firmware owning the fans showed "Live — 1 s old" beside a runtime state of "Stopped". The UI
+  polls the provider while idle, so the sample really was fresh — but freshness and ownership
+  are different claims. Idle states now read "Monitoring", matching the wording the compact
+  panel already used, and the age is still reported.
+- **The same defect in the compact panel, for the other states.** It special-cased Stopped
+  alone, leaving Faulted and EmergencyHandoff claiming live telemetry after cooling had gone
+  back to firmware. Both surfaces now share one rule: only Running is live.
+- **ScrollBar and CheckBox were never themed**, so WPF drew system chrome — a near-white
+  scrollbar on every scrolling page, and white box glyphs — against surfaces around `#131815`.
+  Both are now templated. `SubtleCheckBoxStyle` set only the foreground, which left the box
+  itself system-drawn; it now extends the themed style instead of replacing it.
+- **Diagnostics reported "GPU power: Yes" for a value that never arrives.** The capability
+  flag tested whether the driver had declined with `NotSupported`, while its CPU counterpart
+  tested whether a reading was actually valid. NVML returns a generic failure here, which is
+  not `NotSupported`, so the flag stayed Yes. It now means what the CPU one means: a reading
+  is available.
+
+### Known
+
+- **GPU power and utilization do not reach the service.** NVML answers the LocalSystem
+  service's temperature and clock queries and refuses power and utilization with
+  `NVML_ERROR_UNKNOWN`, while the same provider code called from an interactive process reads
+  both. Documented with the measurements in `docs/known-limitations.md`. No control path
+  depends on either metric.
+
 ## [0.1.1] — 2026-08-24
 
 First tagged and released version. The 0.1.0 milestone below reached feature-complete but was
@@ -142,5 +176,6 @@ work; everything below is packaging, hosting and distribution.
 - **The GPU thermal ladders have never run live.** The GPU stayed at or below 48 C throughout,
   and manufacturing a thermal emergency to reach them is deliberately out of scope.
 
-[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.3
 [0.1.1]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.1

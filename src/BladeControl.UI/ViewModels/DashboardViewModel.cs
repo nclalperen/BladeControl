@@ -170,6 +170,18 @@ public sealed class DashboardViewModel : PageViewModel
                     : "Stale";
             }
 
+            // A fresh sample without a running session is a monitoring read, not a live
+            // session, and saying "Live" beside a runtime state of "Stopped" reads as though
+            // BladeControl were still driving the fans. The age is still reported because it is
+            // true and useful; only the claim changes. "Monitoring" is the word the compact
+            // panel already uses for this exact state, so the two surfaces agree.
+            if (!Display.IsLiveSession(Connection.RuntimeStateName))
+            {
+                return age is { } idle
+                    ? $"Monitoring — {idle.TotalSeconds:0} s old"
+                    : "Monitoring";
+            }
+
             // Where a live sample came from is real information, but it is engineering
             // vocabulary: "provider-only sample" tells a user nothing they can act on, and the
             // distinction between acquisition routes is a debugging concern. The dashboard
@@ -182,7 +194,7 @@ public sealed class DashboardViewModel : PageViewModel
 
     public StatusTone TelemetryFreshnessTone => Telemetry is null
         ? StatusTone.Muted
-        : IsStopped ? StatusTone.Muted
+        : !Display.IsLiveSession(Connection.RuntimeStateName) ? StatusTone.Muted
         : Connection.IsTelemetryStale ? StatusTone.Warning : StatusTone.Good;
 
     // Cooling ---------------------------------------------------------------

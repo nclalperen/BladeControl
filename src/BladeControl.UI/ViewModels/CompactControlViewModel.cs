@@ -153,10 +153,14 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
                 return "No telemetry yet";
             }
 
-            if (string.Equals(Connection.RuntimeStateName, "Stopped", StringComparison.Ordinal))
+            // Every state that is not Running is one where BladeControl does not own cooling,
+            // so none of them may call a sample "live". This used to test Stopped alone, which
+            // left Faulted and EmergencyHandoff claiming live telemetry while the fans were
+            // back with firmware.
+            if (!Display.IsLiveSession(Connection.RuntimeStateName))
             {
                 return Connection.IsTelemetryStale
-                    ? "Last session telemetry · Stopped"
+                    ? $"Last session telemetry · {Display.ThermalSession(Connection.RuntimeStateName)}"
                     : "Monitoring snapshot";
             }
 
@@ -165,7 +169,7 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
     }
 
     public StatusTone TelemetryTone =>
-        string.Equals(Connection.RuntimeStateName, "Stopped", StringComparison.Ordinal)
+        !Display.IsLiveSession(Connection.RuntimeStateName)
             ? StatusTone.Muted
             : Connection.IsTelemetryStale ? StatusTone.Warning : StatusTone.Muted;
 

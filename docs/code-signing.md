@@ -10,7 +10,7 @@ The integrity check available today is the SHA-256 hash published as `SHA256SUMS
 release. Verify before installing:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\BladeControl-0.1.1-win-x64.msi
+Get-FileHash -Algorithm SHA256 .\BladeControl-0.1.3-win-x64.msi
 ```
 
 ## What is already in place

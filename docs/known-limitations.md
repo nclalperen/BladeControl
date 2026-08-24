@@ -82,7 +82,7 @@ Consequences, measured rather than assumed:
   BladeControl's to defeat. They are the backstop; the ladder above is the first line, not the
   only one.
 
-**This is accepted for v0.1.1 and documented rather than fixed.** Removing it means separating
+**This is accepted for v0.1.3 and documented rather than fixed.** Removing it means separating
 acquisition from actuation across threads, which introduces sole-HID-ownership, sample-freshness
 and preemption invariants that deserve their own design pass rather than being bolted onto a
 latency patch. The per-component statistics exist precisely so that decision can be made on
@@ -91,6 +91,34 @@ distribution data.
 Telemetry acquisition is **variable, not constant**: observed between roughly 160 ms and 400 ms
 across sessions on the same machine. Any future redesign should rest on a distribution, not on a
 single snapshot.
+
+---
+
+## GPU power and utilization are unavailable to the service
+
+NVML answers the service's temperature and clock queries and refuses its power and
+utilization queries, so the GPU card shows a temperature with `—` for power and utilization.
+The dash is not a missing feature; the reading genuinely does not arrive.
+
+Measured on the reference machine, same build, minutes apart:
+
+| Caller | Temperature | Graphics clock | Power | Utilization |
+|---|---|---|---|---|
+| `BladeControl.Runtime` service (LocalSystem, session 0) | 64 °C | 1125 MHz | `NVML_ERROR_UNKNOWN` (999) | `NVML_ERROR_UNKNOWN` (999) |
+| `BladeControl.Cli` (interactive user) | 65 °C | 1815 MHz | 26.6 W | 0.0 % |
+
+Identical provider code and identical P/Invoke signatures, so this is the driver answering
+the same calls differently by caller, not a marshalling defect. Restarting the service does
+not help, which rules out a stale device handle — a fresh NVML session fails the same way.
+
+**The remaining uncontrolled variable is the execution context**, and confirming it would mean
+running the provider as LocalSystem outside the service, which has not been done. Until it is,
+"the service does not get these two metrics" is the finding; *why* is a hypothesis.
+
+Nothing in the control path depends on either metric — the thermal ladders are driven by
+temperature, which the service does get — so this costs display detail and no capability.
+The Diagnostics page reports the metric as unavailable and carries NVML's own return code, and
+the dashboard's dash has that same reason as its tooltip.
 
 ---
 

@@ -35,6 +35,87 @@ public sealed class ViewModelPolicyTests
         Assert.AreEqual(0, client.PerformanceRequests.Count);
     }
 
+    /// <summary>
+    /// Telemetry is only ever labelled "Live" while a session is actually running.
+    /// </summary>
+    /// <remarks>
+    /// The UI keeps polling the provider while idle, so a sample really can be one second old
+    /// with no session behind it. The dashboard used to reach its "Live" branch whenever the
+    /// sample was fresh and the state was not Stopped, which put "Live — 1 s old" beside a
+    /// runtime state of "Stopped" on a machine where firmware owned the fans. Freshness and
+    /// ownership are different claims and only one of them was true.
+    /// </remarks>
+    [TestMethod]
+    public async Task FreshTelemetryIsOnlyCalledLiveWhileASessionIsRunning()
+    {
+        foreach (string state in new[] { "Stopped", "Faulted", "EmergencyHandoff", "Starting" })
+        {
+            var client = new FakeRuntimeUiClient();
+            client.Status = client.Status with { State = state };
+            using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+            await connection.PollOnceAsync(CancellationToken.None);
+
+            var performance = new PerformanceViewModel(connection, CancellationToken.None);
+            var dashboard = new DashboardViewModel(
+                connection,
+                performance,
+                CancellationToken.None);
+
+            Assert.IsFalse(
+                dashboard.TelemetryFreshness.Contains("Live", StringComparison.Ordinal),
+                $"State '{state}' does not own cooling, so its telemetry must not read as " +
+                $"live. Got: '{dashboard.TelemetryFreshness}'.");
+            Assert.AreEqual(
+                StatusTone.Muted,
+                dashboard.TelemetryFreshnessTone,
+                $"State '{state}' must not carry the good/live tone.");
+        }
+
+        // And the one state that may say it, does.
+        var running = new FakeRuntimeUiClient();
+        running.Status = running.Status with { State = "Running" };
+        using var liveConnection = new RuntimeConnection(running, new ImmediateUiDispatcher());
+        await liveConnection.PollOnceAsync(CancellationToken.None);
+        var livePerformance = new PerformanceViewModel(liveConnection, CancellationToken.None);
+        var liveDashboard = new DashboardViewModel(
+            liveConnection,
+            livePerformance,
+            CancellationToken.None);
+
+        Assert.IsTrue(
+            liveDashboard.TelemetryFreshness.Contains("Live", StringComparison.Ordinal),
+            $"A running session reports live telemetry. Got: " +
+            $"'{liveDashboard.TelemetryFreshness}'.");
+    }
+
+    /// <summary>
+    /// The compact panel applies the same rule, so the two surfaces cannot disagree about
+    /// whether BladeControl is driving the fans.
+    /// </summary>
+    [TestMethod]
+    public async Task CompactPanelAppliesTheSameLiveTelemetryRule()
+    {
+        foreach (string state in new[] { "Stopped", "Faulted", "EmergencyHandoff" })
+        {
+            var client = new FakeRuntimeUiClient();
+            client.Status = client.Status with { State = state };
+            using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+            await connection.PollOnceAsync(CancellationToken.None);
+
+            using var shell = new ShellViewModel(
+                connection,
+                new UiSettings { MinimizeToTray = false },
+                isDesignPreview: true,
+                _ => { });
+            using var compact = new CompactControlViewModel(shell);
+
+            Assert.IsFalse(
+                compact.TelemetryCaption.Contains("Live", StringComparison.Ordinal),
+                $"State '{state}' must not read as live in the compact panel. Got: " +
+                $"'{compact.TelemetryCaption}'.");
+        }
+    }
+
     [TestMethod]
     public void DefaultRuntimeCurveSatisfiesEveryMirroredConstraint()
     {

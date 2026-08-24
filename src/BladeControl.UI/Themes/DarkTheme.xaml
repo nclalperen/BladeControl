@@ -229,7 +229,69 @@
         </Setter>
     </Style>
 
-    <Style x:Key="SubtleCheckBoxStyle" TargetType="CheckBox">
+    <!--
+    CheckBox has to be templated, not merely recoloured. Setting Foreground and FontSize
+    leaves the box glyph itself on the system default, which is a white square with a dark
+    tick - it renders as a bright hole in a dark surface. Every other control in this theme
+    that shows chrome carries its own template for the same reason.
+    -->
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <StackPanel Orientation="Horizontal" Background="Transparent">
+                        <!--
+                        A literal radius, not a token. The five radius roles above are
+                        control, panel, card, window and pill; a 16 px glyph is none of
+                        them, and ControlCornerRadius (8) on a 16 px box is a circle.
+                        -->
+                        <Border x:Name="Box"
+                                Width="16" Height="16"
+                                CornerRadius="4"
+                                Background="{StaticResource SurfaceRaisedBrush}"
+                                BorderBrush="{StaticResource BorderStrongBrush}"
+                                BorderThickness="1"
+                                VerticalAlignment="Center">
+                            <Path x:Name="Tick"
+                                  Data="M 3,7.5 L 6.2,10.7 L 12.5,4.4"
+                                  Stroke="{StaticResource WindowBackgroundBrush}"
+                                  StrokeThickness="2"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round"
+                                  Visibility="Collapsed" />
+                        </Border>
+                        <ContentPresenter Margin="8,0,0,0"
+                                          VerticalAlignment="Center"
+                                          RecognizesAccessKey="True" />
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <!-- Three-state parity: an indeterminate box must not read as unchecked. -->
+                        <Trigger Property="IsChecked" Value="{x:Null}">
+                            <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SubtleCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
         <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -416,6 +478,94 @@
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!--
+    ScrollBar. Untemplated, WPF renders the system scrollbar: a near-white track with
+    stepper buttons, which against these surfaces is the brightest thing on the page and
+    reads as a control rather than as chrome. Every scrolling page carried one.
+
+    The steppers are deliberately dropped rather than restyled. They are a legacy affordance,
+    the pages here scroll by wheel, touch and keyboard, and removing them leaves an overlay
+    rail that stays out of the way of the content it sits beside.
+    -->
+    <Style x:Key="ScrollBarThumbStyle" TargetType="Thumb">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="ThumbBorder"
+                            CornerRadius="{StaticResource PillCornerRadius}"
+                            Background="{StaticResource BorderStrongBrush}"
+                            Margin="3" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource TextMutedBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ScrollBar">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Width" Value="11" />
+        <Setter Property="MinWidth" Value="11" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False"
+                                              Opacity="0" Background="Transparent" />
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False"
+                                              Opacity="0" Background="Transparent" />
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource ScrollBarThumbStyle}" />
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Height" Value="11" />
+                <Setter Property="MinHeight" Value="11" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid Background="{TemplateBinding Background}">
+                                <Track x:Name="PART_Track">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageLeftCommand" Focusable="False"
+                                                      Opacity="0" Background="Transparent" />
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageRightCommand" Focusable="False"
+                                                      Opacity="0" Background="Transparent" />
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource ScrollBarThumbStyle}" />
+                                    </Track.Thumb>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Trigger>
         </Style.Triggers>
     </Style>
