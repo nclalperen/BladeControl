@@ -55,6 +55,23 @@ public sealed class BladeRuntime : IAsyncDisposable
     public static readonly TimeSpan DefaultControlPeriod = TimeSpan.FromMilliseconds(500);
     public static readonly TimeSpan DefaultWatchdogInterval = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long an on-demand monitoring acquisition may be reused before the hardware is read
+    /// again. Applies only when no thermal session is running; a session serves its own
+    /// authoritative samples and never reaches the acquisition path.
+    /// </summary>
+    /// <remarks>
+    /// <para>Public because the ceiling on it is a cross-component invariant. The interface
+    /// treats telemetry as stale at 3 s and polls at 500 ms, so a reused sample must still be
+    /// comfortably fresh when it arrives and for the poll interval after it. 1.5 s leaves a
+    /// sample at worst 2 s old on screen against that 3 s budget, and cuts idle acquisitions
+    /// by roughly three quarters.</para>
+    /// <para>Raising this above the client's staleness threshold would make a correctly served
+    /// sample read as stale, which is why the number is exported rather than buried: whoever
+    /// changes either side should be able to see both.</para>
+    /// </remarks>
+    public static readonly TimeSpan MonitoringSampleReuseWindow = TimeSpan.FromMilliseconds(1500);
+
     private readonly object _sync = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly IControlTelemetryProvider _controlTelemetry;
@@ -83,6 +100,14 @@ public sealed class BladeRuntime : IAsyncDisposable
     private DeadlineScheduler _scheduler;
     private RuntimeState _state = RuntimeState.Stopped;
     private RuntimeRazerModeState? _lastWatchdog;
+
+    /// <summary>
+    /// The last on-demand monitoring acquisition, and the monotonic instant it was taken, so
+    /// polling clients share one hardware read instead of each causing their own. Both are
+    /// written and read only under <c>_operationGate</c>.
+    /// </summary>
+    private ThermalTelemetrySample? _monitoringSample;
+    private TimeSpan _monitoringSampleAcquiredAt;
 
     /// <summary>
     /// When the last watchdog observation was actually taken.
@@ -557,10 +582,27 @@ public sealed class BladeRuntime : IAsyncDisposable
     }
 
     /// <summary>
-    /// Returns the lightweight provider sample used by monitoring clients. While thermal
-    /// control is running, the controller's latest authoritative sample is reused so the
-    /// UI cannot introduce a second provider acquisition into the control cadence.
+    /// Returns the provider sample used by monitoring clients. While thermal control is
+    /// running, the controller's latest authoritative sample is reused so the UI cannot
+    /// introduce a second provider acquisition into the control cadence. While it is not
+    /// running, an acquisition is performed on demand and briefly reused.
     /// </summary>
+    /// <remarks>
+    /// <para>This is not a lightweight call, which the previous summary claimed and the
+    /// measurements contradict: a provider acquisition costs 330–420 ms, against about 1 ms
+    /// for a status request. The interface polls every 500 ms, so an idle machine sitting in
+    /// the notification area was spending a large and permanent fraction of wall-clock time
+    /// reading hardware in order to control nothing.</para>
+    /// <para>Two consequences, both measured. It held <c>_operationGate</c> for the duration,
+    /// so every control operation queued behind up to 400 ms of monitoring. And the polling
+    /// kept the discrete GPU out of its deep power-saving state: 38 consecutive NVML power and
+    /// utilization reads succeeded under continuous polling, where an otherwise idle machine
+    /// refuses them (see docs/known-limitations.md). BladeControl was holding the GPU awake to
+    /// watch it sleep.</para>
+    /// <para>The rate limit belongs here rather than in the client. The runtime owns the
+    /// hardware, and how often it may be touched is its invariant to keep — a polite client is
+    /// not a guarantee, and there can be more than one.</para>
+    /// </remarks>
     public ThermalTelemetrySample GetTelemetrySample()
     {
         ThrowIfDisposed();
@@ -572,7 +614,20 @@ public sealed class BladeRuntime : IAsyncDisposable
                 return latest;
             }
 
-            return _controlTelemetry.GetControlSample();
+            // Measured monotonically, not against the sample's wall-clock timestamp: a clock
+            // step from NTP or a resume must not be able to wedge the cache shut or make a
+            // sample look older than it is.
+            TimeSpan now = _clock.MonotonicNow;
+            if (_monitoringSample is { } cached &&
+                now - _monitoringSampleAcquiredAt < MonitoringSampleReuseWindow)
+            {
+                return cached;
+            }
+
+            ThermalTelemetrySample sample = _controlTelemetry.GetControlSample();
+            _monitoringSample = sample;
+            _monitoringSampleAcquiredAt = now;
+            return sample;
         }
         finally
         {

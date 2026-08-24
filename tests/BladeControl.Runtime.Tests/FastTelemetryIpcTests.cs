@@ -26,6 +26,14 @@ public sealed class FastTelemetryIpcTests
             RuntimeIpcResponse response = await DispatchAsync(dispatcher);
             Assert.IsTrue(response.Succeeded, response.Error);
             Assert.IsInstanceOfType<ThermalTelemetrySampleDto>(response.Data);
+
+            // Past the monitoring reuse window on every iteration, so this stays a test of
+            // which providers 100 acquisitions touch rather than of how many acquisitions
+            // 100 requests cause. The reuse window itself is covered by
+            // MonitoringAcquisitionRateTests; without this the virtual clock never moves and
+            // all 100 requests would correctly share a single read.
+            rig.Clock.Advance(
+                BladeRuntime.MonitoringSampleReuseWindow + TimeSpan.FromMilliseconds(1));
         }
 
         Assert.AreEqual(100, rig.Telemetry.ControlReads - controlBefore);

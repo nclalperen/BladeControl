@@ -6,7 +6,19 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **An idle BladeControl was reading hardware almost continuously.** Every monitoring request
+  performed a full provider acquisition — measured at 330–420 ms against about 1 ms for a status
+  request — and the interface polls every 500 ms, so a machine sitting in the notification area
+  controlling nothing spent most of its time reading sensors. It also held the runtime's
+  operation gate for the duration, queueing control commands behind up to 400 ms of monitoring,
+  and kept the discrete GPU out of its power-saving state. The runtime now reuses an acquisition
+  for 1.5 s, which is well inside the interface's 3 s staleness budget. Measured on the same
+  machine at the interface's own 500 ms cadence: 20 polls caused 20 acquisitions before and 6
+  after, and wall-clock time spent in acquisition fell from roughly 41% to 22%. Sessions are
+  unaffected — a running session serves its own authoritative samples and never reached this
+  path — and neither qualification nor the diagnostic snapshot nor the control loop share it.
 
 ## [0.1.3] — 2026-08-24
 
