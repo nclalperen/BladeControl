@@ -144,34 +144,9 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
 
     public string GpuTemperature => _shell.Dashboard.GpuTemperature;
 
-    public string TelemetryCaption
-    {
-        get
-        {
-            if (Connection.Telemetry is null)
-            {
-                return "No telemetry yet";
-            }
+    public string TelemetryCaption => TelemetryPresentation.Text;
 
-            // Every state that is not Running is one where BladeControl does not own cooling,
-            // so none of them may call a sample "live". This used to test Stopped alone, which
-            // left Faulted and EmergencyHandoff claiming live telemetry while the fans were
-            // back with firmware.
-            if (!Display.IsLiveSession(Connection.RuntimeStateName))
-            {
-                return Connection.IsTelemetryStale
-                    ? $"Last session telemetry · {Display.ThermalSession(Connection.RuntimeStateName)}"
-                    : "Monitoring snapshot";
-            }
-
-            return Connection.IsTelemetryStale ? "Telemetry stale" : "Live telemetry";
-        }
-    }
-
-    public StatusTone TelemetryTone =>
-        !Display.IsLiveSession(Connection.RuntimeStateName)
-            ? StatusTone.Muted
-            : Connection.IsTelemetryStale ? StatusTone.Warning : StatusTone.Muted;
+    public StatusTone TelemetryTone => TelemetryPresentation.Tone;
 
     // --- The FAN tile -------------------------------------------------------------------
     //
@@ -187,58 +162,15 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
     // the last one is meaningless, so the tile shows nothing rather than a stale number.
 
     /// <summary>The number under FAN, or an em dash when there is nothing truthful to show.</summary>
-    public string FanValue
-    {
-        get
-        {
-            if (IsEmergencyHandoff || IsFirmwareSelected)
-            {
-                return Display.Unavailable;
-            }
-
-            if (Fans.Mode == CoolingMode.Fixed && !IsDynamicRunning)
-            {
-                return Fans.Fan1Target.ToString("N0", CultureInfo.CurrentCulture);
-            }
-
-            return IsDynamicRunning
-                ? Display.Rpm(Connection.Status?.CurrentEffectiveFanTargetRpm)
-                : Display.Unavailable;
-        }
-    }
+    public string FanValue => FanPresentation.Value;
 
     /// <summary>What the number above it is, in the user's words rather than the protocol's.</summary>
-    public string FanCaption
-    {
-        get
-        {
-            if (IsEmergencyHandoff)
-            {
-                return "firmware owns cooling";
-            }
-
-            if (IsFirmwareSelected)
-            {
-                // Name the curve, not just the fact that firmware has it.
-                return $"firmware · {FirmwareCurveLabel}";
-            }
-
-            if (!Connection.IsOnline)
-            {
-                return "runtime offline";
-            }
-
-            return IsDynamicRunning ? "dynamic target" : "target";
-        }
-    }
+    public string FanCaption => FanPresentation.Caption;
 
     /// <summary>Reads "Firmware Auto" where a measured speed would otherwise sit.</summary>
-    public string FanHeading =>
-        IsEmergencyHandoff || IsFirmwareSelected ? "FIRMWARE" : "FAN";
+    public string FanHeading => FanPresentation.Heading;
 
-    public StatusTone FanTone => IsEmergencyHandoff
-        ? StatusTone.Warning
-        : IsFirmwareSelected ? StatusTone.Muted : StatusTone.Good;
+    public StatusTone FanTone => FanPresentation.Tone;
 
     /// <summary>
     /// One fan control for the user; both zones still travel over IPC explicitly.
@@ -273,7 +205,7 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
     // describe it as in progress, which reads as "wait and it will resolve"; nothing resolves,
     // because resuming automatically after a thermal emergency is how a loop starts.
 
-    public bool IsEmergencyHandoff =>
+    public bool IsEmergencyHandoff => Connection.IsOnline &&
         string.Equals(Connection.RuntimeStateName, "EmergencyHandoff", StringComparison.Ordinal);
 
     public string EmergencyTitle => "Firmware Auto owns cooling";
@@ -320,11 +252,16 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
 
     public bool IsDynamicSelected => Fans.Mode == CoolingMode.DynamicCurve;
 
-    public bool IsDynamicRunning => Connection.RuntimeStateName is "Running" or "Starting";
+    public bool IsDynamicRunning => Display.IsDynamicSessionEngaged(
+        Connection.IsOnline,
+        Connection.RuntimeStateName);
 
     public bool IsDynamicStopped => !IsDynamicRunning;
 
-    public string DynamicState => Display.ThermalSession(Connection.RuntimeStateName);
+    public string DynamicState => !Connection.IsOnline &&
+        !string.IsNullOrWhiteSpace(Connection.RuntimeStateName)
+        ? $"Last reported · {Display.ThermalSession(Connection.RuntimeStateName)}"
+        : Display.ThermalSession(Connection.RuntimeStateName);
 
     public string DynamicTarget => Fans.EffectiveFanTarget;
 
@@ -332,59 +269,191 @@ public sealed class CompactControlViewModel : ObservableObject, IDisposable
 
     public bool HasDynamicBlockedReason => !string.IsNullOrWhiteSpace(DynamicBlockedReason);
 
-    public string? OperationMessage => Performance.StatusMessage ?? Fans.StatusMessage;
+    public string? OperationMessage => OperationPresentation.Message;
 
-    public bool OperationIsError =>
-        Performance.HasStatusMessage ? Performance.StatusIsError : Fans.StatusIsError;
+    public bool OperationIsError => OperationPresentation.IsError;
 
     public StatusTone OperationTone => OperationIsError ? StatusTone.Danger : StatusTone.Good;
 
-    public bool HasOperationMessage => !string.IsNullOrWhiteSpace(OperationMessage);
+    public bool HasOperationMessage => OperationPresentation.Message is not null;
 
-    public string FooterText
+    public string FooterText => FooterPresentation.Text;
+
+    public StatusTone FooterTone => FooterPresentation.Tone;
+
+    private (string Text, StatusTone Tone) TelemetryPresentation
+    {
+        get
+        {
+            if (Connection.Telemetry is null)
+            {
+                return ("No telemetry yet", StatusTone.Muted);
+            }
+
+            if (!Connection.IsOnline)
+            {
+                return ("Last known telemetry · Runtime Core offline", StatusTone.Muted);
+            }
+
+            // Only Running owns cooling. A fresh provider sample in any other state is a
+            // monitoring snapshot; a stale one is the last observation, never live session
+            // telemetry. Text and tone come from this one classification so they cannot drift.
+            SessionObservationScope observation = Display.SessionObservation(
+                Connection.IsOnline,
+                Connection.RuntimeStateName);
+            if (observation != SessionObservationScope.Current)
+            {
+                string text = observation switch
+                {
+                    SessionObservationScope.Starting =>
+                        "Retained telemetry · session starting",
+                    SessionObservationScope.Stopping =>
+                        "Retained telemetry · session stopping",
+                    SessionObservationScope.LastSession when Connection.IsTelemetryStale =>
+                        $"Last known telemetry · " +
+                            $"{Display.ThermalSession(Connection.RuntimeStateName)}",
+                    _ => "Monitoring snapshot"
+                };
+                return (text, StatusTone.Muted);
+            }
+
+            return Connection.IsTelemetryStale
+                ? ("Telemetry stale", StatusTone.Warning)
+                : ("Live telemetry", StatusTone.Good);
+        }
+    }
+
+    private (string? Message, bool IsError) OperationPresentation
+    {
+        get
+        {
+            PageViewModel latest = Performance.StatusMessageRevision >=
+                Fans.StatusMessageRevision
+                ? Performance
+                : Fans;
+            return string.IsNullOrWhiteSpace(latest.StatusMessage)
+                ? (null, false)
+                : (latest.StatusMessage, latest.StatusIsError);
+        }
+    }
+
+    private (string Heading, string Value, string Caption, StatusTone Tone) FanPresentation
+    {
+        get
+        {
+            if (!Connection.IsOnline)
+            {
+                return ("FAN", Display.Unavailable, "runtime offline", StatusTone.Danger);
+            }
+
+            if (IsEmergencyHandoff)
+            {
+                return ("FIRMWARE", Display.Unavailable, "firmware owns cooling",
+                    StatusTone.Warning);
+            }
+
+            bool authoritativeFixed = string.Equals(
+                Connection.Status?.CurrentProfile,
+                "Fan/Fixed",
+                StringComparison.Ordinal);
+            if (!authoritativeFixed &&
+                Display.HasCurrentCoolingSnapshot(
+                    Connection.IsOnline,
+                    Connection.RuntimeStateName) &&
+                IsFirmwareSelected)
+            {
+                // The direct fan profile has no timestamp. Stable Stopped state lets us show
+                // the snapshot as context, but not promote it to a current ownership claim.
+                return ("FIRMWARE", Display.Unavailable,
+                    $"profile snapshot · {FirmwareCurveLabel}", StatusTone.Muted);
+            }
+
+            if (!authoritativeFixed &&
+                Connection.RuntimeStateName is "Stopped" &&
+                Fans.Mode == CoolingMode.Fixed)
+            {
+                // This is the editor value, not a command known to be in force. Keep the useful
+                // preview but name it as unapplied so it cannot impersonate the current target.
+                return ("FAN", Fans.Fan1Target.ToString("N0", CultureInfo.CurrentCulture),
+                    "selected target · not applied", StatusTone.Neutral);
+            }
+
+            if (!Display.HasCurrentFanTarget(
+                    Connection.IsOnline,
+                    Connection.RuntimeStateName,
+                    Connection.Status?.CurrentProfile))
+            {
+                string caption = Connection.RuntimeStateName switch
+                {
+                    "Faulted" => "runtime fault · open Diagnostics",
+                    "Starting" => "session starting",
+                    "Stopping" => "session stopping",
+                    _ => "target unavailable"
+                };
+                return ("FAN", Display.Unavailable, caption,
+                    Display.RuntimeStateTone(Connection.RuntimeStateName));
+            }
+
+            if (authoritativeFixed)
+            {
+                return Connection.Status?.CurrentEffectiveFanTargetRpm is { } target
+                    ? ("FAN", target.ToString("N0", CultureInfo.CurrentCulture),
+                        "target", StatusTone.Good)
+                    : ("FAN", Display.Unavailable,
+                        "fixed target unavailable", StatusTone.Warning);
+            }
+
+            return Connection.Status?.CurrentEffectiveFanTargetRpm is { } dynamicTarget
+                ? ("FAN", Display.Rpm(dynamicTarget), "dynamic target", StatusTone.Good)
+                : ("FAN", Display.Unavailable,
+                    "dynamic target unavailable", StatusTone.Warning);
+        }
+    }
+
+    private (string Text, StatusTone Tone) FooterPresentation
     {
         get
         {
             if (Connection.IsAwaitingRuntimeStartup)
             {
-                return "Connecting to BladeControl Runtime…";
+                return ("Connecting to BladeControl Runtime…", StatusTone.Muted);
             }
 
+            // A retained status snapshot must never colour a transport failure. Previously a
+            // disconnect after Running produced the literal text "Runtime offline" in green.
             if (!Connection.IsOnline)
             {
-                return "Runtime offline";
+                return ("Runtime offline", StatusTone.Danger);
             }
 
             string? state = Connection.RuntimeStateName;
-            if (state == "EmergencyHandoff")
+            if (state is "Running" && Fans.EffectiveFanTarget == Display.Unavailable)
             {
-                return "Emergency handoff · firmware Auto requested";
+                return ("Dynamic · target unavailable", StatusTone.Warning);
             }
 
-            if (state == "Faulted")
+            string text = state switch
             {
-                return $"Runtime fault · {Connection.Status?.LastFailureReason ?? "open Diagnostics"}";
-            }
-
-            if (state == "Running")
-            {
-                return $"Dynamic · {Fans.EffectiveFanTarget}";
-            }
-
-            return Connection.Fan?.Mode.Zone1FanMode is { } fanMode
-                ? $"Firmware {fanMode}"
-                : $"Runtime {Display.Text(state)}";
+                "EmergencyHandoff" => "Emergency handoff · firmware Auto owns cooling",
+                "Faulted" =>
+                    $"Runtime fault · {Connection.Status?.LastFailureReason ?? "open Diagnostics"}",
+                "Running" => $"Dynamic · {Fans.EffectiveFanTarget}",
+                "Starting" => "Dynamic · Starting",
+                "Stopping" => "Dynamic · Stopping",
+                "Stopped" when
+                    string.Equals(
+                        Connection.Status?.CurrentProfile,
+                        "Fan/Fixed",
+                        StringComparison.Ordinal) =>
+                    Fans.EffectiveFanTarget == Display.Unavailable
+                        ? "Fixed fan target"
+                        : $"Fixed · {Fans.EffectiveFanTarget}",
+                "Stopped" => "Stopped · no Dynamic session",
+                _ => $"Runtime {Display.Text(state)}"
+            };
+            return (text, Display.RuntimeStateTone(state));
         }
     }
-
-    public StatusTone FooterTone => Connection.RuntimeStateName switch
-    {
-        _ when Connection.IsAwaitingRuntimeStartup => StatusTone.Muted,
-        "Faulted" or "EmergencyHandoff" => StatusTone.Danger,
-        "Running" => StatusTone.Good,
-        _ when !Connection.IsOnline => StatusTone.Danger,
-        _ => StatusTone.Neutral
-    };
 
     public void Dispose()
     {

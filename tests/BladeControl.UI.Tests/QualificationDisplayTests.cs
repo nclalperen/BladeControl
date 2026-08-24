@@ -13,7 +13,7 @@ namespace BladeControl.UI.Tests;
 /// CLI was simultaneously reporting GPU thermal limits unavailable. Two of those three things
 /// were presentation defects sitting on top of a correct backend.</para>
 /// <para>These tests pin the presentation: readiness reflects the backend result, the reason is
-/// shown next to it, and current qualification data is never filed under a session heading.</para>
+/// shown next to it, and the most recent qualification is never filed under a session heading.</para>
 /// </remarks>
 [TestClass]
 public sealed class QualificationDisplayTests
@@ -69,8 +69,8 @@ public sealed class QualificationDisplayTests
     }
 
     /// <summary>
-    /// Qualification is current state, not a session record. It lives in its own group so a
-    /// stopped runtime cannot relabel it as history.
+    /// Qualification is a timestamped evaluation, not a session record. It lives in its own
+    /// group so a stopped runtime cannot relabel it as session history or call it live.
     /// </summary>
     [TestMethod]
     public async Task QualificationIsNotPresentedAsLastSessionData()
@@ -91,9 +91,10 @@ public sealed class QualificationDisplayTests
         diagnostics.Activate();
 
         StringAssert.Contains(diagnostics.Qualification.Title, "qualification");
+        StringAssert.StartsWith(diagnostics.Qualification.Title, "Most recent");
         Assert.IsFalse(
             diagnostics.Qualification.Title.Contains("Last session", StringComparison.Ordinal),
-            "Current qualification must never be labelled as a past session.");
+            "The latest qualification must never be labelled as a past session.");
 
         DiagnosticItem readiness = diagnostics.Qualification.Items.Single(
             item => item.Label == "Thermal ownership ready");
@@ -103,6 +104,11 @@ public sealed class QualificationDisplayTests
             item => item.Label == "GPU thermal limits");
         Assert.AreEqual("No", limits.Value);
         StringAssert.Contains(limits.Detail!, "could not be established");
+
+        DiagnosticItem evaluated = diagnostics.Qualification.Items.Single(
+            item => item.Label == "Evaluated");
+        StringAssert.Contains(evaluated.Detail!, "Most recent qualification");
+        Assert.IsFalse(evaluated.Detail!.Contains("Current", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -116,21 +122,45 @@ public sealed class QualificationDisplayTests
     /// historical labelling tested only for Stopped.
     /// </remarks>
     [DataTestMethod]
+    [DataRow("Starting")]
+    [DataRow("Stopping")]
     [DataRow("EmergencyHandoff")]
     [DataRow("Faulted")]
     [DataRow("Stopped")]
     public async Task NonRunningStatesPresentObservationsAsHistorical(string state)
     {
-        var client = new FakeRuntimeUiClient { Status = RuntimeUiSampleData.Status(state: state) };
+        var client = new FakeRuntimeUiClient
+        {
+            Status = RuntimeUiSampleData.Status(
+                state: state,
+                watchdog: RuntimeUiSampleData.Watchdog())
+        };
         using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
         await connection.PollOnceAsync(CancellationToken.None);
         var diagnostics = new DiagnosticsViewModel(connection, CancellationToken.None);
         diagnostics.Activate();
 
-        StringAssert.Contains(diagnostics.Razer.Title, "Last watchdog observation");
+        Assert.AreEqual(
+            "Razer",
+            diagnostics.Razer.Title,
+            "The group also contains a current doctor result and a direct profile snapshot; " +
+            "a watchdog-history heading would mislabel those sources.");
+        Assert.IsTrue(
+            diagnostics.Razer.Items
+                .Where(item => item.Label.Contains("watchdog", StringComparison.OrdinalIgnoreCase))
+                .All(item => item.Label.StartsWith("Last watchdog", StringComparison.Ordinal)),
+            $"Every watchdog row must identify history while state is {state}.");
         DiagnosticItem fan = diagnostics.Razer.Items.Single(
             item => item.Label.StartsWith("Firmware-reported fan state", StringComparison.Ordinal));
-        StringAssert.Contains(fan.Detail!, "Historical");
+        StringAssert.Contains(fan.Detail!, "direct profile-read");
+        StringAssert.Contains(fan.Detail!, "not a watchdog observation");
+        Assert.IsFalse(
+            fan.Detail!.Contains("Historical", StringComparison.OrdinalIgnoreCase),
+            "Runtime state cannot date an independent profile read that has no timestamp.");
+        Assert.AreEqual(
+            "Telemetry",
+            diagnostics.Telemetry.Title,
+            "Capability reports and latest-sample provenance are not last-session values.");
     }
 
     /// <summary>A running session is the only state that reports current readings.</summary>
@@ -148,11 +178,14 @@ public sealed class QualificationDisplayTests
             "A live session is not history.");
     }
 
-    /// <summary>
-    /// A firmware fan value read minutes ago must not read as the current RPM while stopped.
-    /// </summary>
+    /// <summary>A direct profile read is not relabelled as watchdog or live fan data.</summary>
+    /// <remarks>
+    /// Connection.Fan is populated independently by GetFanState and has no timestamp. Runtime
+    /// state cannot establish its age, so Diagnostics names the source without calling it
+    /// current or historical. It still must not look like a physical tachometer reading.
+    /// </remarks>
     [TestMethod]
-    public async Task StoppedFirmwareFanValueIsMarkedHistorical()
+    public async Task StoppedFirmwareFanValueNamesItsSourceWithoutInventingAge()
     {
         var client = new FakeRuntimeUiClient
         {
@@ -166,11 +199,44 @@ public sealed class QualificationDisplayTests
         DiagnosticItem fan = diagnostics.Razer.Items.Single(
             item => item.Label.StartsWith("Firmware-reported fan state", StringComparison.Ordinal));
 
-        StringAssert.Contains(fan.Label, "last observation");
-        StringAssert.Contains(fan.Detail!, "Historical");
-        StringAssert.Contains(
-            fan.Detail!,
-            "not a current reading",
-            "The distinction that matters is age, not only provenance.");
+        StringAssert.Contains(fan.Label, "last direct profile read");
+        StringAssert.Contains(fan.Detail!, "Most recent direct profile-read snapshot");
+        StringAssert.Contains(fan.Detail!, "not a watchdog observation");
+        StringAssert.Contains(fan.Detail!, "live fan reading");
+        StringAssert.Contains(fan.Detail!, "not proven to be a physical tachometer reading");
+        Assert.IsFalse(
+            fan.Detail!.Contains("Historical", StringComparison.OrdinalIgnoreCase),
+            "Runtime state cannot date an independent profile read that has no timestamp.");
+        Assert.IsFalse(
+            fan.Detail!.Contains("current reading", StringComparison.OrdinalIgnoreCase),
+            "The absent timestamp cannot support a current-versus-historical claim.");
+    }
+
+    /// <summary>A completed emergency handoff has one warning outcome on every surface.</summary>
+    /// <remarks>
+    /// Diagnostics coloured every non-empty Emergency status Danger even when the adjacent
+    /// runtime state correctly said EmergencyHandoff in Warning. This test fails against that
+    /// field-presence-only tone.
+    /// </remarks>
+    [TestMethod]
+    public async Task SuccessfulEmergencyStatusUsesTheSafeHandoffTone()
+    {
+        var client = new FakeRuntimeUiClient
+        {
+            Status = RuntimeUiSampleData.Status(
+                state: "EmergencyHandoff",
+                emergencyStatus: "Emergency Balanced + Auto handoff completed.")
+        };
+        using var connection = new RuntimeConnection(client, new ImmediateUiDispatcher());
+        await connection.PollOnceAsync(CancellationToken.None);
+        var diagnostics = new DiagnosticsViewModel(connection, CancellationToken.None);
+        diagnostics.Activate();
+
+        DiagnosticItem emergency = diagnostics.Runtime.Items.Single(
+            item => item.Label == "Emergency status");
+        Assert.AreEqual(StatusTone.Warning, emergency.Tone);
+        Assert.AreEqual(
+            Display.RuntimeStateTone("EmergencyHandoff"),
+            emergency.Tone);
     }
 }

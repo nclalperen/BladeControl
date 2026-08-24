@@ -56,6 +56,7 @@ public sealed class RuntimeEventViewModel : ObservableObject
         Timestamp = Display.EventTimestamp(item.Timestamp);
         Message = item.Message;
         Detail = BuildDetail(item);
+        Tone = EventTone(item);
     }
 
     public string Kind { get; }
@@ -76,11 +77,28 @@ public sealed class RuntimeEventViewModel : ObservableObject
         set => Set(ref _isExpanded, value);
     }
 
-    public StatusTone Tone => Kind switch
+    public StatusTone Tone { get; }
+
+    private static StatusTone EventTone(RuntimeEventDto item) => item.Kind switch
     {
-        "EmergencyHandoff" or "OwnershipLost" => StatusTone.Danger,
+        // These events carry the outcome that their detail prints. Ignoring it made a
+        // successful handoff red while saying "Succeeded: Yes", and a failed recovery green
+        // while saying "Succeeded: No".
+        "EmergencyHandoff" => item.Succeeded switch
+        {
+            true => StatusTone.Warning,
+            false => StatusTone.Danger,
+            null => StatusTone.Danger
+        },
+        "RecoveryResult" => item.Succeeded switch
+        {
+            true => StatusTone.Good,
+            false => StatusTone.Danger,
+            null => StatusTone.Warning
+        },
+        "OwnershipLost" => StatusTone.Danger,
         "SchedulerOverrun" or "RecoveryAttempt" => StatusTone.Warning,
-        "SessionStarted" or "RecoveryResult" => StatusTone.Good,
+        "SessionStarted" => StatusTone.Good,
         "SessionStopped" => StatusTone.Neutral,
         _ => StatusTone.Muted
     };
@@ -203,7 +221,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
         _copyToClipboard = copyToClipboard;
         Runtime = new DiagnosticGroup("Runtime");
         Razer = new DiagnosticGroup("Razer");
-        Qualification = new DiagnosticGroup("Thermal ownership qualification");
+        Qualification = new DiagnosticGroup("Most recent thermal ownership qualification");
         Telemetry = new DiagnosticGroup("Telemetry");
         PawnIo = new DiagnosticGroup("PawnIO");
         Scheduler = new DiagnosticGroup("Scheduler");
@@ -226,13 +244,14 @@ public sealed class DiagnosticsViewModel : PageViewModel
     public DiagnosticGroup Razer { get; }
 
     /// <summary>
-    /// The authoritative qualification result, current whatever the runtime state is.
+    /// The most recently evaluated qualification result, independent of runtime session state.
     /// </summary>
     /// <remarks>
-    /// Its own group because it is not session data. It previously sat inside Telemetry, whose
-    /// heading becomes "Last session telemetry" while stopped — so a live "may this machine
-    /// take thermal ownership" answer was presented as a record of a session that, after a
-    /// service restart, had never run.
+    /// Its own group because it is not session data. It previously sat inside Telemetry under a
+    /// historical heading while stopped, so the latest "may this machine take thermal
+    /// ownership" answer was presented as a record of a session that, after a service restart,
+    /// had never run. Telemetry also keeps a source-neutral heading because it contains
+    /// capabilities and latest-sample provenance, but qualification remains a separate decision.
     /// </remarks>
     public DiagnosticGroup Qualification { get; }
 
@@ -429,13 +448,28 @@ public sealed class DiagnosticsViewModel : PageViewModel
     private void RebuildGroups()
     {
         RuntimeStatusDto? status = Connection.Status;
-        // Only a Running session produces current readings. Stopped, Faulted and
-        // EmergencyHandoff are all showing the last thing observed, and an emergency handoff
-        // is precisely when a stale "Balanced + Manual" would misrepresent who owns the fans.
-        bool stopped = !string.Equals(status?.State, "Running", StringComparison.Ordinal);
-        Razer.Title = stopped ? "Razer · Last watchdog observation" : "Razer";
-        Telemetry.Title = stopped ? "Telemetry · last session values" : "Telemetry";
-        Scheduler.Title = stopped ? "Last session scheduler" : "Scheduler";
+        // State snapshots survive a transport loss. Keep current-versus-retained classification
+        // behind Display so offline Running and transition states cannot silently fall through
+        // as current here while the dashboard calls the same readings historical.
+        SessionObservationScope observation = Display.SessionObservation(
+            Connection.IsOnline,
+            status?.State);
+        bool currentSession = observation == SessionObservationScope.Current;
+        bool historicalSession = !currentSession;
+        // These groups mix process-lifetime qualification/profile snapshots with session data.
+        // A historical suffix on the whole group falsely relabels the latest doctor report;
+        // the individual watchdog and scheduler rows say which values are history instead.
+        Razer.Title = "Razer";
+        Telemetry.Title = "Telemetry";
+        Scheduler.Title = observation switch
+        {
+            SessionObservationScope.Current => "Scheduler",
+            SessionObservationScope.Starting => "Scheduler · session starting",
+            SessionObservationScope.Stopping => "Scheduler · session stopping",
+            SessionObservationScope.LastReported => "Last reported scheduler",
+            SessionObservationScope.LastSession => "Last session scheduler",
+            _ => "Scheduler"
+        };
         RuntimeDoctorReportDto? doctor = Connection.Doctor;
         RuntimeTelemetryCapabilitiesDto? capabilities = doctor?.Capabilities;
         RuntimePawnIoProvenanceDto? pawnIo = doctor?.PawnIoProvenance;
@@ -455,19 +489,40 @@ public sealed class DiagnosticsViewModel : PageViewModel
                     : "Development preview client — not connected to hardware.",
                 Connection.Client.IsLiveRuntimeChannel ? StatusTone.Neutral : StatusTone.Warning),
             new DiagnosticItem(
-                "Runtime state",
+                observation == SessionObservationScope.LastReported
+                    ? "Last reported runtime state"
+                    : "Runtime state",
                 Display.Text(status?.State),
-                Display.RuntimeStateDescription(status?.State),
-                Display.RuntimeStateTone(status?.State)),
+                Connection.IsOnline
+                    ? Display.RuntimeStateDescription(
+                        status?.State,
+                        status?.CurrentProfile)
+                    : observation == SessionObservationScope.LastReported
+                        ? "Runtime Core is offline; this is the last state it reported."
+                        : "Runtime Core is offline; no runtime state has been reported.",
+                Connection.IsOnline
+                    ? Display.RuntimeStateTone(status?.State)
+                    : StatusTone.Muted),
             new DiagnosticItem(
-                "Session ID",
+                observation switch
+                {
+                    SessionObservationScope.LastReported => "Last reported session ID",
+                    SessionObservationScope.LastSession => "Last session ID",
+                    _ => "Session ID"
+                },
                 status?.SessionId is { } id ? id.ToString("D") : Display.Unavailable,
                 status?.StartTimestamp is { } start
                     ? $"Started {start.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
                     : null),
             new DiagnosticItem(
-                "Active profile",
-                Display.Text(status?.CurrentProfile)),
+                observation == SessionObservationScope.LastReported
+                    ? "Last reported active profile"
+                    : "Active profile",
+                Display.Text(status?.CurrentProfile),
+                Connection.IsOnline
+                    ? null
+                    : "Retained status snapshot; not a claim about current hardware state.",
+                Connection.IsOnline ? StatusTone.Neutral : StatusTone.Muted),
             // Reported by the server process itself, not inferred from this executable. The
             // two can differ - an upgrade that replaced the GUI while the old service was
             // still running is exactly the case worth catching - so deriving it here would
@@ -475,9 +530,11 @@ public sealed class DiagnosticsViewModel : PageViewModel
             new DiagnosticItem(
                 "Runtime version",
                 Display.Text(status?.RuntimeBuild),
-                status?.RuntimeBuild is { Length: > 0 }
-                    ? "Reported by the runtime host over IPC."
-                    : "This runtime is older than the build identifier and reports none.",
+                status is null
+                    ? "No runtime status snapshot is available."
+                    : status.RuntimeBuild is { Length: > 0 }
+                        ? "Reported by the runtime host over IPC."
+                        : "This runtime is older than the build identifier and reports none.",
                 status?.RuntimeBuild is { Length: > 0 } ? StatusTone.Neutral : StatusTone.Muted),
             new DiagnosticItem(
                 "Protocol version",
@@ -490,19 +547,26 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Last failure",
                 Display.Text(status?.LastFailureReason),
                 null,
-                string.IsNullOrWhiteSpace(status?.LastFailureReason)
-                    ? StatusTone.Neutral
-                    : StatusTone.Danger),
+                !Connection.IsOnline
+                    ? StatusTone.Muted
+                    : string.IsNullOrWhiteSpace(status?.LastFailureReason)
+                        ? StatusTone.Neutral
+                        : StatusTone.Danger),
             new DiagnosticItem(
-                "Emergency status",
+                observation == SessionObservationScope.LastReported
+                    ? "Last reported emergency status"
+                    : "Emergency status",
                 Display.Text(status?.EmergencyStatus),
                 null,
-                string.IsNullOrWhiteSpace(status?.EmergencyStatus)
-                    ? StatusTone.Neutral
-                    : StatusTone.Danger)
+                !Connection.IsOnline
+                    ? StatusTone.Muted
+                    : string.IsNullOrWhiteSpace(status?.EmergencyStatus)
+                        ? StatusTone.Neutral
+                        : Display.RuntimeStateTone(status?.State))
         ]);
 
         RuntimeRazerModeStateDto? watchdog = status?.LastRazerWatchdogState;
+        bool retainedWatchdog = watchdog is not null && !currentSession;
         Razer.Replace(
         [
             new DiagnosticItem(
@@ -511,51 +575,52 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Microsoft HID; no proprietary Razer driver is required.",
                 doctor is null ? StatusTone.Muted : Display.BooleanTone(doctor.RazerHidAvailable)),
             new DiagnosticItem(
-                stopped ? "Last watchdog zone 1" : "Watchdog zone 1",
+                retainedWatchdog ? "Last watchdog zone 1" : "Watchdog zone 1",
                 watchdog is null
                     ? Display.Unavailable
                     : $"{watchdog.Zone1PerformanceMode} / {watchdog.Zone1FanMode}"),
             new DiagnosticItem(
-                stopped ? "Last watchdog zone 2" : "Watchdog zone 2",
+                retainedWatchdog ? "Last watchdog zone 2" : "Watchdog zone 2",
                 watchdog is null
                     ? Display.Unavailable
                     : $"{watchdog.Zone2PerformanceMode} / {watchdog.Zone2FanMode}"),
             new DiagnosticItem(
-                "Zones agree",
+                retainedWatchdog ? "Last watchdog zones agree" : "Watchdog zones agree",
                 watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.ZonesAgree),
                 null,
-                watchdog is null || stopped
+                watchdog is null || historicalSession
                     ? StatusTone.Muted
                     : Display.BooleanTone(watchdog.ZonesAgree)),
             new DiagnosticItem(
-                "Known Auto",
+                retainedWatchdog ? "Last watchdog known Auto" : "Watchdog known Auto",
                 watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.IsKnownAuto),
                 "Auto confirmed by a firmware read rather than inferred.",
-                watchdog is null || stopped
+                watchdog is null || historicalSession
                     ? StatusTone.Muted
                     : Display.BooleanTone(watchdog.IsKnownAuto)),
             new DiagnosticItem(
-                "Balanced manual",
-                watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.IsBalancedManual)),
+                retainedWatchdog
+                    ? "Last watchdog balanced manual"
+                    : "Watchdog balanced manual",
+                watchdog is null ? Display.Unavailable : Display.Boolean(watchdog.IsBalancedManual),
+                retainedWatchdog
+                    ? "Retained watchdog observation; not a claim about current ownership."
+                    : null,
+                watchdog is null || historicalSession ? StatusTone.Muted : StatusTone.Neutral),
             new DiagnosticItem(
-                stopped
-                    ? "Firmware-reported fan state · last observation"
-                    : "Firmware-reported fan state",
+                "Firmware-reported fan state · last direct profile read",
                 Connection.Fan is { } fan
                     ? $"Fan 1 {Display.FirmwareFanValue(fan.Fan1Rpm)} · " +
                         $"Fan 2 {Display.FirmwareFanValue(fan.Fan2Rpm)}"
                     : Display.Unavailable,
-                // Two separate cautions, and both matter. The value is a firmware echo of the
-                // last commanded target rather than a tachometer, and while stopped it is
-                // whatever was last observed — which can be many minutes old and is not what
-                // the fans are doing now.
-                stopped
-                    ? "Historical: the value last observed by the watchdog, not a current " +
-                        "reading. Firmware-reported (Razer 0x0D81) and not proven to be a " +
-                        "physical tachometer reading."
-                    : "Firmware-reported value (Razer 0x0D81). Not proven to be a physical " +
-                        "tachometer reading.",
-                stopped ? StatusTone.Muted : StatusTone.Neutral)
+                // This value comes from GetFanState, not LastRazerWatchdogState. It has no
+                // timestamp, so runtime state cannot establish whether it is current or
+                // historical. Name its independent source without presenting it as a live fan
+                // or physical tachometer reading.
+                "Most recent direct profile-read snapshot; not a watchdog observation or a " +
+                    "live fan reading. Firmware-reported (Razer 0x0D81) and not proven to be " +
+                    "a physical tachometer reading.",
+                StatusTone.Muted)
         ]);
 
         Telemetry.Replace(
@@ -610,7 +675,9 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "GPU PCI ID",
                 Display.Text(capabilities?.SelectedGpu?.PciBusId)),
             new DiagnosticItem(
-                "Telemetry origin",
+                !Connection.IsOnline && Connection.TelemetryOrigin != TelemetryOrigin.None
+                    ? "Last reported telemetry origin"
+                    : "Telemetry origin",
                 Connection.TelemetryOrigin switch
                 {
                     TelemetryOrigin.ThermalSession => "Thermal session sample",
@@ -618,7 +685,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
                     TelemetryOrigin.DiagnosticSnapshot => "Diagnostic acquisition",
                     _ => Display.Unavailable
                 },
-                "Which acquisition path produced the most recent reading. Moved here from the " +
+                "Which acquisition path produced the most recently reported reading. Moved here from the " +
                 "dashboard, where the distinction was engineering vocabulary rather than " +
                 "something a user could act on."),
             new DiagnosticItem(
@@ -695,7 +762,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 doctor?.QualificationTimestamp is { } evaluated
                     ? evaluated.ToLocalTime().ToString("HH:mm:ss")
                     : Display.Unavailable,
-                "Current qualification, not a record of the last session.")
+                "Most recent qualification evaluation; not a live or session-derived reading.")
         ]);
 
         PawnIo.Replace(
@@ -739,17 +806,68 @@ public sealed class DiagnosticsViewModel : PageViewModel
 
         SchedulerMetrics? metrics = status?.Scheduler;
 
-        // Nothing has run yet: a table of zeros under a health verdict presents absence as
-        // measurement. One honest line is more informative than eleven misleading ones.
-        if (metrics is null || metrics.CompletedCycles == 0)
+        if (status is null)
         {
             Scheduler.Title = "Scheduler";
             Scheduler.Replace(
             [
                 new DiagnosticItem(
                     "History",
-                    "No session yet",
-                    "The runtime has not run a thermal session since it started.",
+                    Display.Unavailable,
+                    "No runtime status snapshot is available.",
+                    StatusTone.Muted)
+            ]);
+            return;
+        }
+
+        // A session ID is issued before the first scheduled cycle and retained after stop. It
+        // therefore distinguishes "a session ran but completed no cycle" from "no session ever
+        // ran". CompletedCycles alone used to collapse those states and claim no session even
+        // while the Runtime group displayed that session's ID.
+        if (metrics is null || metrics.CompletedCycles == 0)
+        {
+            bool sessionExists = Display.HasThermalSessionEvidence(status);
+            Scheduler.Title = !sessionExists
+                ? observation == SessionObservationScope.LastReported
+                    ? "Last reported scheduler"
+                    : "Scheduler"
+                : observation switch
+                {
+                    SessionObservationScope.Current => "Scheduler",
+                    SessionObservationScope.Starting => "Scheduler · session starting",
+                    SessionObservationScope.Stopping => "Scheduler · session stopping",
+                    SessionObservationScope.LastReported => "Last reported scheduler",
+                    SessionObservationScope.LastSession => "Last session scheduler",
+                    _ => "Scheduler"
+                };
+            Scheduler.Replace(
+            [
+                new DiagnosticItem(
+                    "History",
+                    sessionExists
+                        ? "No scheduler cycle yet"
+                        : observation == SessionObservationScope.LastReported
+                            ? "No session reported"
+                            : "No session yet",
+                    sessionExists
+                        ? observation switch
+                        {
+                            SessionObservationScope.Current =>
+                                "The thermal session has not completed its first scheduler cycle.",
+                            SessionObservationScope.Starting =>
+                                "The thermal session is starting and has not completed its first scheduler cycle.",
+                            SessionObservationScope.Stopping =>
+                                "The thermal session is stopping; no scheduler cycle completed before handoff began.",
+                            SessionObservationScope.LastReported =>
+                                "Runtime Core is offline; retained status reports no completed scheduler cycle.",
+                            SessionObservationScope.LastSession =>
+                                "The last thermal session ended before a scheduler cycle completed.",
+                            _ => "The reported session has no completed scheduler cycle."
+                        }
+                        : observation == SessionObservationScope.LastReported
+                            ? "Retained status snapshot; no thermal session had been reported " +
+                                "before disconnect."
+                            : "The runtime has not run a thermal session since it started.",
                     StatusTone.Muted)
             ]);
             return;
@@ -782,7 +900,7 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 metrics?.SlowCycleCount.ToString("N0", CultureInfo.CurrentCulture) ??
                     Display.Unavailable,
                 null,
-                metrics is null || stopped
+                metrics is null || historicalSession
                     ? StatusTone.Muted
                     : metrics.SlowCycleCount == 0 ? StatusTone.Good : StatusTone.Warning),
             new DiagnosticItem(
@@ -796,7 +914,9 @@ public sealed class DiagnosticsViewModel : PageViewModel
                 "Scheduler health",
                 Display.Text(status?.SchedulerHealth),
                 null,
-                stopped ? StatusTone.Muted : Display.SchedulerTone(status?.SchedulerHealth)),
+                historicalSession
+                    ? StatusTone.Muted
+                    : Display.SchedulerTone(status?.SchedulerHealth)),
             new DiagnosticItem(
                 "Last acquisition",
                 status is null
