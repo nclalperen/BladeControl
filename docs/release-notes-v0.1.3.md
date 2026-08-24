@@ -117,12 +117,14 @@ describing rather than by a crash report:
 - **Diagnostics claimed GPU power was available when it never arrives.** The capability flag
   asked whether the driver had explicitly declined, not whether a reading existed.
 
-GPU power and utilisation remain reported as unavailable, and
-[known limitations](known-limitations.md) now explains why with measurements. Briefly:
-utilisation is intermittent and tracks the discrete GPU's power state, and power is worse than
-missing — the driver reports 593.5 W for a part rated near 150 W, to `nvidia-smi` as readily as
-to BladeControl, mixed in among plausible values. A number that is occasionally absurd is not a
-measurement, so it is not shown as one. Neither metric is used for any control decision.
+GPU power and utilisation are **intermittent**, and
+[known limitations](known-limitations.md) carries the measurements. Briefly: both are refused
+while the machine is idle and both read correctly under continuous polling, matching
+`nvidia-smi` to within rounding across 38 consecutive samples — so a dash on the GPU card means
+"not right now", not "never". Power additionally returns a physically impossible value from
+time to time (593.5 W on a part rated near 150 W, which `nvidia-smi` reports too); no
+plausibility gate is implemented yet, so that value can currently reach the display. Neither
+metric is used for any control decision.
 
 ---
 

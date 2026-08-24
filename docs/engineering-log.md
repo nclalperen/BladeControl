@@ -1628,3 +1628,52 @@ Two stale README claims surfaced while sweeping versions: that CPU High/Boost an
 Medium/High appear greyed out, which stopped being true when the level policy opened up, and
 that live telemetry includes GPU power and utilisation, which the service does not receive.
 Both corrected.
+
+---
+
+## Correction: the GPU telemetry entry above was wrong twice before it was right
+
+Appended rather than folded into the entry above, because that entry is now part of the record
+of how this went, and the going is the point.
+
+**First version.** The service gets `NVML_ERROR_UNKNOWN` for GPU power and utilization; the CLI
+reads them. Two callers, two results, one obvious difference — LocalSystem in session 0 versus
+an interactive process. Written into known-limitations.md as a finding, with a note that the
+confirming experiment had not been run.
+
+**Second version.** Deploying the build and probing the installed service returned a valid
+utilization on the first sample, which the first version said was impossible. Sampling
+repeatedly, and again while holding the dGPU awake with `nvidia-smi -l 1`, split it into two
+problems: utilization intermittent and tied to GPU power state, power never answering the
+service at all. That version also caught the genuinely important thing — `nvidia-smi` itself
+reporting 593.51 W for a part rated near 150 W, so the value is untrustworthy independent of
+who asks.
+
+**Third version, and the measurements this one actually rests on.** Redeploying and probing
+again returned valid *power* from the service — 33.9 W — which the second version said never
+happened. So this time, instead of writing up two more data points, I sampled properly:
+`nvidia-smi` and the service read back to back, 38 consecutive samples at 1.5–5 s intervals,
+recording performance state alongside both. Zero refusals. Service power tracked `nvidia-smi`
+to within rounding across P0, P5 and P8 — 20.1 against 20.08, 10.3 against 10.32, 9.9 against
+9.88.
+
+So both metrics are intermittent, neither is denied to LocalSystem, and the earlier failures
+correlate with an idle machine that nothing was polling. The power-state mechanism explains
+every observation and remains a hypothesis; the intermittency and the accuracy-when-present are
+measured.
+
+**What went wrong twice, and it was the same thing both times.** Two data points with an
+obvious difference between them is a hypothesis wearing a finding's clothes. Both wrong versions
+had a mechanism that sounded right — privilege boundary, then power state — and both were
+written up before anything had been sampled enough to have a distribution. The third version is
+different not because the story is better but because there are 38 paired samples behind it
+instead of two.
+
+The tell was available each time and I did not act on it until the third: the claim was always
+of the form "X never happens", and "never" from a handful of observations is the cheapest
+possible statement to falsify. When the next sample falsified it, that was not bad luck.
+
+Worth keeping from this: the 593.5 W outlier is still real and there is still no plausibility
+gate on GPU power, so an absurd value can reach the display. known-limitations.md now says that
+in those words — a known gap, not a decision — rather than implying the refusal protects us
+from it.

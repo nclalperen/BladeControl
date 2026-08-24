@@ -36,15 +36,14 @@ describing.
 
 ### Known
 
-- **GPU power and utilization are reported as unavailable, for two different reasons.**
-  Utilization is intermittent and tracks the discrete GPU's power state — NVML returns
-  `NVML_ERROR_UNKNOWN` while it is idle and answers while it is active. Power is worse than
-  missing: the driver reports physically impossible values for this part, 593.5 W on a GPU
-  rated near 150 W, intermittently among plausible ones, and does so to `nvidia-smi` as well as
-  to BladeControl. A number that is usually right and occasionally absurd is not a measurement,
-  so it is not presented as one — the same judgement already made about fan RPM. Measurements
-  in `docs/known-limitations.md`. No control path depends on either metric; the thermal ladders
-  run on temperature, which is reliable in both GPU power states.
+- **GPU power and utilization are intermittent.** Both are refused with `NVML_ERROR_UNKNOWN`
+  while the machine is idle and both read correctly under continuous polling — 38 consecutive
+  samples matching `nvidia-smi` to within rounding across performance states P0, P5 and P8. The
+  dash means "not right now", not "never", and it is not a privilege restriction. Power
+  additionally returns a physically impossible value from time to time (593.5 W on a part rated
+  near 150 W, seen by `nvidia-smi` too); no plausibility gate is implemented yet, so that value
+  can currently reach the display. Measurements in `docs/known-limitations.md`. No control path
+  depends on either metric.
 
 ## [0.1.1] — 2026-08-24
 

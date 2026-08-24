@@ -94,49 +94,47 @@ single snapshot.
 
 ---
 
-## GPU power and utilization: one is intermittent, the other is not trustworthy
+## GPU power and utilization are intermittent, and power is occasionally absurd
 
-The GPU card shows a temperature with `—` for power and utilization. These are two different
-problems that happened to look like one, and the second is worse than a missing reading.
+The GPU card sometimes shows a temperature with `—` for power and utilization. Both metrics
+come and go; neither is permanently unavailable, and the dash means "not right now", not
+"never".
 
-**GPU utilization is intermittent, and tracks the dGPU's power state.** NVML returns
-`NVML_ERROR_UNKNOWN` (999) while the discrete GPU is idle, and answers normally while it is
-active. Measured by holding the GPU awake with `nvidia-smi -l 1` and re-reading the service
-over IPC: utilization answered on two of three samples with the GPU held awake, and on none of
-five with it idle. Temperature and clocks answer throughout, in both states — so the dGPU is
-not asleep in any sense that would excuse a missing reading, only in one that costs these
-particular counters.
+**Both are intermittent, and it is not a privilege or session-0 restriction.** Two rounds of
+measurement, on the same build and the same machine:
 
-**GPU power is not merely missing, it is wrong when present.** The driver reports physically
-impossible values for this part, and it does so to NVIDIA's own tool as well:
+| Condition | Samples | Power | Utilization |
+|---|---|---|---|
+| Machine idle, no client polling continuously | ~10 across two sessions | `NVML_ERROR_UNKNOWN` (999) | mostly 999, occasionally valid |
+| Under continuous polling (one read every 1.5–5 s) | **38 consecutive** | **all valid** | **all valid** |
 
-| Caller | Samples |
-|---|---|
-| `nvidia-smi --query-gpu=power.draw` (interactive user) | **593.51 W** |
-| `BladeControl.Cli` (interactive user), three consecutive reads | **593.5 W**, 30.1 W, 30.1 W |
-| `BladeControl.Runtime` service, every read | `NVML_ERROR_UNKNOWN` (999) |
+Under the second condition the service's readings tracked `nvidia-smi` to within rounding —
+20.1 vs 20.08 W, 10.3 vs 10.32 W, 9.9 vs 9.88 W — across observed performance states P0, P5
+and P8. So the LocalSystem service can read both metrics perfectly well; an earlier revision of
+this section claimed it never could, on the strength of two data points, and that was wrong.
 
-The RTX 4090 Laptop GPU in this machine has a total graphics power in the neighbourhood of
-150 W. 593.5 W is not a reading, it is garbage that happens to be a number — and it appears
-intermittently among plausible ones, which is the dangerous shape. A metric that is usually
-right and occasionally absurd cannot be shown as a measurement.
+The pattern is consistent with the discrete GPU's power state: the counters are unavailable
+while the part is in a deep power-saving state and answer once it is active, and a client that
+polls frequently keeps it active. Temperature and clocks answer in both conditions. **That
+mechanism is a hypothesis** — it explains every observation to date and nothing has been done
+to prove it.
 
-This is the same judgement already made about [fan RPM](#physical-fan-rpm-is-not-available):
-a number that looks like a measurement and is not one is worse than an honest dash. So the
-service's refusal to produce GPU power is, for now, the safer of the two behaviours, and
-nothing here tries to route around it.
+**Power additionally returns a physically impossible value from time to time.** Three
+consecutive reads through `BladeControl.Cli` gave **593.5 W**, 30.1 W, 30.1 W, and
+`nvidia-smi --query-gpu=power.draw` independently reported **593.51 W** in the same period. The
+RTX 4090 Laptop GPU here has a total graphics power near 150 W. This is the driver, not our
+marshalling, and it is rare — 38 later samples were all plausible — which is precisely the
+dangerous shape: a metric that is usually right and occasionally absurd.
 
-**Nothing in the control path depends on either metric.** The thermal ladders are driven by
-temperature, which the service does get, reliably, in both GPU power states. This costs
-display detail and no capability. Diagnostics reports the metric as unavailable and carries
-NVML's own return code; the dashboard's dash has that same reason as its tooltip.
+That is the same judgement already reached about [fan RPM](#physical-fan-rpm-is-not-available):
+a number that looks like a measurement and is not one is worse than an honest dash. **No
+plausibility gate is implemented yet**, so an absurd value can currently reach the display. That
+is a known gap, not a decision.
 
-**Not established:** why the service never gets power while an interactive process sometimes
-does. A service restart ruled out a stale device handle. The obvious remaining variable is that
-the service runs as LocalSystem in session 0, but the experiment that would confirm it —
-running the same provider as LocalSystem outside the service — was not performed. That stays a
-hypothesis, and given the values an interactive process *does* get, it is not the most useful
-question here.
+**Nothing in the control path depends on either metric.** The thermal ladders run on
+temperature, which is reliable in every condition observed. This costs display detail and no
+capability. Diagnostics reports the metric as unavailable and carries NVML's own return code;
+the dashboard's dash has that same reason as its tooltip.
 
 ---
 
