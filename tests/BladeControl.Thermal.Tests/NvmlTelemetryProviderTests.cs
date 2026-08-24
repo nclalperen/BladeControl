@@ -29,6 +29,125 @@ public sealed class NvmlTelemetryProviderTests
         Assert.AreEqual(20d, reading.MemoryUtilizationPercent.Value);
     }
 
+    /// <summary>
+    /// Catches a unit mismatch or over-tight gate that rejects an ordinary reading while still
+    /// proving that construction consulted the device limit.
+    /// </summary>
+    [TestMethod]
+    public void PlausiblePowerReadingPassesThroughUnchanged()
+    {
+        var api = new FakeNvmlApi { PowerWatts = 149.5 };
+        using NvmlTelemetryProvider provider = Open(api);
+
+        TelemetryMetric<double> power = provider.Read(Now).PowerWatts;
+
+        Assert.IsTrue(power.IsValid);
+        Assert.AreEqual(149.5, power.Value);
+        Assert.AreEqual(1, api.PowerManagementLimitReads);
+    }
+
+    /// <summary>
+    /// Catches the original defect: a driver-confirmed 593.5 W outlier on a roughly 150 W part
+    /// used to pass through as an available display value.
+    /// </summary>
+    [TestMethod]
+    public void AbsurdPowerReadingIsInvalidAndNamesReadingAndDeviceLimit()
+    {
+        var api = new FakeNvmlApi { PowerWatts = 593.5 };
+        using NvmlTelemetryProvider provider = Open(api);
+
+        TelemetryMetric<double> power = provider.Read(Now).PowerWatts;
+
+        Assert.IsFalse(power.IsValid);
+        Assert.IsTrue(power.IsSupported);
+        Assert.AreEqual(593.5, power.Value, "The refused raw value must not be clamped.");
+        StringAssert.Contains(power.Diagnostic!, "593.5 W");
+        StringAssert.Contains(power.Diagnostic!, "150.0 W");
+    }
+
+    /// <summary>
+    /// Catches a gate applied directly at the sustained limit, which would reject legitimate
+    /// instantaneous overshoot instead of allowing the deliberately broad transient margin.
+    /// </summary>
+    [TestMethod]
+    public void PowerReadingAboveLimitButWithinTransientMarginPasses()
+    {
+        var api = new FakeNvmlApi { PowerWatts = 180 };
+        using NvmlTelemetryProvider provider = Open(api);
+
+        TelemetryMetric<double> power = provider.Read(Now).PowerWatts;
+
+        Assert.IsTrue(power.IsValid);
+        Assert.AreEqual(180d, power.Value);
+        Assert.AreEqual(1, api.PowerManagementLimitReads);
+    }
+
+    /// <summary>
+    /// Catches a fail-closed implementation that turns every otherwise valid sample into a
+    /// refusal when the separate device-limit query is unavailable.
+    /// </summary>
+    [TestMethod]
+    public void UnreadablePowerLimitLeavesPowerReadingUntouched()
+    {
+        var api = new FakeNvmlApi
+        {
+            PowerWatts = 593.5,
+            PowerManagementLimitResult = NvmlResult.Unknown
+        };
+        using NvmlTelemetryProvider provider = Open(api);
+
+        TelemetryMetric<double> power = provider.Read(Now).PowerWatts;
+
+        Assert.IsTrue(power.IsValid);
+        Assert.AreEqual(593.5, power.Value);
+        Assert.AreEqual(1, api.PowerManagementLimitReads);
+    }
+
+    /// <summary>
+    /// Catches moving the device-property query onto the 500 ms sampling path.
+    /// </summary>
+    [TestMethod]
+    public void PowerLimitIsQueriedOnceRatherThanOncePerSample()
+    {
+        var api = new FakeNvmlApi();
+        using NvmlTelemetryProvider provider = Open(api);
+
+        Assert.AreEqual(
+            1,
+            api.PowerManagementLimitReads,
+            "The device property must be cached during construction, before sampling begins.");
+
+        for (int index = 0; index < 20; index++)
+        {
+            _ = provider.Read(Now.AddMilliseconds(index * 500));
+        }
+
+        Assert.AreEqual(1, api.PowerManagementLimitReads);
+    }
+
+    /// <summary>
+    /// Catches treating an NVML refusal as if NVML had returned a successful but implausible
+    /// number; the driver's own error must remain the diagnostic.
+    /// </summary>
+    [TestMethod]
+    public void RefusedPowerSampleRetainsNvmlDiagnosticInsteadOfPlausibilityDiagnostic()
+    {
+        var api = new FakeNvmlApi
+        {
+            PowerWatts = 593.5,
+            PowerResult = NvmlResult.Unknown
+        };
+        using NvmlTelemetryProvider provider = Open(api);
+
+        TelemetryMetric<double> power = provider.Read(Now).PowerWatts;
+
+        Assert.IsFalse(power.IsValid);
+        Assert.IsNull(power.Value);
+        StringAssert.Contains(power.Diagnostic!, "Unknown (999)");
+        Assert.IsFalse(power.Diagnostic!.Contains("device limit", StringComparison.Ordinal));
+        Assert.AreEqual(1, api.PowerManagementLimitReads);
+    }
+
     [TestMethod]
     public void UnsupportedOptionalMetricDoesNotInvalidateTemperature()
     {
@@ -582,6 +701,14 @@ public sealed class NvmlTelemetryProviderTests
 
         internal NvmlResult PowerResult { get; set; } = NvmlResult.Success;
 
+        internal double PowerWatts { get; set; } = 25;
+
+        internal NvmlResult PowerManagementLimitResult { get; set; } = NvmlResult.Success;
+
+        internal double PowerManagementLimitWatts { get; set; } = 150;
+
+        internal int PowerManagementLimitReads { get; private set; }
+
         internal double LegacyTemperature { get; set; } = 55;
 
         internal int LegacyTemperatureCalls { get; private set; }
@@ -617,8 +744,15 @@ public sealed class NvmlTelemetryProviderTests
 
         public NvmlResult GetPowerWatts(NvmlDevice device, out double watts)
         {
-            watts = 25;
+            watts = PowerWatts;
             return PowerResult;
+        }
+
+        public NvmlResult GetPowerManagementLimitWatts(NvmlDevice device, out double watts)
+        {
+            PowerManagementLimitReads++;
+            watts = PowerManagementLimitWatts;
+            return PowerManagementLimitResult;
         }
 
         public NvmlResult GetUtilization(

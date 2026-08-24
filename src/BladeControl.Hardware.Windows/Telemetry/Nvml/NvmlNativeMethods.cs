@@ -466,6 +466,14 @@ internal static class NvmlNativeMethods
     [DllImport(LibraryName, EntryPoint = "nvmlDeviceGetPowerUsage", ExactSpelling = true)]
     internal static extern NvmlResult GetPowerUsage(IntPtr device, out uint milliwatts);
 
+    [DllImport(
+        LibraryName,
+        EntryPoint = "nvmlDeviceGetPowerManagementLimit",
+        ExactSpelling = true)]
+    internal static extern NvmlResult GetPowerManagementLimit(
+        IntPtr device,
+        out uint milliwatts);
+
     [DllImport(LibraryName, EntryPoint = "nvmlDeviceGetUtilizationRates", ExactSpelling = true)]
     internal static extern NvmlResult GetUtilization(
         IntPtr device,
