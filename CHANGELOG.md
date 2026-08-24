@@ -8,7 +8,51 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 Nothing yet.
 
-## [0.1.0] — unreleased
+## [0.1.1] — 2026-08-24
+
+First tagged and released version. The 0.1.0 milestone below reached feature-complete but was
+never independently tagged; this release carries its packaging work forward plus the material
+changes made while settling the open questions that milestone left behind.
+
+### Added
+
+- **Visual identity.** Application icon, a state-aware system tray icon (idle / warning /
+  emergency, reusing the existing runtime-state-to-tone mapping), and README and GitHub
+  social-preview artwork.
+
+### Changed
+
+- **GPU thermal qualification is mode-dependent, not fixed to one signature.** Dynamic Cooling
+  qualifies against the limits of whichever performance mode the machine is already in
+  (Balanced 87/89/92 °C, Silent/Custom 75/77/80 °C), anchored to the driver's current thermal
+  target rather than to a value baked into the GPU signature. An anchor not observed on the
+  qualified part is refused even when it looks plausible.
+- **Performance mode and fan ownership are orthogonal.** Taking or releasing fan control no
+  longer forces the machine to Balanced; Silent stays Silent, Custom stays Custom throughout a
+  session.
+- **Changing performance mode during a running session now ends it.** The limits in force were
+  derived for the mode the session qualified in, so a mode change underneath it hands the fans
+  back to firmware rather than continuing to control against stale limits.
+- **CPU and GPU performance levels are fully selectable** (CPU Low/Medium/High/Boost, GPU
+  Low/Medium/High) in Custom mode. Overclock remains excluded from both, deliberately, so
+  BladeControl cannot interfere with tuning done in XTU.
+- **UI**: single consolidated fan control replacing the earlier split controls, a redesigned
+  slider, and telemetry charts added to the Dashboard, Fans & Thermal, and Performance pages.
+  The emergency-handoff banner's tone and wording were corrected to present a completed handoff
+  as protection working, not as an alarm.
+
+### Licence
+
+- **`GPL-3.0-or-later`** declared once, in `Directory.Build.props`, as
+  `PackageLicenseExpression`, so every built assembly carries it.
+
+### Validated
+
+- **Cold-boot recovery on real hardware.** A genuine reboot, unaided delayed auto-start, the
+  machine returning in its pre-reboot performance mode, qualification against that mode's own
+  limits, a full session, and a clean stop restoring the booted state.
+
+## 0.1.0 — unreleased (never tagged; superseded by 0.1.1)
 
 First release engineered as installable Windows software. The controller, runtime, compact
 panel and advanced application were hardware validated on the reference platform before this
@@ -98,5 +142,5 @@ work; everything below is packaging, hosting and distribution.
 - **The GPU thermal ladders have never run live.** The GPU stayed at or below 48 C throughout,
   and manufacturing a thermal emergency to reach them is deliberately out of scope.
 
-[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.0
+[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.1

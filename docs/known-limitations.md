@@ -71,15 +71,18 @@ Consequences, measured rather than assumed:
 - The schedule self-corrects. Deadlines advance absolutely, a late loop runs back-to-back until
   it catches up, and no period was ever skipped.
 - **Worst-case detection delay for a newly critical temperature is roughly one control period
-  plus one cycle execution — about 1.1 s.** For the three-sample emergency ladders (1.5 s
-  minimum by construction) this is comfortable. For the single-sample immediate handoffs — CPU
-  100 °C, GPU 79 °C — it means up to about a second of delay against, in the GPU case, 1 °C of
-  margin below the hardware shutdown point.
+  plus one cycle execution — about 1.1–1.25 s** depending on session. For the three-sample
+  emergency ladders (1.5 s minimum by construction) this is comfortable. For the single-sample
+  immediate handoffs — CPU 100 °C, and the GPU's own hardware-shutdown-minus-one-degree point,
+  which is 79 °C in Silent/Custom and 91 °C in Balanced (see
+  [mode-dependent GPU limits](#thermal-control-runs-in-the-mode-you-chose-and-only-that-mode)
+  below) — it means up to about a second of delay against 1 °C of margin below the hardware
+  shutdown point, in whichever mode the session is running.
 - Firmware slowdown (77 °C) and hardware shutdown (80 °C) remain in force throughout and are not
   BladeControl's to defeat. They are the backstop; the ladder above is the first line, not the
   only one.
 
-**This is accepted for v0.1.0 and documented rather than fixed.** Removing it means separating
+**This is accepted for v0.1.1 and documented rather than fixed.** Removing it means separating
 acquisition from actuation across threads, which introduces sole-HID-ownership, sample-freshness
 and preemption invariants that deserve their own design pass rather than being bolted onto a
 latency patch. The per-component statistics exist precisely so that decision can be made on
