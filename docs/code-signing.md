@@ -32,9 +32,9 @@ The build is structured so signing can be added without restructuring anything:
 
 Two steps, in this order, both inside `pack.ps1`:
 
-1. **After publish, before the MSI is built** — sign the two executables and the BladeControl
-   assemblies in `artifacts/publish/{ui,service}`. Signing after the MSI is authored would leave
-   the packaged files unsigned, and the MSI's file hashes would not match.
+1. **After publish, before the MSI is built** — sign the three executables and the BladeControl
+   assemblies in `artifacts/publish/{ui,service,cli}`. Signing after the MSI is authored would
+   leave the packaged files unsigned, and the MSI's file hashes would not match.
 2. **After the MSI is built** — sign the MSI itself, then compute the hashes. Hashing must be
    last, or the published hash describes a file nobody downloads.
 

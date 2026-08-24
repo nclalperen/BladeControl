@@ -4,9 +4,9 @@
     BladeControl MSI.
 
     Deliberately NOT part of BladeControl.sln: it consumes the published output of
-    BladeControl.UI and BladeControl.Service, so building it from the solution would create
-    a chicken-and-egg dependency and slow every `dotnet build`. build/pack.ps1 publishes
-    first, then builds this project.
+    BladeControl.UI, BladeControl.Service and BladeControl.Cli, so building it from the
+    solution would create a chicken-and-egg dependency and slow every `dotnet build`.
+    build/pack.ps1 publishes first, then builds this project.
   -->
   <PropertyGroup>
     <OutputName>BladeControl-$(BladeControlVersionPrefix)-win-x64</OutputName>
@@ -45,7 +45,7 @@
   </ItemGroup>
 
   <!--
-    Harvest both publish trees. Component GUIDs are generated per build, which is safe here
+    Harvest all three publish trees. Component GUIDs are generated per build, which is safe here
     because upgrades are major upgrades: the old product is fully removed before the new one
     installs, so no component identity has to survive across versions.
   -->
@@ -67,13 +67,22 @@
       <PreprocessorVariable>var.ServicePublishDir</PreprocessorVariable>
       <Transforms>$(MSBuildThisFileDirectory)FilterServiceExecutable.xsl</Transforms>
     </HarvestDirectory>
+    <HarvestDirectory Include="$(PublishRoot)\cli">
+      <ComponentGroupName>CliFiles</ComponentGroupName>
+      <DirectoryRefId>CLIFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <SuppressCom>true</SuppressCom>
+      <SuppressRegistry>true</SuppressRegistry>
+      <PreprocessorVariable>var.CliPublishDir</PreprocessorVariable>
+    </HarvestDirectory>
   </ItemGroup>
 
   <PropertyGroup>
     <DefineConstants>
       $(DefineConstants);
       UiPublishDir=$(PublishRoot)\ui;
-      ServicePublishDir=$(PublishRoot)\service
+      ServicePublishDir=$(PublishRoot)\service;
+      CliPublishDir=$(PublishRoot)\cli
     </DefineConstants>
   </PropertyGroup>
 

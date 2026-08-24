@@ -223,6 +223,47 @@ public sealed class ReleaseEngineeringTests
         }
     }
 
+    /// <summary>
+    /// The release entry point must both publish the diagnostic CLI and make its executable a
+    /// required output, so a successful publish cannot silently produce packages without it.
+    /// </summary>
+    [TestMethod]
+    public void ReleasePackagingPublishesAndRequiresTheDiagnosticCli()
+    {
+        string root = FindRepositoryRoot();
+        string pack = File.ReadAllText(Path.Combine(root, "build", "pack.ps1"));
+
+        StringAssert.Contains(
+            pack,
+            "src/BladeControl.Cli/BladeControl.Cli.csproj",
+            "The release entry point must publish BladeControl.Cli explicitly.");
+        StringAssert.Contains(
+            pack,
+            "'cli/BladeControl.Cli.exe'",
+            "The publish-output audit must refuse a package that omitted BladeControl.Cli.exe.");
+        StringAssert.Contains(
+            pack,
+            "Join-Path $portableStage 'Diagnostics'",
+            "The portable archive must give the CLI publish tree its own dependency directory.");
+        StringAssert.Contains(
+            pack,
+            "Join-Path $publishRoot 'cli/*'",
+            "The portable archive must copy the verified CLI publish tree.");
+
+        string wixProject = File.ReadAllText(
+            Path.Combine(root, "installer", "BladeControl.Installer.wixproj"));
+        StringAssert.Contains(
+            wixProject,
+            @"<HarvestDirectory Include=""$(PublishRoot)\cli"">",
+            "The MSI must harvest the verified CLI publish tree.");
+
+        string product = File.ReadAllText(Path.Combine(root, "installer", "Product.wxs"));
+        StringAssert.Contains(
+            product,
+            @"<ComponentGroupRef Id=""CliFiles"" />",
+            "Harvesting without referencing the component group would still omit it from the MSI.");
+    }
+
     // --- One authoritative version --------------------------------------------------------
 
     [TestMethod]
