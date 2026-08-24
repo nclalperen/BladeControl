@@ -1496,3 +1496,46 @@ performance selector.
 `TryCreateRestorationProfile` only restored CPU Low or Medium and GPU Low, which was the old
 policy set. It now refuses only Overclock, which is the one level this build cannot write and
 therefore cannot restore to.
+
+## Visual identity: verified against real pixels, not filenames
+
+The app shipped with no icon at all — `ApplicationIcon` was declared empty, and the tray icon
+was hard-coded to `SystemIcons.Application`. A delivered asset set (app icon, three tray-state
+icons, a social preview card, a README banner) was checked before anything was wired in, using
+Pillow rather than trusting the accompanying notes.
+
+Two real defects, neither visible from the filenames:
+
+- **`app.ico` had one embedded frame (256×256), not the claimed 16/32/48/256 set.** Rebuilt from
+  the 1024px master with real 16/24/32/48/256 frames. The three tray-state ICOs were rebuilt the
+  same way, and the small frames were verified pixel-identical (0.00% difference) to the
+  hand-checked 16/24/32 exports rather than silently re-derived from a larger source.
+- **My own first verification script reported the rebuild as broken.** It used `.seek(i)` to
+  enumerate ICO frames, which is the animation-frame API (GIF/TIFF) and doesn't apply to ICO —
+  Pillow addresses ICO frames by size via `.ico.getimage(size)`, not by sequence. Caught by
+  testing the claim in isolation before reporting it, rather than passing the false negative
+  along.
+
+Wiring in the tray icon surfaced an unrelated real bug: a relative pack URI
+(`new Uri("Assets/tray-idle.ico", UriKind.Relative)`) resolves against whatever WPF considers
+the current entry assembly. That is `BladeControl.UI.exe` when the app runs normally, but not
+under the WPF smoke test, which hosts the same assembly from a test-runner exe — so the resource
+genuinely could not be found there, and the smoke test caught it immediately. Fixed with the
+fully-qualified `pack://application:,,,/BladeControl.UI;component/...` form, which does not
+depend on which assembly is currently "the application."
+
+Icon selection reuses `Display.RuntimeStateTone` rather than a new mapping: `Faulted` is the
+emergency-red icon, `EmergencyHandoff`/`Starting`/`Stopping` are the amber one — matching this
+project's standing distinction that a completed, verified handoff is a safe state, not an
+alarm — and everything else, including offline, is the idle green.
+
+The social preview card needed two rounds after the prompt-brief stage: the first render put the
+mark on an opaque white plate, contradicting the dark-background spec and the transparent
+treatment every other asset uses; the second fixed that but exported at 1774×887 instead of
+1280×640. Same 2:1 aspect ratio in both, so the second issue was a lossless resize, not another
+generation — Lanczos-downsampled to spec and placed at `.github/social-preview.png`.
+
+Confirmed end-to-end rather than assumed: `Icon.ExtractAssociatedIcon` against the built `.exe`
+to prove the Win32 icon resource is genuinely embedded, not just accepted by MSBuild; a direct
+launch of the built UI to prove the tray icons load at runtime; the full test suite; and
+`dotnet format --verify-no-changes`.

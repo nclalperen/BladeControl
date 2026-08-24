@@ -10,10 +10,23 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>BladeControl.UI</RootNamespace>
     <AssemblyName>BladeControl.UI</AssemblyName>
-    <ApplicationIcon />
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
+
+  <!--
+    app.ico becomes the Win32 resource above (taskbar, Start menu, installer ARP icon).
+    The three tray-state icons are separate: NotificationAreaService loads them at runtime
+    from these WPF pack resources, so they resolve identically whether the app runs from the
+    build output, an MSI install under Program Files, or the portable zip — a loose file path
+    would have to be re-derived per packaging mode, this doesn't.
+  -->
+  <ItemGroup>
+    <Resource Include="Assets\tray-idle.ico" />
+    <Resource Include="Assets\tray-warning.ico" />
+    <Resource Include="Assets\tray-emergency.ico" />
+  </ItemGroup>
 
   <!--
     The Windows Forms SDK adds implicit global usings that collide with WPF

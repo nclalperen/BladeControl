@@ -1,5 +1,7 @@
 # BladeControl
 
+![BladeControl](assets/readme-header.png)
+
 Fan, performance and thermal control for the Razer Blade, as a normal Windows application: a
 privileged runtime service that owns the hardware, and a small desktop panel that talks to it
 over a local typed IPC channel.
