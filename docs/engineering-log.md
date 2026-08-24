@@ -1579,13 +1579,32 @@ template, so the white square survived untouched. The new test therefore asserts
 `Template` setter, not the presence of a style, and asserts that the keyed variant is
 `BasedOn` the themed one rather than standing alone.
 
-**"GPU details are missing."** This one is not fixed, and saying so precisely is the work.
-The service gets temperature and clocks from NVML and gets `NVML_ERROR_UNKNOWN` (999) for
-power and utilization; the CLI, same provider code, same P/Invoke signatures, same machine,
-minutes apart, reads 26.6 W and 0.0 %. Restarting the service ruled out a stale device handle.
-The obvious remaining variable is that one runs as LocalSystem in session 0 and the other does
-not — but the experiment that would confirm it, running the provider as LocalSystem outside the
-service, was not performed, so that stays a hypothesis and the documentation says so.
+**"GPU details are missing."** This one is not fixed, and the first answer I wrote about it
+was wrong in a way worth recording. The service gets temperature and clocks from NVML and gets
+`NVML_ERROR_UNKNOWN` (999) for power and utilization, while the CLI — same provider code, same
+P/Invoke signatures, same machine, minutes apart — read 26.6 W. Two data points, one clean
+story: LocalSystem cannot read what an interactive process can. I wrote that into
+known-limitations.md.
+
+Then I deployed the build and probed the installed service, and utilization came back valid.
+That single sample falsified the story I had just documented, so I went looking properly
+instead of explaining it away. Sampling the service repeatedly, and again while holding the
+dGPU awake with `nvidia-smi -l 1`, separated what had looked like one defect into two:
+utilization is intermittent and tracks the GPU's power state, answering while the part is
+active and refusing while it idles; power never answers the service at all.
+
+The finding that actually matters came from checking the value rather than the return code.
+`nvidia-smi` itself reports **593.51 W** for this GPU, and three consecutive CLI reads gave
+593.5 W, 30.1 W, 30.1 W. The part is rated near 150 W. So GPU power on this machine is not a
+metric the service is being denied — it is a metric the driver reports incorrectly, to
+NVIDIA's own tool as readily as to us, with absurd values scattered among plausible ones. That
+is the shape this project has already refused once, in exactly these words, for fan RPM: a
+number that looks like a measurement and is not one is worse than an honest dash.
+
+Two lessons, and the second is the one I nearly missed. A clean story from two data points is a
+hypothesis, not a finding, and deploying gave me the third sample that broke it. And when a
+provider refuses a value, check what it returns when it does *not* refuse before deciding the
+refusal is the bug.
 
 What *was* a real defect here, and got fixed, is that Diagnostics reported "Power: Yes"
 throughout. `GpuPowerSupported` tested `IsSupported`, which only asks whether the driver

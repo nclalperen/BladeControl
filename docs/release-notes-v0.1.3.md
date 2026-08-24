@@ -117,8 +117,12 @@ describing rather than by a crash report:
 - **Diagnostics claimed GPU power was available when it never arrives.** The capability flag
   asked whether the driver had explicitly declined, not whether a reading existed.
 
-See [known limitations](known-limitations.md) for GPU power and utilisation, which the service
-does not receive from NVML at all — measured, documented, and not fixed here.
+GPU power and utilisation remain reported as unavailable, and
+[known limitations](known-limitations.md) now explains why with measurements. Briefly:
+utilisation is intermittent and tracks the discrete GPU's power state, and power is worse than
+missing — the driver reports 593.5 W for a part rated near 150 W, to `nvidia-smi` as readily as
+to BladeControl, mixed in among plausible values. A number that is occasionally absurd is not a
+measurement, so it is not shown as one. Neither metric is used for any control decision.
 
 ---
 

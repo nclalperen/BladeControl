@@ -94,31 +94,49 @@ single snapshot.
 
 ---
 
-## GPU power and utilization are unavailable to the service
+## GPU power and utilization: one is intermittent, the other is not trustworthy
 
-NVML answers the service's temperature and clock queries and refuses its power and
-utilization queries, so the GPU card shows a temperature with `—` for power and utilization.
-The dash is not a missing feature; the reading genuinely does not arrive.
+The GPU card shows a temperature with `—` for power and utilization. These are two different
+problems that happened to look like one, and the second is worse than a missing reading.
 
-Measured on the reference machine, same build, minutes apart:
+**GPU utilization is intermittent, and tracks the dGPU's power state.** NVML returns
+`NVML_ERROR_UNKNOWN` (999) while the discrete GPU is idle, and answers normally while it is
+active. Measured by holding the GPU awake with `nvidia-smi -l 1` and re-reading the service
+over IPC: utilization answered on two of three samples with the GPU held awake, and on none of
+five with it idle. Temperature and clocks answer throughout, in both states — so the dGPU is
+not asleep in any sense that would excuse a missing reading, only in one that costs these
+particular counters.
 
-| Caller | Temperature | Graphics clock | Power | Utilization |
-|---|---|---|---|---|
-| `BladeControl.Runtime` service (LocalSystem, session 0) | 64 °C | 1125 MHz | `NVML_ERROR_UNKNOWN` (999) | `NVML_ERROR_UNKNOWN` (999) |
-| `BladeControl.Cli` (interactive user) | 65 °C | 1815 MHz | 26.6 W | 0.0 % |
+**GPU power is not merely missing, it is wrong when present.** The driver reports physically
+impossible values for this part, and it does so to NVIDIA's own tool as well:
 
-Identical provider code and identical P/Invoke signatures, so this is the driver answering
-the same calls differently by caller, not a marshalling defect. Restarting the service does
-not help, which rules out a stale device handle — a fresh NVML session fails the same way.
+| Caller | Samples |
+|---|---|
+| `nvidia-smi --query-gpu=power.draw` (interactive user) | **593.51 W** |
+| `BladeControl.Cli` (interactive user), three consecutive reads | **593.5 W**, 30.1 W, 30.1 W |
+| `BladeControl.Runtime` service, every read | `NVML_ERROR_UNKNOWN` (999) |
 
-**The remaining uncontrolled variable is the execution context**, and confirming it would mean
-running the provider as LocalSystem outside the service, which has not been done. Until it is,
-"the service does not get these two metrics" is the finding; *why* is a hypothesis.
+The RTX 4090 Laptop GPU in this machine has a total graphics power in the neighbourhood of
+150 W. 593.5 W is not a reading, it is garbage that happens to be a number — and it appears
+intermittently among plausible ones, which is the dangerous shape. A metric that is usually
+right and occasionally absurd cannot be shown as a measurement.
 
-Nothing in the control path depends on either metric — the thermal ladders are driven by
-temperature, which the service does get — so this costs display detail and no capability.
-The Diagnostics page reports the metric as unavailable and carries NVML's own return code, and
-the dashboard's dash has that same reason as its tooltip.
+This is the same judgement already made about [fan RPM](#physical-fan-rpm-is-not-available):
+a number that looks like a measurement and is not one is worse than an honest dash. So the
+service's refusal to produce GPU power is, for now, the safer of the two behaviours, and
+nothing here tries to route around it.
+
+**Nothing in the control path depends on either metric.** The thermal ladders are driven by
+temperature, which the service does get, reliably, in both GPU power states. This costs
+display detail and no capability. Diagnostics reports the metric as unavailable and carries
+NVML's own return code; the dashboard's dash has that same reason as its tooltip.
+
+**Not established:** why the service never gets power while an interactive process sometimes
+does. A service restart ruled out a stale device handle. The obvious remaining variable is that
+the service runs as LocalSystem in session 0, but the experiment that would confirm it —
+running the same provider as LocalSystem outside the service — was not performed. That stays a
+hypothesis, and given the values an interactive process *does* get, it is not the most useful
+question here.
 
 ---
 
