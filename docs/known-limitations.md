@@ -127,9 +127,18 @@ marshalling, and it is rare — 38 later samples were all plausible — which is
 dangerous shape: a metric that is usually right and occasionally absurd.
 
 That is the same judgement already reached about [fan RPM](#physical-fan-rpm-is-not-available):
-a number that looks like a measurement and is not one is worse than an honest dash. **No
-plausibility gate is implemented yet**, so an absurd value can currently reach the display. That
-is a known gap, not a decision.
+a number that looks like a measurement and is not one is worse than an honest dash. A
+plausibility gate now reads NVML's current power-management limit once when the provider opens
+and marks a successful sample above that limit plus a 25% transient margin as invalid. The raw
+sample is retained with a diagnostic naming both values; it is not clamped or displayed. A
+refused limit query fails open and leaves power samples unchanged, while a refused power sample
+continues to carry NVML's own return code.
+
+The 25% allowance is deliberately broad, not a measured transient envelope. Instantaneous draw
+can legitimately cross a sustained management boundary, while the observed 593.5 W outlier is
+still separated comfortably from the roughly 150 W device limit. Tightening the margin needs
+correlated peak-load samples. The policy is verified against fake NVML responses; it has not yet
+been exercised against a captured legitimate transient on hardware.
 
 **Nothing in the control path depends on either metric.** The thermal ladders run on
 temperature, which is reliable in every condition observed. This costs display detail and no

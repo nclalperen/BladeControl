@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using BladeControl.Telemetry;
 
@@ -20,6 +21,8 @@ internal interface INvmlApi
     NvmlResult GetTemperatureLegacy(NvmlDevice device, out double temperature);
 
     NvmlResult GetPowerWatts(NvmlDevice device, out double watts);
+
+    NvmlResult GetPowerManagementLimitWatts(NvmlDevice device, out double watts);
 
     NvmlResult GetUtilization(
         NvmlDevice device,
@@ -233,6 +236,23 @@ internal sealed class NativeNvmlApi : INvmlApi
         return result;
     }
 
+    public NvmlResult GetPowerManagementLimitWatts(NvmlDevice device, out double watts)
+    {
+        try
+        {
+            NvmlResult result = NvmlNativeMethods.GetPowerManagementLimit(
+                device.Handle,
+                out uint milliwatts);
+            watts = milliwatts / 1000d;
+            return result;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            watts = default;
+            return NvmlResult.EntryPointUnavailable;
+        }
+    }
+
     public NvmlResult GetUtilization(
         NvmlDevice device,
         out double gpuPercent,
@@ -395,8 +415,16 @@ internal sealed class NativeNvmlApi : INvmlApi
 
 internal sealed class NvmlTelemetryProvider : IDisposable
 {
+    // The driver declares a sustained management boundary, while an instantaneous sample may
+    // legitimately cross it. Twenty-five percent is deliberately broad: it does not claim a
+    // measured transient envelope, but still separates the observed roughly four-times-limit
+    // outlier from the declared limit. Tightening it requires correlated peak-load samples,
+    // not a smaller guessed number.
+    private const double PowerLimitMarginRatio = 0.25d;
+
     private readonly INvmlApi _api;
     private readonly NvmlDevice _device;
+    private readonly double? _powerManagementLimitWatts;
     private bool _initialized;
     private bool _disposed;
 
@@ -408,6 +436,18 @@ internal sealed class NvmlTelemetryProvider : IDisposable
         _api = api;
         _device = device;
         Devices = devices.ToArray();
+
+        NvmlResult powerLimitResult = _api.GetPowerManagementLimitWatts(
+            _device,
+            out double powerManagementLimitWatts);
+        // Failure to learn this optional metric's ceiling must fail open. Turning an
+        // intermittent reading into permanent absence because a separate property query was
+        // refused would be worse than retaining the pre-gate behaviour.
+        _powerManagementLimitWatts = powerLimitResult == NvmlResult.Success &&
+            double.IsFinite(powerManagementLimitWatts) &&
+            powerManagementLimitWatts > 0
+                ? powerManagementLimitWatts
+                : null;
         _initialized = true;
     }
 
@@ -504,10 +544,7 @@ internal sealed class NvmlTelemetryProvider : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         TelemetryMetric<double> temperature = ReadTemperature(timestamp);
-        TelemetryMetric<double> power = ReadDouble(
-            timestamp,
-            _api.GetPowerWatts,
-            "GPU power");
+        TelemetryMetric<double> power = ReadPower(timestamp);
         NvmlResult utilizationResult = _api.GetUtilization(
             _device,
             out double gpuUtilization,
@@ -807,13 +844,33 @@ internal sealed class NvmlTelemetryProvider : IDisposable
                     Describe("GPU temperature", result));
     }
 
-    private TelemetryMetric<double> ReadDouble(
-        DateTimeOffset timestamp,
-        NvmlDoubleQuery query,
-        string name)
+    private TelemetryMetric<double> ReadPower(DateTimeOffset timestamp)
     {
-        NvmlResult result = query(_device, out double value);
-        return CreateMetric(result, value, timestamp, name);
+        NvmlResult result = _api.GetPowerWatts(_device, out double value);
+        if (result != NvmlResult.Success || _powerManagementLimitWatts is not { } limit)
+        {
+            return CreateMetric(result, value, timestamp, "GPU power");
+        }
+
+        double plausibleCeiling = limit * (1d + PowerLimitMarginRatio);
+        if (value <= plausibleCeiling)
+        {
+            return CreateMetric(result, value, timestamp, "GPU power");
+        }
+
+        string diagnostic = string.Format(
+            CultureInfo.InvariantCulture,
+            "GPU power reported {0:F1} W, above the {1:F1} W device limit plus the " +
+            "{2:P0} transient margin ({3:F1} W).",
+            value,
+            limit,
+            PowerLimitMarginRatio,
+            plausibleCeiling);
+        return TelemetryMetric<double>.Invalid(
+            value,
+            timestamp,
+            TelemetrySources.GpuOptional,
+            diagnostic);
     }
 
     private TelemetryMetric<double> ReadClock(
@@ -850,8 +907,6 @@ internal sealed class NvmlTelemetryProvider : IDisposable
 
     private static string Describe(string operation, NvmlResult result) =>
         $"{operation} returned {result} ({(int)result}).";
-
-    private delegate NvmlResult NvmlDoubleQuery(NvmlDevice device, out double value);
 }
 
 internal sealed record NvmlGpuReading(

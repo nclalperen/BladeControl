@@ -322,6 +322,12 @@ public sealed class ThermalQualificationSourceOfTruthTests
             return NvmlResult.Success;
         }
 
+        public NvmlResult GetPowerManagementLimitWatts(NvmlDevice device, out double watts)
+        {
+            watts = 150;
+            return NvmlResult.Success;
+        }
+
         public NvmlResult GetUtilization(NvmlDevice device, out double gpuPercent, out double memoryPercent)
         {
             gpuPercent = 5;
