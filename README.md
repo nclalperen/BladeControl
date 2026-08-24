@@ -42,11 +42,12 @@ Running on unvalidated hardware is at your own risk. See [Safety architecture](#
   Dragging a slider performs no hardware write; only an explicit Apply does.
 - **Closed-loop thermal control** — a runtime-owned curve with hysteresis and rate limiting,
   gated behind a fresh authoritative qualification before it will enter Manual fan mode.
-- **Live telemetry** — CPU package temperature, power and utilisation, and GPU temperature and
-  clocks, read through the runtime's providers, with in-memory history graphs. Nothing is
-  written to disk. GPU power and utilisation are not among them: NVML refuses those two to the
-  service, and they are reported as unavailable rather than guessed — see
-  [known limitations](docs/known-limitations.md).
+- **Live telemetry** — CPU package temperature, power and utilisation, and GPU temperature,
+  power, utilisation and clocks, read through the runtime's providers, with in-memory history
+  graphs. Nothing is written to disk. The two GPU power-domain readings are intermittent: NVML
+  refuses them while the discrete GPU is idle and answers once it is active, so they are
+  reported as unavailable rather than guessed at, and a reading the device's own declared limit
+  says is impossible is refused too — see [known limitations](docs/known-limitations.md).
 - **Diagnostics** — provider qualification, PawnIO provenance, watchdog observations,
   scheduler statistics and the runtime event stream.
 
