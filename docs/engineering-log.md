@@ -1946,3 +1946,49 @@ which would have been a real defect. It was the harness again — `$?` after a p
 last command in the pipeline. That is the second time in two rounds the same mistake nearly
 became a finding, which is itself the lesson: a measurement that surprises you is as likely to
 be a broken instrument as a broken product, and it costs one careful second look to tell.
+
+---
+
+## Auditing the safety claims, and three false alarms of my own making
+
+Five stale documentation claims had already turned up this session, each by accident, so I went
+looking on purpose. The README's safety-architecture section is the one that matters — it is
+what someone reads to decide whether to trust this software with their cooling.
+
+**One claim was false.** "A machine-wide singleton is taken before any device is opened, so a
+second runtime host cannot start alongside the service." The first half is not what the code
+does: `RuntimeWindowsHost` opens the Razer HID session and the telemetry providers, *then*
+acquires the lease inside `InitializeHost`. This project's own known-limitations file documents
+that under the heading "A second runtime opens hardware before it learns it is not allowed to
+run" and calls it a layering flaw. So the two documents contradicted each other, and the one a
+user reads first was the wrong one.
+
+Corrected to say what holds: the singleton is taken before the runtime will serve a request or
+perform a write; a second host does open a read-only handle first and then exits at the gate
+having written nothing. The exclusion is real, the ordering is not what was claimed.
+
+The other claims checked out. The interface genuinely references neither the hardware provider
+nor the service host, and a test asserts it.
+
+**Then I tried to verify "an upgrade runs the safe path" and produced two false failures.**
+
+The first: I installed the same MSI over itself with a thermal session running, saw the fans
+still in Manual, and wrote FAIL. But an identical package is a repair, not an upgrade — MSI
+leaves the service alone, the session was still running, and a running session owning the fans
+in Manual is exactly right. The premise was wrong, not the product.
+
+The second, after rebuilding to get a genuinely different ProductCode: the harness reported the
+fan mode as "differs". Its regex was `Fan mode\s+(\w+)`, and the CLI's zone-disagreement message
+reads "performance or fan mode differs between returned zones" — so it matched the error text
+and captured a word out of the middle of it. Anchoring the pattern to the status table row fixed
+it.
+
+The property itself holds. A real upgrade with a session running stopped the service, ended the
+session, and left the machine in firmware Auto, confirmed by the runtime reporting Stopped with
+no session and three consecutive clean firmware reads.
+
+**Three instrument errors in one session now** — `$?` after a pipe reporting the wrong program,
+twice, and now a regex matching an error message. All three produced a plausible-looking defect.
+The pattern is specific enough to name: every one came from a measurement that *surprised* me,
+and in every case the cheap move was to check the instrument before believing the result. A
+finding that arrives too easily deserves the same suspicion as one that arrives too late.

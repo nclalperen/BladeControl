@@ -148,8 +148,12 @@ The design principle is that the runtime is the only component that touches hard
 refuses to act when it cannot prove the preconditions hold.
 
 - **Single hardware owner.** The runtime service owns Razer HID, the embedded controller, and
-  the telemetry providers. A machine-wide singleton is taken before any device is opened, so a
-  second runtime host cannot start alongside the service.
+  the telemetry providers. A machine-wide singleton is taken during host initialisation, before
+  the runtime will serve any request or perform any write, so a second runtime host cannot run
+  alongside the service. It is *not* taken before the device handles are opened: a second host
+  opens a read-only HID handle and starts the telemetry providers, then exits at the gate having
+  written nothing. That ordering is a layering flaw and is
+  [documented as one](docs/known-limitations.md); the exclusion itself holds.
 - **The GUI has no hardware path.** `BladeControl.UI` references neither the hardware provider
   assembly nor the service host, and this is enforced by a test rather than by convention.
 - **Qualification before Manual mode.** Entering Manual fan control requires a fresh

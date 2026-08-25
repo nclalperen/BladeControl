@@ -233,6 +233,14 @@ A clean stop is a different path and does not have this window at all. Verified 
 v0.1.4: with a session running and the fans in Manual, `net stop` returned the machine to
 firmware Auto before the service exited.
 
+**An upgrade takes that same path, and a repair deliberately does not.** Verified on v0.1.5 with
+a session running and the fans in Manual: installing a package with a new ProductCode performed
+a major upgrade, which stopped the service, ended the session and left the machine in firmware
+Auto. Reinstalling the *identical* package is a repair rather than an upgrade — MSI does not
+stop the service, the session keeps running, and the fans stay in Manual because a session still
+owns them. That is correct in both cases, and the distinction is worth stating because the
+second one looks like the first failing.
+
 So the exposure is roughly **20–25 seconds during which BladeControl does not own cooling**.
 The direction of that failure matters: the fans are stuck at a *commanded* speed, which under
 a rising load is under-cooled relative to what the curve would have asked for, and under a
