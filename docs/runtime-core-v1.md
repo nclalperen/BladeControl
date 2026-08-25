@@ -24,8 +24,10 @@ dotnet run --project .\src\BladeControl.Cli\BladeControl.Cli.csproj -- service c
 ```
 
 The console host and Windows Service path share the same shutdown sequence: stop new
-cycles, establish and verify Balanced + Auto, restore captured performance state, close
-telemetry, and release ownership.
+cycles, establish and verify firmware Auto, restore captured performance state, close
+telemetry, and release ownership. (Written as "Balanced + Auto" originally; taking fan
+ownership stopped moving the machine to Balanced in v0.1.1, so the mode restored is the one
+the session began in.)
 
 `runtime status`, `runtime doctor`, and `service console` accept `--verbose`. The option
 changes diagnostics/rendering only and never changes hardware behavior. Runtime doctor

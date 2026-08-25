@@ -3,6 +3,22 @@
 Thermal Control V1 is a conservative BladeControl policy, not a reconstruction
 or claim about the Razer factory fan curve.
 
+> **Parts of this document describe the original V1 design and no longer describe the
+> shipped behaviour.** Three things changed after it was written, each for a reason recorded
+> elsewhere, and where this file disagrees with them they are the authority:
+>
+> - **Sessions no longer move the machine to Balanced.** A session runs in whichever
+>   performance mode the machine was already in and restores that mode, not Balanced. Changed
+>   in v0.1.1; see [known-limitations.md](known-limitations.md).
+> - **The emergency response is a graded ladder, not a single threshold.** CPU 90 °C demands
+>   maximum cooling rather than handing off; handoff is 95 °C sustained or 100 °C immediate.
+> - **GPU thresholds are derived per device and follow the performance mode.** The flat 80 °C
+>   below is the value this project specifically removed, having found it to be the temperature
+>   at which the reference GPU shuts itself down.
+>
+> [safety-model.md](safety-model.md) carries the current ladders and is the document to trust
+> on thresholds.
+
 ## Sensor authority
 
 The required CPU safety sensor is the unique LibreHardwareMonitor sensor whose
@@ -57,15 +73,23 @@ captures the complete non-telemetry firmware state, requires consistent Auto fan
 mode, and confirms that the original performance profile is within the
 hardware-validated restoration policy.
 
-It then enters Balanced + Manual and establishes 3000 RPM on both fans. On normal
-stop, it first establishes and verifies Balanced + Auto, then restores the
-captured performance profile. Original performance is never restored while
-Manual fan mode is active.
+It then enters Manual and establishes 3000 RPM on both fans, in whatever performance
+mode the machine is already in. On normal stop it first establishes and verifies
+Auto, then restores the captured performance profile. Original performance is
+never restored while Manual fan mode is active.
 
-CPU Package temperature at or above 90 C, GPU temperature at or above 80 C,
-stale required data, repeated missing/invalid samples, repeated provider failure,
-or an internal/controller failure causes exactly one emergency attempt to return
-to Balanced + Auto. The loop stops and cannot automatically re-enter Manual.
+*(As designed, both of those were Balanced + Manual and Balanced + Auto. Taking fan
+ownership stopped moving the machine to Balanced in v0.1.1.)*
+
+Stale required data, repeated missing or invalid samples, repeated provider
+failure, or an internal or controller failure causes exactly one emergency
+attempt to return to firmware Auto. The loop stops and cannot automatically
+re-enter Manual.
+
+Temperature-driven emergencies are graded rather than a single threshold, and
+the GPU's are derived per device and follow the performance mode. The values are
+in [safety-model.md](safety-model.md); the flat "CPU 90 C or GPU 80 C" this
+document originally specified is not what runs.
 Performance restoration is attempted once only after Auto is verified. There is
 no SET retry.
 
