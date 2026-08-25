@@ -26,6 +26,20 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   on the token it links to, and the host token lives as long as the service, so each stranded
   source stayed rooted for the life of a process meant to run for months. Both paths now dispose,
   and the stop path clears in a `finally` and only clears the session it actually stopped.
+- **The hardware ownership gate was scoped to one Windows session, not the machine.** The
+  semaphore was named `Local\BladeControl.Runtime.ManualControl`, and the `Local\` namespace is
+  per-session: the runtime service runs in session 0 while a diagnostic CLI or console host runs
+  in the signed-in user's session, so the two contended for different kernel objects and neither
+  excluded the other. The "machine-wide singleton" the safety architecture rests on did not span
+  that boundary. Observed on the reference machine with the service running and holding its
+  lease: a user-session process acquired the same-named semaphore on the first attempt, and
+  `BladeControl.Cli fan apply auto` completed a hardware write. The gate is now `Global\`, and
+  the three outcomes of reaching for it are distinguished — opened, exists-but-unreadable
+  (another host owns the hardware), and cannot-create (ownership cannot be established, so
+  refuse) — because conflating the last two sends a user either to stop a service that is not
+  running or to elevate against a service that is. Verified end to end afterwards: the same
+  write is refused while the service runs, from both an ordinary and an elevated process, and
+  succeeds once the service is stopped.
 
 ## [0.1.3] — 2026-08-24
 

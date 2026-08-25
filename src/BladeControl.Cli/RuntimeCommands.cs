@@ -22,9 +22,26 @@ internal static partial class Program
 
         if (lease is null)
         {
+            // Three refusals that mean different things. Reporting "the runtime owns the
+            // hardware" for a privilege problem would send someone to stop a service that is
+            // not running; reporting "run elevated" when the service genuinely holds the
+            // hardware would send them to do something that will not help.
+            RuntimeOwnershipGateAccess access = gate.Access;
             gate.Dispose();
-            Console.Error.WriteLine(
-                "Direct hardware write rejected: BladeControl Runtime already owns the hardware session.");
+            Console.Error.WriteLine(access switch
+            {
+                RuntimeOwnershipGateAccess.OwnedByAnotherHost =>
+                    "Direct hardware write rejected: another BladeControl host owns the " +
+                    "machine-wide hardware session. Stop the 'BladeControl Runtime' service " +
+                    "first.",
+                RuntimeOwnershipGateAccess.CannotCreate =>
+                    "Direct hardware write rejected: hardware ownership cannot be established " +
+                    "from this process. Run elevated — the machine-wide ownership gate has to " +
+                    "be taken before any device is opened.",
+                _ =>
+                    "Direct hardware write rejected: BladeControl Runtime already owns the " +
+                    "hardware session."
+            });
             return null;
         }
 

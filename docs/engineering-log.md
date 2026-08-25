@@ -1677,3 +1677,60 @@ Worth keeping from this: the 593.5 W outlier is still real and there is still no
 gate on GPU power, so an absurd value can reach the display. known-limitations.md now says that
 in those words — a known gap, not a decision — rather than implying the refusal protects us
 from it.
+
+---
+
+## The machine-wide singleton was not machine-wide
+
+The safety architecture has one load-bearing sentence, in the README and in this log: a
+machine-wide singleton is taken before any device is opened, so a second writer cannot start
+alongside the service. It was false, and it had been false for as long as the gate existed.
+
+`NamedSemaphoreRuntimeOwnershipGate` named its semaphore
+`Local\BladeControl.Runtime.ManualControl`. The `Local\` namespace is scoped to a Windows
+session. The runtime service runs in session 0; a diagnostic CLI, a console host, anything a
+signed-in user launches, runs in session 1. Two sessions, two kernel objects with the same
+name, no contention between them. The gate serialised BladeControl against itself only within
+a single session — which is the case that almost never happens — and did nothing about the
+case the whole design is built around.
+
+**How it surfaced.** Not by reading the gate. I had just merged a change that ships the
+diagnostic CLI in the installer, and I had written in that merge commit that shipping a
+write-capable tool was acceptable because "every write and probe path acquires the machine-wide
+ownership gate before opening the device and refuses while the service holds it — verified by
+reading each of those paths." That sentence was true about the code and false about the
+machine. The paths do take the gate first; the gate just was not doing anything.
+
+The check that caught it was running the shipped binary: `BladeControl.Cli fan apply auto`
+against a live service, expecting a refusal, and watching it print `Initial state` and exit 0.
+Then the direct test — creating the same-named semaphore from a user-session PowerShell while
+the service held its lease — acquired on the first attempt.
+
+**The fix and the three answers.** `Global\` gives the object machine scope. Creating in that
+namespace needs SeCreateGlobalPrivilege, which LocalSystem has and an ordinary user does not,
+so the order has to be open-then-create rather than create-or-open. That produces three
+outcomes and they mean genuinely different things:
+
+- opened — contend normally, and honour the answer;
+- denied on open — the object *exists* and cannot be evaluated here, which means a host created
+  it and owns the hardware;
+- denied on create after not-found — no gate exists and this process cannot establish one, so
+  ownership is unknowable and the only safe answer is to refuse.
+
+The middle one is the useful discovery. `WaitHandleCannotBeOpenedException` and
+`UnauthorizedAccessException` both leave you without a handle, and the lazy implementation
+treats them the same, but only one of them means the hardware is free. My first version did
+conflate them, and the resulting message told an elevated user to "run elevated" while the
+service was plainly running. Splitting them turned a misleading refusal into an accurate one.
+
+**Verified end to end after deploying**, because that is what started this: the same write is
+now refused while the service runs, from both an ordinary and an elevated process, with the
+message naming the service; and it succeeds once the service is stopped, so the gate is a
+mutex rather than a lockout. A gate that always refuses is not a safety property.
+
+**The lesson is the one from the GPU entry, in a more expensive form.** There I wrote "never"
+from two samples. Here I wrote "verified by reading each of those paths" — and reading the
+paths *was* the verification I did. Both times the claim outran the evidence, and both times
+the next actual measurement broke it. Reading code establishes what the code says. It does not
+establish what the machine does, and for anything the safety argument leans on, only the
+second one counts.
