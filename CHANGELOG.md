@@ -6,7 +6,22 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The client message deadline is two seconds rather than five**, chosen against measurement:
+  a whole exchange was at most 142 ms uncontended and 69 ms with eight clients contending, and
+  the part the deadline bounds is a fraction of that.
+
+### Known
+
+- **The control channel can still be occupied by a determined local user.** The v0.1.5 deadline
+  bounds how long one connection holds the channel and does not stop the next one being opened.
+  Measured on the shipped two-second deadline: three loops opening a silent connection every
+  300 ms took a normal client from a 1 ms median to a 1527 ms median with outright failures.
+  Tightening from five seconds to two cut that from 6998 ms, and did not remove it. The service stays up and cooling stays
+  with firmware; the damage is that BladeControl cannot be reached. The real fix is to overlap
+  accepting connections with servicing them, which is a design pass rather than a patch — see
+  `docs/known-limitations.md`.
 
 ## [0.1.5] — 2026-08-25
 

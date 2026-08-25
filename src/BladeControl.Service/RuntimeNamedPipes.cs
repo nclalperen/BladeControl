@@ -37,13 +37,25 @@ public sealed class RuntimeNamedPipeServer
     /// the runtime unreachable to every other client while the service goes on reporting itself
     /// healthy — and any locally signed-in user can open that connection, because the pipe's
     /// DACL grants them access by design.</para>
-    /// <para>Five seconds is far more than a real client needs and far less than "forever". The
-    /// interface connects with a 1.5 s timeout and writes its request immediately, so this is
-    /// invisible to it even on a loaded machine. It does not make occupation impossible — a
-    /// client can reconnect — but it turns holding the channel into something that has to be
-    /// sustained rather than something one idle socket achieves.</para>
+    /// <para>Two seconds, chosen against measurement rather than instinct. A whole exchange —
+    /// connect, write, dispatch, read the answer — was at most 142 ms uncontended and 69 ms
+    /// with eight clients contending; the part this deadline actually bounds, connect to
+    /// message arrival, is a fraction of that. Two seconds is still more than an order of
+    /// magnitude of headroom, and the interface writes its request immediately after
+    /// connecting.</para>
+    /// <para><b>This mitigates the occupation problem; it does not solve it.</b> Measured
+    /// against the deployed build: three loops opening a silent connection every 300 ms took a
+    /// normal client polling every 500 ms from a 1 ms median to a 6998 ms median, with
+    /// outright failures. The deadline bounds how long <i>one</i> connection holds the channel,
+    /// and nothing stops an attacker opening the next one. Sustaining it is cheap.</para>
+    /// <para>The real fix is structural: this server accepts and services connections in one
+    /// serial loop, so a single occupied connection is the entire channel however many server
+    /// instances the pipe is created with. Overlapping accept with service would take that
+    /// away. It is not being done here — it puts concurrency into the request path of a
+    /// service that owns cooling, and that deserves a design pass rather than being appended to
+    /// a timeout fix. Recorded in docs/known-limitations.md.</para>
     /// </remarks>
-    public static readonly TimeSpan ClientMessageTimeout = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan ClientMessageTimeout = TimeSpan.FromSeconds(2);
 
     private readonly RuntimeIpcDispatcher _dispatcher;
     private readonly Action<Exception>? _onTransientFault;

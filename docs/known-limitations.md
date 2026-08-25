@@ -246,6 +246,42 @@ reported — `Last failure` names it — and is deliberately not retried in a lo
 
 ---
 
+## The control channel can be occupied by a determined local user
+
+The runtime's named pipe is created with a single server instance and serviced by one serial
+loop, so a connection that is being waited on **is** the channel. The pipe's DACL grants every
+locally signed-in user read and write, deliberately, because the desktop panel is an ordinary
+application that has to reach it.
+
+Until v0.1.5 that meant one connection which never sent anything made the runtime unreachable
+for as long as it was held, while the service went on reporting itself Running. A two-second
+deadline on delivering a request now takes the channel back. **That bounds one connection; it
+does not stop the next one.**
+
+Measured against the deployed build, three loops opening a silent connection every 300 ms,
+against a normal client polling every 500 ms:
+
+| | Median latency | Worst | Failures |
+|---|---|---|---|
+| No attacker | 1 ms | 3 ms | none |
+| Sustained occupation, 5 s deadline | 6998 ms | 6998 ms | yes |
+| Sustained occupation, **2 s deadline as shipped** | **1527 ms** | 5509 ms | yes |
+
+Tightening the deadline from five seconds to two, on the evidence that a whole exchange takes at
+most 142 ms, cut the median cost by more than four times. It did not remove it. A local user who
+wants the control channel degraded can still have it, at the cost of three loops on a timer, and
+some requests fail outright. The service stays up, cooling stays with firmware, and no hardware
+is touched — the damage is that BladeControl cannot be reached reliably while it continues.
+
+**The real fix is structural and is deliberately not attempted yet.** The server accepts and
+services connections in one serial loop, which is what makes a single occupied connection the
+whole channel — raising the pipe's instance count alone would change nothing. Overlapping accept
+with service would, and the runtime's own operation gate already serialises the hardware work
+underneath, so it is plausible. Plausible is not the standard for the request path of a service
+that owns cooling: it wants a design pass, not an appendix to a timeout fix.
+
+---
+
 ## A second runtime opens hardware before it learns it is not allowed to run
 
 `RuntimeWindowsHost` opens the Razer HID session and the telemetry session first, and acquires
