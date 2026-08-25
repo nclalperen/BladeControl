@@ -273,12 +273,31 @@ wants the control channel degraded can still have it, at the cost of three loops
 some requests fail outright. The service stays up, cooling stays with firmware, and no hardware
 is touched — the damage is that BladeControl cannot be reached reliably while it continues.
 
-**The real fix is structural and is deliberately not attempted yet.** The server accepts and
-services connections in one serial loop, which is what makes a single occupied connection the
-whole channel — raising the pipe's instance count alone would change nothing. Overlapping accept
-with service would, and the runtime's own operation gate already serialises the hardware work
-underneath, so it is plausible. Plausible is not the standard for the request path of a service
-that owns cooling: it wants a design pass, not an appendix to a timeout fix.
+**This is accepted rather than deferred, and the reasoning changed on inspection.** An earlier
+revision of this section called concurrent connection servicing "the real fix". Examined
+properly, it is not one.
+
+Serving *N* connections at once would defeat the attacker measured above, who held three. It
+would not defeat an attacker who opens *N+1* loops instead of three, and that costs them
+nothing — the attacker's effort scales linearly with *N* while the server's complexity does not.
+A defence that raises a trivial cost to a slightly larger trivial cost is not worth putting
+concurrency into the request path of a service that owns cooling.
+
+And it would buy nothing for ordinary use, which is the other half of the argument. One server
+instance already handles real contention comfortably: eight concurrent clients running fifteen
+exchanges each completed 120 of 120, worst wait 69 ms. The interface and the diagnostic CLI
+polling together are nowhere near that.
+
+The deeper reason it is not solvable here is that **the attacker and the legitimate client are
+the same user**. The pipe's DACL grants signed-in users access deliberately, because the desktop
+panel is an ordinary application that must reach the runtime; there is no identity to
+discriminate on, and rate-limiting by process would be defeated by starting another one. A user
+who wants to interfere with software running in their own session has simpler options than this
+one, up to and including stopping the service if they can elevate.
+
+What is worth doing has been done: one idle connection no longer holds the channel indefinitely,
+the deadline is set from measurement, and the residual cost is written down above instead of
+implied away.
 
 ---
 

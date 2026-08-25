@@ -48,12 +48,12 @@ public sealed class RuntimeNamedPipeServer
     /// normal client polling every 500 ms from a 1 ms median to a 6998 ms median, with
     /// outright failures. The deadline bounds how long <i>one</i> connection holds the channel,
     /// and nothing stops an attacker opening the next one. Sustaining it is cheap.</para>
-    /// <para>The real fix is structural: this server accepts and services connections in one
-    /// serial loop, so a single occupied connection is the entire channel however many server
-    /// instances the pipe is created with. Overlapping accept with service would take that
-    /// away. It is not being done here — it puts concurrency into the request path of a
-    /// service that owns cooling, and that deserves a design pass rather than being appended to
-    /// a timeout fix. Recorded in docs/known-limitations.md.</para>
+    /// <para>Serving several connections at once would defeat that particular attacker and not
+    /// the next one, whose cost to open one more loop is nothing, while one instance already
+    /// handles real contention comfortably — eight concurrent clients, fifteen exchanges each,
+    /// 120 of 120 with a 69 ms worst wait. The reason it is not solvable at this layer is that
+    /// the attacker and the interface are the same user, and the DACL grants that user access
+    /// deliberately. Reasoned through in docs/known-limitations.md.</para>
     /// </remarks>
     public static readonly TimeSpan ClientMessageTimeout = TimeSpan.FromSeconds(2);
 

@@ -18,9 +18,12 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   bounds how long one connection holds the channel and does not stop the next one being opened.
   Measured on the shipped two-second deadline: three loops opening a silent connection every
   300 ms took a normal client from a 1 ms median to a 1527 ms median with outright failures.
-  Tightening from five seconds to two cut that from 6998 ms, and did not remove it. The service stays up and cooling stays
-  with firmware; the damage is that BladeControl cannot be reached. The real fix is to overlap
-  accepting connections with servicing them, which is a design pass rather than a patch — see
+  Tightening from five seconds to two cut that from 6998 ms and did not remove it. The service
+  stays up and cooling stays with firmware; the damage is that BladeControl cannot be reached
+  reliably. This is accepted rather than deferred: the attacker and the interface are the same
+  user, the pipe grants that user access deliberately, and serving more connections at once
+  would defeat this attacker but not one that opens a few more loops — while one instance
+  already handles real contention at 120 of 120 with a 69 ms worst wait. Reasoned through in
   `docs/known-limitations.md`.
 
 ## [0.1.5] — 2026-08-25
