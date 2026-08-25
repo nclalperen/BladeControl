@@ -101,12 +101,24 @@ so neither can be starved by the other reaching a threshold first.
 | ≥ 95 °C × 3 samples | hand back to firmware Auto |
 | ≥ 100 °C × 1 sample | hand back immediately |
 
-| GPU (reference signature 75 / 77 / 80 °C) | Action |
-|---|---|
-| ≥ 75 °C (max operating) | maximum validated fan target; keep control |
-| ≤ 72 °C × 3 samples | release the override |
-| ≥ 77 °C (hardware slowdown) × 3 samples | hand back to firmware Auto |
-| ≥ 79 °C (1 °C below hardware shutdown) × 1 | hand back immediately |
+The GPU ladder is **not one table**. Its thresholds are derived from the thermal target the
+driver is currently enforcing, and that target follows the performance mode, so the mode the
+session qualified in decides the numbers:
+
+| Mode | keep control ≥ | release ≤ × 3 | firmware Auto ≥ × 3 | immediate handoff ≥ × 1 |
+|---|---|---|---|---|
+| Balanced | 87 °C | 84 °C | 89 °C | 91 °C |
+| Silent / Custom | 75 °C | 72 °C | 77 °C | 79 °C |
+
+Reading only the second row would understate every Balanced threshold by twelve degrees. A
+session runs in whichever mode the machine was already in — since v0.1.1 taking fan ownership
+does not move it to Balanced — and changing mode underneath a running session ends it, because
+the limits in force were derived for the mode it qualified in. See
+[known limitations](known-limitations.md).
+
+In both rows the numbers mean the same things: keep-control is the device's max operating
+temperature, firmware-Auto handoff is its hardware slowdown point, and immediate handoff is one
+degree below its hardware shutdown point.
 
 The 1 °C pre-shutdown margin and the 3 °C recovery hysteresis are **BladeControl policy, not
 device specifications**. NVML reports the shutdown temperature; it does not report where we

@@ -26,13 +26,20 @@ machine, including sandboxed and network-authenticated ones.
 
 ## Threat model
 
+Threats 1 to 4 are about **who may reach the channel**, and the ACL settles them. Threats 5 to 7
+are about **what a caller who is allowed to reach it can do**, and only the first of those has a
+complete answer. Availability against a same-user caller is mitigated rather than defended, for
+reasons given in row 7.
+
 | # | Threat | Defence |
 |---|---|---|
 | 1 | **Remote caller over SMB.** Windows exposes named pipes on the network; a pipe is remotely reachable unless refused. | Access is granted to `INTERACTIVE` (S-1-5-4), which appears only in tokens from a local logon — network logons are excluded *by construction*, not by blocklist. `NETWORK` (S-1-5-2) is additionally denied. The server also verifies locality per connection with `GetNamedPipeClientComputerName`. |
 | 2 | **Anonymous or service-account caller.** A sandboxed or unprivileged daemon attempting hardware control. | `ANONYMOUS LOGON` (S-1-5-7) denied. No grant to `Everyone`, `Users`, `Guests`, `NetworkService` or `LocalService`. A process without an interactive token has no path in. |
 | 3 | **Pipe squatting / server spoofing.** Any process may create a pipe by name. A malicious one could publish the runtime's pipe name first, then feed the UI fabricated telemetry or harvest what it sends. | `FILE_CREATE_PIPE_INSTANCE` is granted only to LocalSystem and Administrators, so an unprivileged process cannot add an instance to the real pipe. Independently, the client checks the connected pipe's **owner SID** and refuses to talk to a pipe not published by a privileged account. |
 | 4 | **ACL tampering.** A logged-on standard user widening the pipe's permissions. | `WRITE_DAC` and `WRITE_OWNER` are never granted to interactive users. |
-| 5 | **Resource exhaustion by a hostile peer.** | The 64 KiB message ceiling is enforced on both ends, before deserialisation, and the pipe buffers are sized to it. Unchanged from the validated protocol. |
+| 5 | **Memory exhaustion by a hostile peer.** | The 64 KiB message ceiling is enforced on both ends, before deserialisation, and the pipe buffers are sized to it. Unchanged from the validated protocol. |
+| 6 | **Availability: crashing the service with one message.** | Until v0.1.4 a single blank line ended the runtime host: the parser reported an empty message as an argument fault and the connection handler caught only three named exception types. The handler now answers *any* fault raised while handling one message, passing through only cancellation and conditions the process cannot continue through. |
+| 7 | **Availability: occupying the channel.** | The pipe is created with one server instance, so a connection being waited on is the whole channel. Until v0.1.5 a client that connected and never sent anything held it indefinitely while the service reported itself healthy. A two-second deadline on delivering a request now takes it back. **This is a mitigation, not a defence** — a client that keeps reconnecting still degrades the channel measurably. It is not solvable at this layer, because the attacker and the interface are the same user and the ACL grants that user access deliberately. Measurements and reasoning in [known-limitations.md](known-limitations.md). |
 
 ## The ACL
 
