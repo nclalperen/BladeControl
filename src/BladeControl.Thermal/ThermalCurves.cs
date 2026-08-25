@@ -146,7 +146,18 @@ public static class ThermalProfileSerializer
 
     public static ThermalProfile Parse(string json)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        // The same shape that let one blank line stop the runtime service: emptiness reported
+        // as an argument fault while every other malformed input is a FormatException — and
+        // the line below already says "the document is empty" for a payload that deserialises
+        // to null. The text here is a file a user chose, so it is input, not a caller's
+        // mistake. This one is not reachable from IPC, only from the CLI's curve commands, so
+        // it cost a raw "ArgumentException:" in front of the user rather than a crash. Fixed
+        // anyway: one concept should not have two exception types.
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new FormatException("The thermal profile document is empty.");
+        }
+
         ThermalProfileDocument document = JsonSerializer.Deserialize<ThermalProfileDocument>(json, Options) ??
             throw new FormatException("The thermal profile document is empty.");
         return new ThermalProfile(

@@ -36,6 +36,34 @@ public sealed class ThermalSimulationTests
         Assert.ThrowsException<FormatException>(() => ThermalSimulator.ParseCsv(csv));
     }
 
+    /// <summary>
+    /// A blank profile document is malformed input, reported the same way as any other
+    /// malformed input.
+    /// </summary>
+    /// <remarks>
+    /// <para>This threw <see cref="ArgumentException"/>, so a user pointing
+    /// <c>thermal curve validate</c> at an empty file was shown a raw "ArgumentException: The
+    /// value cannot be an empty string or composed entirely of whitespace" while every other
+    /// bad file produced a sentence about their curve. The line directly below the guard
+    /// already reported a null-deserialising document as
+    /// <see cref="FormatException"/>("The thermal profile document is empty.") — one concept
+    /// with two exception types.</para>
+    /// <para>The same shape, in a different file, cost the runtime service its life to a single
+    /// blank line over IPC. This instance is reachable only from the CLI, so it was cosmetic;
+    /// it is fixed because the pattern is what mattered, not the blast radius of this
+    /// particular copy.</para>
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow("\t\n  ")]
+    public void BlankProfileDocumentIsMalformedInputRatherThanAnArgumentFault(string json)
+    {
+        Assert.ThrowsException<FormatException>(
+            () => ThermalProfileSerializer.Parse(json),
+            "A blank document must be reported like every other malformed document.");
+    }
+
     [TestMethod]
     public void ProfileRoundTripsThroughTypedJson()
     {

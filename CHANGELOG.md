@@ -6,7 +6,16 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A blank thermal-curve file reported an argument fault instead of a diagnostic.** Pointing
+  `thermal curve validate` at an empty file printed a raw "ArgumentException: The value cannot
+  be an empty string or composed entirely of whitespace", while every other bad file produced a
+  sentence about the curve — and the line directly below the guard already reported a
+  null-deserialising document as "The thermal profile document is empty." One concept, two
+  exception types. This is the same shape that let one blank line stop the runtime service over
+  IPC; this instance is reachable only from the CLI, so it was cosmetic, and is fixed because
+  the pattern is what matters rather than this copy's blast radius.
 
 ## [0.1.4] — 2026-08-25
 
