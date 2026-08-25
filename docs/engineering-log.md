@@ -1790,3 +1790,66 @@ That was true and irrelevant. Reading found the validation that was there; fuzzi
 path that never reached it. The two negative results either side of this — 1120 IPC round-trips
 with flat handles, and a Razer protocol layer that validates transaction ID, command, selector
 and CRC — were worth having precisely because they were measured. This one was worth more.
+
+---
+
+## Fuzzing round two: four surfaces, one defect, and two safety properties confirmed
+
+After the blank-line DoS, the obvious question was what else had never been given bad input.
+
+**Settings file — clean.** Fifteen hostile `ui-settings.json` variants against the installed
+application: malformed JSON, empty, `null`, an array, wrong types, NaN and Infinity, 1e308,
+negative window sizes, undefined enum members, a 200 KB `SelectedPage`, 500-deep nesting, a
+future schema version, all-nulls. The interface started every time. `Sanitized()` clamps
+numbers and enums; `SelectedPage` is the one field it does not bound, but it is only ever
+string-compared against page keys with a fallback, and the value written back on save is the
+*current* page's key — so a hostile value is read once and discarded rather than persisted.
+Worth noting that the summary on `Sanitized` says it clamps every field, which is not literally
+true; it is true of every field where it would matter.
+
+**Interface resilience — clean.** With the runtime stopped underneath a running interface, CPU
+*fell* from 4.2% to 0.4% of a core and handles stayed flat, so the reconnect loop is properly
+paced rather than spinning. It reconnected when the service came back and survived the whole
+cycle.
+
+**CLI file inputs — one defect.** Ten malformed curve documents and four hostile paths, all
+handled with accurate diagnostics and correct exit codes — except an empty file, which printed
+a raw `ArgumentException: The value cannot be an empty string`. The same shape as the DoS, in a
+different file: `ThermalProfileSerializer.Parse` guarded emptiness with `ArgumentException`
+while the line two below it already reported a null-deserialising document as
+`FormatException("The thermal profile document is empty.")`. Reachable only from the CLI, so it
+cost a confusing message rather than a service. Fixed anyway — the pattern is the thing, not
+this copy's blast radius.
+
+**IPC payload values — clean.** Twelve more cases beyond the fourteen message-shape ones: empty
+and whitespace curve names, `../../../windows/win.ini`, `long.MinValue` sequence numbers,
+`int.MaxValue` batch sizes, null and garbage performance levels. All refused, service serving
+throughout. `Overclock` is refused at the IPC layer too, not only greyed out in the interface —
+worth knowing, because a policy enforced only in the interface is not enforced.
+
+**Two safety properties confirmed on hardware, which is the part that mattered most.**
+
+A clean stop during a live session: Auto → session → **Manual** → `net stop` → **Auto**. The
+fans go back to firmware before the service exits.
+
+A hard kill during a live session: fans held at the commanded speed in **Custom + Manual**, SCM
+restarted the host after **20 s**, and orphaned-Manual recovery returned the machine to **Custom
++ Auto**. Two things fell out of that. The documented measurement said Balanced in both rows,
+correct when written and stale since v0.1.1 made performance mode and fan ownership orthogonal —
+the mode is now preserved across a crash and its recovery. And the machine-wide gate introduced
+in v0.1.4 was observed **free within four seconds of the kill**, which is the answer to the
+question that change raised: a lock that outlived its holder would have turned every crash into
+a permanent outage, because the restarted host could never take it.
+
+**A third instance of the same reading habit.** The "Not yet done" entry for the mid-session
+mode handoff explains that it cannot be produced here because the gate refuses a second writer.
+That reason was false until v0.1.4 — the gate was session-scoped, so the CLI could have done
+exactly that. The conclusion was right for the wrong reason. Three times now a claim in these
+documents has been true only after a later fix, and each time the tell was the same: a statement
+about what *cannot* happen, resting on a mechanism nobody had watched fail.
+
+**On my own measurements.** The first exit-code reading from the CLI fuzz said every failure
+returned 0, which would have been a real defect. It was my harness: `$?` after a pipe reports
+the last command in the pipeline, not the program. Re-measured without the pipe, failures return
+1 and a valid curve returns 0. Worth recording because it nearly became a finding, and the
+difference between a bug and a bad instrument is one careful second look.

@@ -206,17 +206,32 @@ has been checked, which may mean a legitimate configuration is turned away.
 ## Crash recovery leaves a window where nothing owns the fans
 
 A hard-killed runtime — `TerminateProcess`, a power event, a service crash — runs no managed
-cleanup, so the fans stay at the last speed the session commanded, in Balanced + Manual, with
-nothing driving them. The Service Control Manager restarts the service, and host initialisation
-performs a one-time recovery back to firmware Auto before it will serve anything.
+cleanup, so the fans stay at the last speed the session commanded, in Manual, with nothing
+driving them. The Service Control Manager restarts the service, and host initialisation performs
+a one-time recovery back to firmware Auto before it will serve anything.
 
-Measured on the reference machine by killing the service process mid-session:
+Re-measured on v0.1.4 by killing the service process mid-session, in Custom mode:
 
 | Step | Observed |
 |---|---|
-| Service process killed | fans held at last commanded speed, Manual |
-| SCM restart | **~25 s** (configured `RESTART -- Delay = 20000 ms`) |
-| Firmware state after restart | **Balanced + Auto** — recovery succeeded |
+| Service process killed | fans held at last commanded speed, **Custom + Manual** |
+| Machine-wide ownership gate | **released by the kernel on process death** — the restarted host reacquires it |
+| SCM restart | **20 s** (configured `RESTART -- Delay = 20000 ms`) |
+| Firmware state after restart | **Custom + Auto** — recovery succeeded, and the mode was preserved |
+
+The earlier measurement of this recorded Balanced in both rows. That was correct at the time and
+is not any more: taking fan ownership used to move the machine to Balanced, and since v0.1.1 it
+does not. Performance mode is preserved across the crash and the recovery, so the mode you are
+in is the mode you come back to.
+
+The gate row matters because the ownership gate became machine-wide in v0.1.4, and a lock that
+outlived the process holding it would turn a crash into a permanent outage — the restarted host
+could never acquire it. It does not: the semaphore was observed free within four seconds of the
+kill, and held again once the service was back.
+
+A clean stop is a different path and does not have this window at all. Verified separately on
+v0.1.4: with a session running and the fans in Manual, `net stop` returned the machine to
+firmware Auto before the service exited.
 
 So the exposure is roughly **20–25 seconds during which BladeControl does not own cooling**.
 The direction of that failure matters: the fans are stuck at a *commanded* speed, which under
@@ -285,8 +300,11 @@ release cycle for a layering improvement with no safety consequence.
   against synthetic samples.
 - **The mid-session performance-mode handoff is still unexercised on hardware.** Triggering it
   needs the mode changed from *outside* a running session — a keyboard shortcut or vendor
-  software — which cannot be produced from here, because the ownership gate correctly refuses a
-  second writer while the runtime holds the fans. Unit-tested only.
+  software — which cannot be produced from here, because the ownership gate refuses a second
+  writer while the runtime holds the fans. Unit-tested only. That reason is only true as of
+  v0.1.4: the gate was session-scoped before then, so the diagnostic CLI could in fact have
+  written to the hardware mid-session and produced this. The conclusion was right for the wrong
+  reason, and is now right for the stated one.
 - The portable zip's UI and runtime executables have been launched, but only on a machine that
   already had the MSI installed. The newly added CLI has had its `--help` path exercised from
   the publish tree, not from an unpacked archive on a clean machine. Nothing here proves any of
