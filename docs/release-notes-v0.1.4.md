@@ -1,6 +1,6 @@
-# BladeControl v0.1.3 — release notes
+# BladeControl v0.1.4 — release notes
 
-Bug-fix release over v0.1.1. Fan, performance and thermal control for the Razer Blade 16, as a
+Bug-fix release over v0.1.3. Fan, performance and thermal control for the Razer Blade 16, as a
 Windows service that owns the hardware plus a desktop panel that talks to it over local IPC.
 
 **Read [known limitations](known-limitations.md) before installing.** The short version: this is
@@ -101,30 +101,55 @@ the GPL text rather than a summary.
 
 ## Fixed in this release
 
-Four defects, all found by reading the shipped 0.1.1 interface against the hardware it was
-describing rather than by a crash report:
+**Two of these are worth updating for even if nothing looks wrong on your machine.**
 
-- **Telemetry said "Live" while nothing was running.** The dashboard showed "Live — 1 s old"
-  beside a runtime state of "Stopped", on a machine where firmware owned the fans. The sample
-  genuinely was one second old — the interface polls while idle — but freshness and ownership
-  are different claims. Idle states now read "Monitoring"; the age is still shown.
-- **The compact panel had the same defect for the other states.** It special-cased Stopped
-  alone, so Faulted and EmergencyHandoff still claimed live telemetry after cooling had gone
-  back to firmware. Both surfaces now share one rule: only Running is live.
-- **Scrollbars and checkboxes were drawn by Windows, not by the theme.** Neither had ever been
-  templated, so a near-white system scrollbar appeared on every scrolling page and checkboxes
-  rendered as white squares on near-black surfaces.
-- **Diagnostics claimed GPU power was available when it never arrives.** The capability flag
-  asked whether the driver had explicitly declined, not whether a reading existed.
+- **Any signed-in user could stop the runtime service by sending one blank line to its local
+  pipe.** The pipe is deliberately reachable by signed-in users, because the desktop panel is an
+  ordinary application that has to talk to it — but a malformed message was able to end the
+  service rather than simply being refused. Cooling falls back to firmware Auto when that
+  happens, so the machine stays safe, but a thermal-control service anyone can switch off is not
+  what this project intends. Malformed input of every shape is now answered and the channel
+  keeps serving.
+- **The "single hardware owner" guarantee did not hold across Windows sessions.** The lock the
+  runtime takes before opening any device was scoped to one session; the service runs in session
+  0 and the diagnostic CLI runs in yours, so they were never contending for the same lock. In
+  practice that meant a CLI hardware write could proceed while the service believed it owned the
+  fans. The lock is now machine-wide, and a write is refused with a message naming the actual
+  reason.
 
-GPU power and utilisation are **intermittent**, and
-[known limitations](known-limitations.md) carries the measurements. Briefly: both are refused
-while the machine is idle and both read correctly under continuous polling, matching
-`nvidia-smi` to within rounding across 38 consecutive samples — so a dash on the GPU card means
-"not right now", not "never". Power additionally returns a physically impossible value from
-time to time (593.5 W on a part rated near 150 W, which `nvidia-smi` reports too); no
-plausibility gate is implemented yet, so that value can currently reach the display. Neither
-metric is used for any control decision.
+The rest:
+
+- **An idle BladeControl was reading sensors almost continuously.** Every telemetry request
+  performed a full hardware acquisition, and the panel asks twice a second, so a machine sitting
+  in the notification area controlling nothing spent most of its time reading hardware — and
+  kept the discrete GPU awake doing it. Readings are now reused briefly. Measured at the panel's
+  own cadence: 20 requests caused 20 acquisitions before and 6 after.
+- **GPU power readings the device says are impossible are refused.** The driver reports 593.5 W
+  from time to time on a part rated near 150 W — to `nvidia-smi` as readily as to BladeControl.
+  A value above the device's own declared limit is now shown as unavailable with the reason,
+  rather than displayed as a measurement.
+- **Retained state is no longer shown as current.** When the runtime goes away the panel keeps
+  the last thing it was told, which is useful — but several readouts presented it as though it
+  were happening now. A retained fan target no longer reads as a commanded one, and a fresh
+  connection that has heard nothing no longer claims a state was reported.
+- **The dark theme was incomplete.** Tooltips, context menus, the curve editor grid and several
+  other controls were still being drawn by Windows in light colours against near-black surfaces.
+- **A leak in the session lifecycle.** Repeatedly starting and stopping thermal control could
+  strand cancellation objects for the life of the process.
+
+## Added
+
+- **The diagnostic CLI now ships with the installer**, under
+  `%ProgramFiles%\BladeControl\Diagnostics\`, and with the portable archive. It is not added to
+  your `PATH`. Diagnosing an installed machine previously required building from source. Note
+  that its commands are not all read-only — it can write to hardware, and every such command
+  takes the machine-wide ownership lock first and refuses while the service holds it. The
+  installer grows from about 63 MB to 83 MB as a result.
+
+GPU power and utilisation remain **intermittent**: NVML refuses them while the discrete GPU is
+idle and answers once it is active. A dash means "not right now", not "never".
+[Known limitations](known-limitations.md) carries the measurements. Neither metric is used for
+any control decision.
 
 ---
 

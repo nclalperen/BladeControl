@@ -6,6 +6,14 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.4] — 2026-08-25
+
+Two of these are security or safety fixes rather than polish, and both were found by probing the
+running service rather than by reading it. Everything else is the interface and packaging work
+that had accumulated since 0.1.3.
+
 ### Fixed
 
 - **An idle BladeControl was reading hardware almost continuously.** Every monitoring request
@@ -52,6 +60,37 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   rather than enumerating types — only cancellation and conditions the process cannot continue
   through pass through it. Verified by replaying the fourteen-case adversarial suite that found
   it: every case is refused with an error response and the service keeps serving.
+- **GPU power readings the device's own limit says are impossible are refused.** `nvidia-smi`
+  and BladeControl both observed 593.5 W from a part rated near 150 W, mixed in among plausible
+  readings, so the value is the driver's rather than our marshalling. The provider now reads
+  NVML's power-management limit once when it opens — never on the sampling path — and marks a
+  sample above that limit plus a transient margin as invalid, retaining the raw value with a
+  diagnostic naming both numbers rather than clamping it. Failure to read the ceiling fails
+  open. The margin is deliberately broad and documented as a guess rather than a measured
+  envelope.
+- **Every remaining control WPF was drawing with light system chrome is themed.** A control left
+  unstyled in a dark application renders inverted, not plain. ComboBoxItem, ScrollBar and
+  CheckBox had been fixed one at a time; this enumerates what is actually reachable and covers
+  ToolTip, ContextMenu, MenuItem, Separator, ToggleButton, Expander, TextBox, ComboBox and the
+  DataGrid's cells and headers. The curve editor was the worst of them — `DataGridTextColumn`
+  installs its own editor, so cells opened a white WPF TextBox on a near-black grid.
+- **Retained runtime state is no longer presented as a current observation.** The connection
+  deliberately keeps the last status when transport is lost, so the state string alone cannot
+  establish that anything is happening now — an offline snapshot saying Running is only the last
+  thing the interface was told. Values are now classified by observation scope instead. A
+  retained fan target no longer reads as a commanded one while offline or mid-transition, a cold
+  connection no longer claims a state was reported, a terminal alert retained across a
+  disconnect is labelled history, and the compact footer's text and tone can no longer disagree.
+
+### Added
+
+- **The diagnostic CLI ships with the installer and the portable archive**, under
+  `Diagnostics\`, and is not added to the machine-wide `PATH`. It is the only tool that can read
+  firmware state and the runtime's own view over IPC, and until now field diagnosis of an
+  installed machine needed the repository. Its command surface is not read-only; every write and
+  probe path acquires the machine-wide ownership gate before opening a device and refuses while
+  the service holds it. The MSI grows from roughly 63 MB to 83 MB, being a third self-contained
+  .NET tree.
 
 ## [0.1.3] — 2026-08-24
 
@@ -224,6 +263,7 @@ work; everything below is packaging, hosting and distribution.
 - **The GPU thermal ladders have never run live.** The GPU stayed at or below 48 C throughout,
   and manufacturing a thermal emergency to reach them is deliberately out of scope.
 
-[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.3
 [0.1.1]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.1

@@ -82,7 +82,7 @@ Consequences, measured rather than assumed:
   BladeControl's to defeat. They are the backstop; the ladder above is the first line, not the
   only one.
 
-**This is accepted for v0.1.3 and documented rather than fixed.** Removing it means separating
+**This is accepted for v0.1.4 and documented rather than fixed.** Removing it means separating
 acquisition from actuation across threads, which introduces sole-HID-ownership, sample-freshness
 and preemption invariants that deserve their own design pass rather than being bolted onto a
 latency patch. The per-component statistics exist precisely so that decision can be made on
@@ -238,11 +238,21 @@ the ownership lease afterwards, inside `InitializeHost`. Starting a second host 
 already running therefore opens a read-only HID handle and initialises LibreHardwareMonitor
 before the gate refuses it and the process exits.
 
-This is a layering flaw, not a safety hole. The refused host performs no writes, the gate still
+This is a layering flaw, not a safety hole. The refused host performs no writes, the gate
 serialises all control, and the refusal message is accurate and actionable ("Stop the
 'BladeControl Runtime' service before running a console host"). Observed directly: the portable
 runtime, started while the installed service was live, got as far as both hardware sessions and
 then exited at the gate.
+
+**That observation predates the gate actually being machine-wide, and could not have shown
+what it was read as showing.** Until v0.1.4 the semaphore was named `Local\…`, which is scoped
+to one Windows session; the service runs in session 0 and a console host or CLI runs in the
+signed-in user's session, so the two held different kernel objects. Whatever refused the
+portable runtime that day, it was not cross-session exclusion, because there was none. The
+sentence "the gate serialises all control" is true now and was not true when it was written.
+Re-established since, on the corrected gate: with the service running, an elevated
+`BladeControl.Cli fan apply` is refused with "another BladeControl host owns the machine-wide
+hardware session"; with the service stopped, the same command reaches the device.
 
 Acquiring the lease before touching hardware is the better order. It is deliberately not being
 changed here, because it means moving lease acquisition out of `InitializeHost` - the same path
