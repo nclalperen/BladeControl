@@ -19,7 +19,6 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   legitimately takes hundreds of milliseconds. Measured against the deployed build — before, two
   exchanges six seconds apart both failed to connect; after, the channel came back on its own and
   answered in 3 ms once the deadline had passed.
-
 - **A blank telemetry trace did the same in the simulator.** `thermal simulate` against an empty
   trace file printed "The value cannot be an empty string or composed entirely of whitespace",
   naming a parameter the person running the command has never seen, while every other malformed

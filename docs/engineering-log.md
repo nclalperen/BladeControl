@@ -1898,3 +1898,51 @@ The deadline stays, described as what it is: defence in depth, not a fix. What r
 test is a guard on the invariant that actually makes the vector unreachable — that those two
 constants, in two assemblies, with nothing previously requiring them to agree, continue to. That
 one discriminates, because it is about something real.
+
+---
+
+## Fuzzing round three: finishing a pattern, and two hypotheses that were wrong
+
+**The empty-input shape had a third instance, and now the sweep is complete.**
+`ThermalSimulator.ParseCsv` guarded an empty trace file with `ArgumentException`, so
+`thermal simulate` against an empty file named a parameter the person running the command has
+never seen. Same as the curve parser, same as the IPC parser that cost the service its life.
+
+Worth stating what separates the three that were wrong from the nine that are right, because it
+is not "avoid ArgumentException". Every fixed one took **content** — `json`, `json`, `csv`, the
+bytes of something a user chose. Every remaining one guards a **name, key, path or reason**
+supplied by our own code: a pipe name, a config directory, a curve name, a history key, a
+failure reason. For those, an empty value really is a caller's mistake and `ArgumentException`
+is the correct answer. The rule is about where the string came from, not which exception type
+looks tidier.
+
+**Two hypotheses I chased that turned out to be wrong, both worth recording.**
+
+The first: `MaximumConsecutiveAcceptFaults` is 10, and an abrupt client disconnect had been seen
+producing a transient fault, so fifteen rapid connect-send-vanish cycles should have killed the
+host. The service did not notice. The reason is the same buffer fact that made the write-side
+starvation unreachable — the response goes into the output buffer whether or not anyone is
+reading it, so `ProcessConnectionAsync` completes normally and the fault counter resets. A
+neat-sounding attack that the design had already closed for an unrelated reason.
+
+The second: the zone-disagreement refusal ("Performance or fan mode differs between returned
+zones") had appeared four times during this session, which started to look like a defect rather
+than a transient. Thirty consecutive reads on an idle machine: **thirty clean, zero mismatches**.
+Every one of the four sightings had followed a service stop, a restart, or an install — it is
+transition-correlated, exactly as designed, and it fails closed rather than reporting a blended
+state. Counting beat remembering.
+
+**Everything else was clean.** Twenty rapid start/stop session cycles with deliberately
+overlapping second starts: all twenty started, all twenty stopped, handles plateaued at +13 with
+threads and memory flat, and the machine ended in firmware Auto — which exercises both the
+cancellation-source lifetime fixed earlier and the fan-ownership handoff, twenty times over on
+real hardware. Fifteen malformed command lines all produced specific diagnostics, including one
+worth stealing the phrasing from: "--fan1 may be specified only once." And the simulator refuses
+to act on nonsense: NaN, −500 °C and infinity each produce "temperature is invalid",
+`write=False`, and no fan target at all.
+
+**And one more instrument error.** The exit codes in the CLI fuzz read as 0 for every failure,
+which would have been a real defect. It was the harness again — `$?` after a pipe reports the
+last command in the pipeline. That is the second time in two rounds the same mistake nearly
+became a finding, which is itself the lesson: a measurement that surprises you is as likely to
+be a broken instrument as a broken product, and it costs one careful second look to tell.
