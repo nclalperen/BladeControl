@@ -27,15 +27,42 @@ public sealed class RuntimeNamedPipeServer
 
     private static readonly TimeSpan AcceptFaultBackoff = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>
+    /// How long one connection may take to deliver its request, or to read its answer, before
+    /// the channel is taken back.
+    /// </summary>
+    /// <remarks>
+    /// <para>The pipe is created with a single server instance, so an occupied connection is
+    /// the whole channel. Without a deadline, one client that connects and stays silent makes
+    /// the runtime unreachable to every other client while the service goes on reporting itself
+    /// healthy — and any locally signed-in user can open that connection, because the pipe's
+    /// DACL grants them access by design.</para>
+    /// <para>Five seconds is far more than a real client needs and far less than "forever". The
+    /// interface connects with a 1.5 s timeout and writes its request immediately, so this is
+    /// invisible to it even on a loaded machine. It does not make occupation impossible — a
+    /// client can reconnect — but it turns holding the channel into something that has to be
+    /// sustained rather than something one idle socket achieves.</para>
+    /// </remarks>
+    public static readonly TimeSpan ClientMessageTimeout = TimeSpan.FromSeconds(5);
+
     private readonly RuntimeIpcDispatcher _dispatcher;
     private readonly Action<Exception>? _onTransientFault;
+    private readonly string _pipeName;
 
+    /// <param name="pipeName">
+    /// The endpoint to serve. Defaults to the product's, and exists so a test can serve an
+    /// isolated one: the installed service owns the production name, so a test that took the
+    /// default would either fail to create its server or, worse, silently exchange messages
+    /// with the running product and pass without having tested anything.
+    /// </param>
     public RuntimeNamedPipeServer(
         RuntimeIpcDispatcher dispatcher,
-        Action<Exception>? onTransientFault = null)
+        Action<Exception>? onTransientFault = null,
+        string? pipeName = null)
     {
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _onTransientFault = onTransientFault;
+        _pipeName = string.IsNullOrWhiteSpace(pipeName) ? PipeName : pipeName;
     }
 
     /// <summary>
@@ -95,7 +122,7 @@ public sealed class RuntimeNamedPipeServer
                 // longer holds. RuntimePipeSecurity applies an explicit DACL instead, at
                 // creation time so the pipe is never briefly world-writable.
                 await using var pipe = RuntimePipeSecurity.CreateServerStream(
-                    RuntimeIpcEndpoint.PipeName,
+                    _pipeName,
                     maximumServerInstances: 1);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
                 await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
@@ -145,11 +172,32 @@ public sealed class RuntimeNamedPipeServer
         RuntimeIpcResponse response;
         try
         {
-            string json = await ReadBoundedMessageAsync(reader, cancellationToken)
+            // The read is on a deadline, the dispatch is not. The pipe is created with a single
+            // server instance, so a connection that never delivers a message occupies the only
+            // one there is and every other client — the interface included — waits behind it
+            // for as long as the silent client cares to hold on. Observed: one connection that
+            // connected and sent nothing made the service unreachable while leaving it
+            // "Running", until the connection was closed.
+            //
+            // The dispatch deliberately keeps the host token. That work is ours, not the
+            // client's: a telemetry acquisition legitimately takes hundreds of milliseconds and
+            // starting a thermal session takes longer, and abandoning our own work on a clock
+            // would be a worse bug than the one being fixed.
+            using var readDeadline = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            readDeadline.CancelAfter(ClientMessageTimeout);
+
+            string json = await ReadBoundedMessageAsync(reader, readDeadline.Token)
                 .ConfigureAwait(false);
             RuntimeIpcRequest request = RuntimeIpcDispatcher.ParseRequest(json);
             response = await _dispatcher.DispatchAsync(request, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The deadline, not shutdown. Abandon this connection and go back to accepting;
+            // there is nothing worth saying to a client that has not spoken.
+            return;
         }
         catch (Exception exception) when (IsClientMessageFault(exception))
         {
@@ -174,7 +222,29 @@ public sealed class RuntimeNamedPipeServer
             responseJson = RuntimeIpcDispatcher.SerializeResponse(response);
         }
 
-        await writer.WriteLineAsync(responseJson).ConfigureAwait(false);
+        // The write takes a deadline too, and took no token at all before. Stated honestly:
+        // this one is defence in depth rather than a fix for a reachable defect. A client that
+        // never reads its answer cannot currently block the server here, because the pipe's
+        // output buffer is created at RuntimeIpcEndpoint.MaximumMessageBytes and a response is
+        // refused above RuntimeIpcDispatcher.MaximumMessageBytes — so every answer fits the
+        // buffer and the write completes without a reader. Tried it: the channel survives with
+        // or without this deadline.
+        //
+        // It stays because those are two constants in two assemblies that have to agree, and
+        // nothing about the write should depend on remembering that. If the buffer ever shrinks
+        // below the response cap, this is what stops the failure being an unreachable service.
+        try
+        {
+            using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            writeDeadline.CancelAfter(ClientMessageTimeout);
+            await writer.WriteLineAsync(responseJson.AsMemory(), writeDeadline.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A client that will not read its answer does not get to hold the channel.
+        }
     }
 
     private static bool IsLocalClient(NamedPipeServerStream pipe)

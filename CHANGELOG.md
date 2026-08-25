@@ -8,6 +8,18 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ### Fixed
 
+- **One client could make the runtime unreachable by connecting and saying nothing.** The pipe
+  is created with a single server instance, so an occupied connection is the whole channel — and
+  the server waited in its read with no deadline. A connection that never sent a message locked
+  out every other client, the interface included, for as long as it cared to hold on, while the
+  service went on reporting itself Running. Any locally signed-in user can open that connection,
+  because the pipe's DACL grants them access by design. Reading a request is now on a five-second
+  deadline, after which the connection is abandoned and the channel goes back to accepting.
+  Dispatch deliberately keeps no deadline: that work is ours, and a telemetry acquisition
+  legitimately takes hundreds of milliseconds. Measured against the deployed build — before, two
+  exchanges six seconds apart both failed to connect; after, the channel came back on its own and
+  answered in 3 ms once the deadline had passed.
+
 - **A blank thermal-curve file reported an argument fault instead of a diagnostic.** Pointing
   `thermal curve validate` at an empty file printed a raw "ArgumentException: The value cannot
   be an empty string or composed entirely of whitespace", while every other bad file produced a

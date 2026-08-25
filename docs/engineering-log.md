@@ -1853,3 +1853,48 @@ returned 0, which would have been a real defect. It was my harness: `$?` after a
 the last command in the pipeline, not the program. Re-measured without the pipe, failures return
 1 and a valid curve returns 0. Worth recording because it nearly became a finding, and the
 difference between a bug and a bad instrument is one careful second look.
+
+---
+
+## The other way to take the channel: say nothing
+
+The blank-line defect stopped the service. This one leaves it running and makes it unreachable,
+which is arguably worse to diagnose: the service reports Running, the interface reports Offline,
+and nothing is wrong with either.
+
+The pipe is created with `maximumServerInstances: 1`. That is a deliberate design decision —
+one request per connection, funnelled through a single gate — but it means an occupied
+connection is not one connection among several, it is the entire channel. The server then waited
+in `ReadBoundedMessageAsync` with only the host's cancellation token, so a client that connected
+and sent nothing held the channel for as long as it liked. Measured: two exchanges, six seconds
+apart, both failed to connect; the moment the silent client was disposed, the next exchange
+completed in 2 ms.
+
+The fix is a deadline on reading the request, and deliberately not on the dispatch. The dispatch
+is our own work — a telemetry acquisition legitimately takes hundreds of milliseconds, starting a
+session takes longer — and putting a clock on that would be a worse bug than the one being
+fixed. Five seconds is far more than a real client needs, since the interface connects with a
+1.5 s timeout and writes immediately.
+
+**Two things about the tests are worth recording, because both were wrong first.**
+
+The first version served the production pipe name. The installed service already owns it, so one
+test failed with `UnauthorizedAccessException` on creating the server — and the other *passed*,
+because it had silently connected to the running product and exchanged messages with it. A test
+that passes by talking to something other than the thing under test is worse than no test. The
+server now takes an optional endpoint name so a test can serve a GUID of its own.
+
+The second: I wrote a write-side deadline at the same time, with a confident comment about a
+client that sends a request and never reads the answer blocking the server mid-write. Then I
+bypassed the deadline to check the test discriminated, and it passed anyway. It passed because
+the vector is not reachable: the pipe's output buffer is created at
+`RuntimeIpcEndpoint.MaximumMessageBytes` and a response is refused above
+`RuntimeIpcDispatcher.MaximumMessageBytes`, so every answer fits the buffer and the write
+completes with nobody reading. I had written a fix for a defect I had not demonstrated, and a
+test that would have passed against the unfixed code — the exact thing I told the delegated agent
+not to do.
+
+The deadline stays, described as what it is: defence in depth, not a fix. What replaced the bad
+test is a guard on the invariant that actually makes the vector unreachable — that those two
+constants, in two assemblies, with nothing previously requiring them to agree, continue to. That
+one discriminates, because it is about something real.

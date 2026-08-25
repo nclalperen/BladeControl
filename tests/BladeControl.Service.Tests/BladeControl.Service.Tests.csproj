@@ -27,6 +27,16 @@
     <ProjectReference Include="..\..\src\BladeControl.Service\BladeControl.Service.csproj" />
   </ItemGroup>
 
+  <!--
+    Shared, not copied. Driving the real pipe server end to end needs a real BladeRuntime behind
+    it, which means fakes for eleven interface members whose return types are awkward to build.
+    Those fakes already exist next door; a second copy would be a second thing to keep true.
+  -->
+  <ItemGroup>
+    <Compile Include="..\BladeControl.Runtime.Tests\RuntimeTestDoubles.cs"
+             Link="Shared\RuntimeTestDoubles.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
