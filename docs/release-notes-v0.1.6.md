@@ -1,7 +1,8 @@
-# BladeControl v0.1.5 — release notes
+# BladeControl v0.1.6 — release notes
 
-Bug-fix release over v0.1.4. Fan, performance and thermal control for the Razer Blade 16, as a
-Windows service that owns the hardware plus a desktop panel that talks to it over local IPC.
+Documentation-correction release over v0.1.5. Fan, performance and thermal control for the
+Razer Blade 16, as a Windows service that owns the hardware plus a desktop panel that talks to
+it over local IPC.
 
 **Read [known limitations](known-limitations.md) before installing.** The short version: this is
 validated on exactly one laptop model, physical fan RPM is not available on that hardware, and
@@ -101,38 +102,36 @@ the GPL text rather than a summary.
 
 ## Fixed in this release
 
-**Worth updating for.** Any signed-in user could make BladeControl unreachable by opening a
-connection to it and then doing nothing at all. The runtime serves one connection at a time by
-design, and it waited for that connection's request with no time limit — so a single idle
-connection locked out the desktop panel and everything else, indefinitely, while the service
-went on reporting itself healthy. It now gives a connection five seconds to say something and
-takes the channel back otherwise. Measured before and after on the same machine: two attempts
-six seconds apart both failed to connect; afterwards the channel recovers on its own.
+**Nothing about how BladeControl behaves changed in this release. What changed is that several
+documents now describe it correctly.** They are worth listing because two of them are the files
+you would read to decide whether to trust this with your cooling.
 
-The rest are message-quality fixes in the diagnostic CLI. An empty thermal-curve file and an
-empty telemetry-trace file each produced an internal error about "an empty string or composed
-entirely of whitespace" instead of a sentence about the file you actually pointed at. Both now
-say what is wrong with the file. These were the last two instances of the same defect shape
-that, in the runtime's message handling, let a single blank line stop the service until v0.1.4
-fixed it.
+- **The safety model published the wrong GPU emergency thresholds.** It gave one table —
+  75 / 77 / 80 °C — as though those were the numbers. They are the numbers in Silent and Custom.
+  In Balanced the same ladder sits at 87 / 89 / 92, because the thresholds are derived from the
+  thermal target your driver is currently enforcing and that follows the performance mode.
+  Anyone reading the old table while running Balanced would have expected the software to act
+  twelve degrees earlier than it does. It has behaved correctly throughout; the document was
+  wrong.
+- **Two older design documents still described the behaviour from before v0.1.1**, when starting
+  a cooling session moved the machine to Balanced. It has not done that for several releases —
+  your performance mode is preserved. One of them also still specified a flat 80 °C GPU
+  handoff, which is the value this project removed on finding it is the temperature at which the
+  reference GPU shuts itself down.
+- **The README overstated one safety property.** It said the machine-wide lock is taken before
+  any device is opened. The lock is real and a second copy of the runtime cannot run alongside
+  the service — but it is taken slightly later than claimed, after the device handles are
+  opened and before anything is written. The known-limitations file had this right all along.
+- **The IPC security document listed "resource exhaustion" and answered only the memory half.**
+  The two availability problems found and fixed in v0.1.4 and v0.1.5 are now written up there
+  properly, including the one that is mitigated rather than solved.
 
 ## Also in this release
 
-Nothing user-visible changed in the control path, but three of its properties were re-verified
-on hardware, and one documented measurement turned out to be out of date:
-
-- **Stopping the service during an active cooling session hands the fans back to firmware**
-  before the service exits. Confirmed by running a session, stopping the service, and reading
-  the firmware state.
-- **Killing the service outright recovers.** The fans hold their last commanded speed, Windows
-  restarts the service after 20 seconds, and it returns the machine to firmware Auto — now
-  preserving your performance mode, which the previous measurement predated. That measurement
-  said the machine came back in Balanced; it comes back in the mode you were in.
-- **Twenty rapid start/stop cycles** left the machine in firmware Auto with no resource growth.
-
-[Known limitations](known-limitations.md) carries the numbers. GPU power and utilisation remain
-intermittent — NVML refuses them while the discrete GPU is idle and answers once it is active —
-so a dash on the GPU card means "not right now", not "never".
+- The deadline for a client to deliver a request is two seconds rather than five, chosen from
+  measurement: a whole exchange takes at most 142 ms. This shortens how long one connection can
+  occupy the channel. It does not stop a determined local program from degrading it — see
+  [known limitations](known-limitations.md), which now carries the measurements.
 
 ## What changed since the 0.1.0 milestone
 

@@ -241,7 +241,7 @@ Stop the installed service first — only one host may own the hardware.
 
 | Document | Contents |
 |---|---|
-| [docs/release-notes-v0.1.5.md](docs/release-notes-v0.1.5.md) | What is in this release and what it deliberately does not claim |
+| [docs/release-notes-v0.1.6.md](docs/release-notes-v0.1.6.md) | What is in this release and what it deliberately does not claim |
 | [docs/safety-model.md](docs/safety-model.md) | What the software will and will not do to your cooling, and why |
 | [docs/known-limitations.md](docs/known-limitations.md) | Measured limits, unavailable data, and what is not yet done |
 | [docs/engineering-log.md](docs/engineering-log.md) | Chronological record of changes, evidence and rejected hypotheses |

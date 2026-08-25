@@ -6,6 +6,36 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.6] — 2026-08-25
+
+Documentation corrections, most of them in the files a reader consults to decide whether to
+trust this software with their cooling. No behaviour changed except the message deadline.
+
+### Fixed
+
+- **The safety model published the wrong GPU emergency thresholds.** It gave the ladder as one
+  table headed "reference signature 75 / 77 / 80 °C". Since v0.1.1 the thresholds follow the
+  performance mode, because they derive from the thermal target the driver is enforcing: in
+  Balanced they are 87 keep-control, 84 release, 89 firmware-Auto handoff, 91 immediate. Reading
+  the published row understated every Balanced threshold by twelve degrees, in the document that
+  explains how the machine is protected. The corrected numbers are checked against the code's
+  own derivation rather than inferred.
+- **Two design documents still described pre-v0.1.1 behaviour.** `thermal-control-v1.md`, which
+  is written as current policy, said a session enters "Balanced + Manual" and gave the emergency
+  response as a flat "CPU 90 °C or GPU 80 °C" — the same hard-coded 80 °C that `safety-model.md`
+  records as removed on discovering it is where the reference GPU shuts itself down. Two files in
+  one repository, one describing the defect and the other still specifying it.
+- **The README claimed a safety property the code does not have.** "A machine-wide singleton is
+  taken before any device is opened" — the runtime opens the Razer HID session and the telemetry
+  providers first and acquires the lease afterwards, which `known-limitations.md` already
+  documented as a layering flaw. The exclusion is real; the ordering was not as claimed.
+- **The IPC threat model answered memory exhaustion and called it resource exhaustion.** The two
+  availability threats found by fuzzing this channel — one message that stopped the service, and
+  one silent connection that held it — are now separate rows, the second stating plainly that it
+  is mitigated rather than defended.
+
 ### Changed
 
 - **The client message deadline is two seconds rather than five**, chosen against measurement:
@@ -314,7 +344,8 @@ work; everything below is packaging, hosting and distribution.
 - **The GPU thermal ladders have never run live.** The GPU stayed at or below 48 C throughout,
   and manufacturing a thermal emergency to reach them is deliberately out of scope.
 
-[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.6
 [0.1.5]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.5
 [0.1.4]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.3
