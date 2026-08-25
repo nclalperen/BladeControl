@@ -88,7 +88,15 @@ public sealed class RuntimeIpcDispatcher : IAsyncDisposable
 
     public static RuntimeIpcRequest ParseRequest(string json)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        // A blank message is malformed input from a client, not a programming error in a
+        // caller. ArgumentException said the opposite, and it was the one malformed-input case
+        // this method did not report as FormatException — which is what the pipe server
+        // catches. A single empty line was therefore enough to take the service down.
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new FormatException("IPC request is empty.");
+        }
+
         if (System.Text.Encoding.UTF8.GetByteCount(json) > MaximumMessageBytes)
         {
             throw new FormatException("IPC message exceeds the 64-KiB limit.");

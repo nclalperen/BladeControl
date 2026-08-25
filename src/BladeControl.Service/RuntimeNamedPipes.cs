@@ -55,6 +55,33 @@ public sealed class RuntimeNamedPipeServer
             System.ComponentModel.Win32Exception or TimeoutException;
     }
 
+    /// <summary>
+    /// Whether a fault raised while reading, parsing or dispatching one client message must be
+    /// answered as a failed response rather than allowed to end the accept loop.
+    /// </summary>
+    /// <remarks>
+    /// <para>Everything is, except cancellation and conditions the process cannot continue
+    /// through. The bytes are chosen by whoever connected, and the pipe DACL grants every
+    /// locally signed-in user read and write by design, so treating one message as capable of
+    /// stopping the service hands any account on the machine a way to do exactly that.</para>
+    /// <para>It did. The handler used to name three exception types — FormatException,
+    /// DecoderFallbackException, IOException — and <c>ParseRequest</c> guarded blank input with
+    /// ArgumentException, which was not among them. One empty line stopped the runtime host
+    /// with exit code 1. Both halves are fixed; this is the half that does not depend on
+    /// remembering to enumerate every type a parser might throw.</para>
+    /// <para>Deliberately distinct from <see cref="IsTransientConnectionFault"/>. That one
+    /// classifies faults of the <i>channel</i> and keeps genuinely unexpected faults fatal,
+    /// which is right for the accept loop. This one classifies faults caused by the
+    /// <i>content</i> of a single message, where nothing a client sends is unexpected.</para>
+    /// </remarks>
+    public static bool IsClientMessageFault(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return exception is not OperationCanceledException and
+            not OutOfMemoryException and not StackOverflowException and
+            not AccessViolationException;
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         int consecutiveFaults = 0;
@@ -124,8 +151,7 @@ public sealed class RuntimeNamedPipeServer
             response = await _dispatcher.DispatchAsync(request, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is FormatException or
-            DecoderFallbackException or IOException)
+        catch (Exception exception) when (IsClientMessageFault(exception))
         {
             response = new RuntimeIpcResponse(
                 RuntimeIpcDispatcher.ProtocolVersion,

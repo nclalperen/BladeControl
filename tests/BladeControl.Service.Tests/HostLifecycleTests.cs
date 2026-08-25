@@ -311,6 +311,76 @@ public sealed class HostLifecycleTests
             new UnauthorizedAccessException("pipe name squatted")));
     }
 
+    /// <summary>
+    /// No message a client can send may end the accept loop.
+    /// </summary>
+    /// <remarks>
+    /// <para>ArgumentException is the one that mattered: <c>ParseRequest</c> guarded blank
+    /// input with it, the connection handler caught only FormatException,
+    /// DecoderFallbackException and IOException, and a single empty line sent to the pipe
+    /// therefore stopped the runtime host with exit code 1. Observed on the reference machine.
+    /// The pipe DACL grants every locally signed-in user read and write by design, so that was
+    /// a denial of service against the component that owns cooling, costing one blank
+    /// line.</para>
+    /// <para>Listing types here would repeat the mistake. What is asserted is the shape of the
+    /// rule: client-caused means everything except cancellation and conditions the process
+    /// cannot continue through.</para>
+    /// </remarks>
+    [TestMethod]
+    public void AnyFaultFromOneClientMessageIsAnsweredRatherThanEndingTheLoop()
+    {
+        Exception[] clientCaused =
+        [
+            new ArgumentException("blank json", "json"),
+            new ArgumentNullException("json"),
+            new FormatException("malformed"),
+            new System.Text.DecoderFallbackException(),
+            new IOException("pipe is broken"),
+            new System.Text.Json.JsonException("bad token"),
+            new InvalidOperationException("unexpected state"),
+            new NotSupportedException("unsupported operation"),
+            new OverflowException("number too large"),
+            new KeyNotFoundException("missing"),
+            new NullReferenceException("someone dereferenced null")
+        ];
+
+        foreach (Exception exception in clientCaused)
+        {
+            Assert.IsTrue(
+                RuntimeNamedPipeServer.IsClientMessageFault(exception),
+                $"{exception.GetType().Name} raised while handling one message must be " +
+                "answered, not allowed to stop the service. Any account on this machine can " +
+                "choose the bytes that produce it.");
+        }
+    }
+
+    /// <summary>
+    /// Cancellation and unrecoverable conditions still pass through.
+    /// </summary>
+    /// <remarks>
+    /// Absorbing cancellation would leave the loop unable to stop on service shutdown, and
+    /// absorbing the others would keep serving in a process that cannot honour the answer.
+    /// </remarks>
+    [TestMethod]
+    public void CancellationAndUnrecoverableConditionsAreNotTreatedAsClientFaults()
+    {
+        Exception[] fatal =
+        [
+            new OperationCanceledException(),
+            new TaskCanceledException(),
+            new OutOfMemoryException(),
+            new StackOverflowException(),
+            new AccessViolationException()
+        ];
+
+        foreach (Exception exception in fatal)
+        {
+            Assert.IsFalse(
+                RuntimeNamedPipeServer.IsClientMessageFault(exception),
+                $"{exception.GetType().Name} must not be absorbed as a client message fault.");
+        }
+    }
+
     [TestMethod]
     public void PersistentAcceptFailureIsStillTreatedAsFatal()
     {

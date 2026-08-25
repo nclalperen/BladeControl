@@ -14,6 +14,35 @@ public sealed class IpcAndConfigurationTests
             RuntimeIpcDispatcher.ParseRequest("{not-json"));
     }
 
+    /// <summary>
+    /// A blank message is malformed input, reported the same way as any other malformed input.
+    /// </summary>
+    /// <remarks>
+    /// <para>This threw <see cref="ArgumentException"/>, and the pipe server's handler caught
+    /// only FormatException, DecoderFallbackException and IOException. So a single empty line
+    /// sent to the runtime's named pipe escaped the handler, unwound the accept loop and
+    /// stopped the service — observed on the reference machine, with the host logging "Runtime
+    /// host failed and will stop" and exiting with code 1.</para>
+    /// <para>The pipe DACL grants every locally signed-in user read and write by design, so
+    /// that was a denial of service against the component that owns cooling, available to any
+    /// account on the machine and costing one blank line.</para>
+    /// <para>Emptiness was already modelled as FormatException a few lines below, for a
+    /// payload that deserialises to null. This was the one malformed-input case that
+    /// disagreed.</para>
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow("\t")]
+    [DataRow("   \t  ")]
+    public void BlankIpcRequestIsMalformedInputRatherThanAnArgumentFault(string json)
+    {
+        Assert.ThrowsException<FormatException>(
+            () => RuntimeIpcDispatcher.ParseRequest(json),
+            "A blank message must be reported as malformed input. Any other exception type " +
+            "escapes the pipe server's handler and stops the service.");
+    }
+
     [TestMethod]
     public void IpcUnknownMemberIsRejected()
     {

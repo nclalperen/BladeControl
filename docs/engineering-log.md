@@ -1734,3 +1734,59 @@ paths *was* the verification I did. Both times the claim outran the evidence, an
 the next actual measurement broke it. Reading code establishes what the code says. It does not
 establish what the machine does, and for anything the safety argument leans on, only the
 second one counts.
+
+---
+
+## One blank line stopped the service
+
+Fuzzing the IPC surface was meant to be a robustness check with a likely-boring result. The
+first case killed the service.
+
+Fourteen adversarial messages, starting with an empty line. The empty line came back as
+`<closed with no answer>`, and every case after it timed out connecting. My first reading was
+that the pipe had wedged — but the service was `Stopped`, PID 0. It had exited:
+
+```
+System.ArgumentException: The value cannot be an empty string or composed entirely of
+whitespace. (Parameter 'json')
+   at BladeControl.Runtime.RuntimeIpcDispatcher.ParseRequest(String json)
+   at BladeControl.Service.RuntimeNamedPipeServer.ProcessConnectionAsync(...)
+   at BladeControl.Service.RuntimeNamedPipeServer.RunAsync(...)
+→ Runtime host failed and will stop.
+→ BladeControl Runtime host exited with code 1.
+```
+
+**Both layers were individually defensible, and that is the whole point.** `ParseRequest`
+validating its argument is ordinary defensive coding. The connection handler catching
+`FormatException`, `DecoderFallbackException` and `IOException` is a considered list — it names
+exactly the malformed-input and transport faults the author had in mind, and the surrounding
+code shows they thought carefully about this: there is an `IsTransientConnectionFault`
+classifier for the accept loop with its own tests, written after a client disconnect once took
+the service down. The defect lived in the seam. `ParseRequest` reports emptiness as
+`ArgumentException` and every *other* malformed shape as `FormatException` — including, four
+lines further down, a payload that deserialises to null, whose message is literally "IPC request
+is empty." One concept, two exception types, and only one of them was on the list.
+
+**Severity, stated plainly.** The pipe's DACL grants every locally signed-in user read and
+write, deliberately, because the interface is an ordinary desktop application that has to reach
+it. So the cost of stopping the component that owns cooling was one blank line from any account
+on the machine. Not a privilege escalation, and cooling falls back to firmware Auto, which is
+safe — but a thermal-control service that any user can switch off is not the service this
+project documents.
+
+**Fixed in both halves, and the second half is the one that matters.** Emptiness is now
+malformed input like everything else. More importantly the handler no longer enumerates types:
+it answers any fault from handling one message, passing through only cancellation and
+conditions the process cannot continue through. Listing types is how this happened, and a list
+maintained against a parser that can throw anything will be wrong again. That rule is now a
+named predicate, `IsClientMessageFault`, beside the existing `IsTransientConnectionFault` —
+same house pattern, tested directly. The two are deliberately different: one classifies faults
+of the *channel*, where unexpected really should be fatal; the other classifies faults caused
+by the *content* of one message, where nothing a client sends is unexpected.
+
+**On method.** I had already read this handler earlier in the session, while checking what a
+client can send, and concluded the input surface was sound because `FanRpm` validates its range.
+That was true and irrelevant. Reading found the validation that was there; fuzzing found the
+path that never reached it. The two negative results either side of this — 1120 IPC round-trips
+with flat handles, and a Razer protocol layer that validates transaction ID, command, selector
+and CRC — were worth having precisely because they were measured. This one was worth more.

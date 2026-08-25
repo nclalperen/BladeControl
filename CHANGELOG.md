@@ -40,6 +40,18 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   running or to elevate against a service that is. Verified end to end afterwards: the same
   write is refused while the service runs, from both an ordinary and an elevated process, and
   succeeds once the service is stopped.
+- **Any locally signed-in user could stop the runtime service by sending one blank line to its
+  named pipe.** `ParseRequest` guarded empty input with `ArgumentException`, while the pipe
+  server's connection handler caught only `FormatException`, `DecoderFallbackException` and
+  `IOException`. An empty message therefore escaped the handler, unwound the accept loop and
+  ended the host: observed on the reference machine, logging "Runtime host failed and will stop"
+  and exiting with code 1, after which the service stayed down. The pipe's DACL grants locally
+  signed-in users read and write by design, so the cost of stopping the component that owns
+  cooling was one blank line from any account. Emptiness is now reported as malformed input,
+  like every other malformed shape, and the handler answers **any** fault from a single message
+  rather than enumerating types — only cancellation and conditions the process cannot continue
+  through pass through it. Verified by replaying the fourteen-case adversarial suite that found
+  it: every case is refused with an error response and the service keeps serving.
 
 ## [0.1.3] — 2026-08-24
 
