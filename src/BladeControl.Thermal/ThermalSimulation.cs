@@ -61,7 +61,17 @@ public static class ThermalSimulator
 
     public static IReadOnlyList<TelemetryTraceSample> ParseCsv(string csv)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(csv);
+        // The third place this shape turned up. The text is a trace file someone chose, so an
+        // empty one is malformed input and belongs with the FormatException below that reports
+        // every other malformed trace — not an ArgumentException naming a parameter the user
+        // has never heard of. An empty file used to print "Thermal simulation failed: The value
+        // cannot be an empty string or composed entirely of whitespace".
+        if (string.IsNullOrWhiteSpace(csv))
+        {
+            throw new FormatException(
+                "The telemetry trace is empty. It must begin with: timestamp,cpu_temp,gpu_temp");
+        }
+
         string[] lines = csv.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries |
             StringSplitOptions.TrimEntries);
         if (lines.Length < 2 ||

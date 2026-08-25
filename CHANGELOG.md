@@ -20,6 +20,11 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
   exchanges six seconds apart both failed to connect; after, the channel came back on its own and
   answered in 3 ms once the deadline had passed.
 
+- **A blank telemetry trace did the same in the simulator.** `thermal simulate` against an empty
+  trace file printed "The value cannot be an empty string or composed entirely of whitespace",
+  naming a parameter the person running the command has never seen, while every other malformed
+  trace produced a sentence about the trace. Third instance of one shape; the first cost the
+  runtime service its life to a single blank line over IPC.
 - **A blank thermal-curve file reported an argument fault instead of a diagnostic.** Pointing
   `thermal curve validate` at an empty file printed a raw "ArgumentException: The value cannot
   be an empty string or composed entirely of whitespace", while every other bad file produced a

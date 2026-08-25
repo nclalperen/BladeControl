@@ -37,6 +37,29 @@ public sealed class ThermalSimulationTests
     }
 
     /// <summary>
+    /// A blank telemetry trace is malformed input, like every other malformed trace.
+    /// </summary>
+    /// <remarks>
+    /// The third place the same shape appeared: emptiness guarded with
+    /// <see cref="ArgumentException"/> while every other bad trace produced a
+    /// <see cref="FormatException"/> naming what was wrong. An empty file printed "Thermal
+    /// simulation failed: The value cannot be an empty string or composed entirely of
+    /// whitespace", which names a parameter the person running the command has never seen.
+    /// The first of the three cost the runtime service its life to a single blank line over
+    /// IPC; these two cost only a confusing message, and are fixed because the shape is what
+    /// keeps recurring.
+    /// </remarks>
+    [DataTestMethod]
+    [DataRow("")]
+    [DataRow("   ")]
+    public void BlankTelemetryTraceIsMalformedInputRatherThanAnArgumentFault(string csv)
+    {
+        Assert.ThrowsException<FormatException>(
+            () => ThermalSimulator.ParseCsv(csv),
+            "A blank trace must be reported like every other malformed trace.");
+    }
+
+    /// <summary>
     /// A blank profile document is malformed input, reported the same way as any other
     /// malformed input.
     /// </summary>

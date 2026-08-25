@@ -15,13 +15,15 @@ namespace BladeControl.Service.Tests;
 /// one connection among several — it is the whole channel. Two ways to occupy it were found by
 /// probing the running service, and neither needed anything more than the access the pipe's
 /// DACL grants every locally signed-in user by design:</para>
-/// <list type="number">
-/// <item>Connect and never send. The server waited in its read with no deadline, and the
-/// interface could not connect for as long as the silent client cared to hold on. The service
-/// went on reporting itself Running throughout.</item>
-/// <item>Send a valid request and never read the answer. The write took no cancellation token
-/// at all, so the server blocked filling a buffer nobody was draining.</item>
-/// </list>
+/// <para>Connect and never send: the server waited in its read with no deadline, and the
+/// interface could not connect for as long as the silent client cared to hold on, while the
+/// service went on reporting itself Running throughout. That one was real, and is fixed by a
+/// deadline on reading a request.</para>
+/// <para>Sending a valid request and never reading the answer looked like a second way in, and
+/// is not. The write took no cancellation token, but it cannot block: every permitted response
+/// fits the pipe's output buffer, so it completes with nobody reading. That was established by
+/// removing the write deadline and finding the behaviour unchanged — the claim came first and
+/// the measurement corrected it.</para>
 /// <para>These drive the real <see cref="RuntimeNamedPipeServer"/> over the real pipe, because
 /// the defect was in how a connection is serviced rather than in anything a unit can see.</para>
 /// </remarks>
