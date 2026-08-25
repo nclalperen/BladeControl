@@ -27,7 +27,6 @@
     <ProjectReference Include="..\..\src\BladeControl.Service\BladeControl.Service.csproj" />
   </ItemGroup>
 
-
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
