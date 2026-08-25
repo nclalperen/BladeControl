@@ -9,7 +9,7 @@
     build is a prerelease) here and nowhere else.
   -->
   <PropertyGroup>
-    <BladeControlVersionPrefix>0.1.4</BladeControlVersionPrefix>
+    <BladeControlVersionPrefix>0.1.5</BladeControlVersionPrefix>
     <BladeControlVersionSuffix></BladeControlVersionSuffix>
   </PropertyGroup>
 

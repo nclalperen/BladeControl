@@ -6,6 +6,14 @@ BladeControl follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html);
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.5] — 2026-08-25
+
+A denial of service against the control channel, and the last two instances of a defect shape
+that had already cost the service its life once. Found by continuing to fuzz the surfaces
+v0.1.4 had not reached.
+
 ### Fixed
 
 - **One client could make the runtime unreachable by connecting and saying nothing.** The pipe
@@ -288,7 +296,8 @@ work; everything below is packaging, hosting and distribution.
 - **The GPU thermal ladders have never run live.** The GPU stayed at or below 48 C throughout,
   and manufacturing a thermal emergency to reach them is deliberately out of scope.
 
-[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/nclalperen/BladeControl/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.5
 [0.1.4]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.3
 [0.1.1]: https://github.com/nclalperen/BladeControl/releases/tag/v0.1.1

@@ -82,7 +82,7 @@ Consequences, measured rather than assumed:
   BladeControl's to defeat. They are the backstop; the ladder above is the first line, not the
   only one.
 
-**This is accepted for v0.1.4 and documented rather than fixed.** Removing it means separating
+**This is accepted for v0.1.5 and documented rather than fixed.** Removing it means separating
 acquisition from actuation across threads, which introduces sole-HID-ownership, sample-freshness
 and preemption invariants that deserve their own design pass rather than being bolted onto a
 latency patch. The per-component statistics exist precisely so that decision can be made on
