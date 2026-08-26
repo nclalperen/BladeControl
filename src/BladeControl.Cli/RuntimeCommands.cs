@@ -388,6 +388,11 @@ internal static partial class Program
             "(the loop never skips an iteration)");
         output.WriteLine($"  Telemetry acquisition  {Describe(status.TelemetryAcquisition)}");
         output.WriteLine($"  Actuator duration      {Describe(status.ActuatorDuration)}");
+        // Split the acquisition figure by provider. The aggregate says the cycle is tight; only
+        // this says which read to go after, which is the question the scheduler limitation in
+        // docs/known-limitations.md has been waiting on.
+        output.WriteLine($"    of which CPU read    {Describe(status.CpuAcquisition)}");
+        output.WriteLine($"    of which GPU read    {Describe(status.GpuAcquisition)}");
         output.WriteLine($"  Watchdog coalesced     {status.WatchdogCoalescedCount}");
     }
 

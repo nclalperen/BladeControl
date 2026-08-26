@@ -95,6 +95,8 @@ public sealed class StatusMappingTests
         TimeSpan.FromMilliseconds(77),
         Statistics(11),
         Statistics(22),
+        Statistics(88),
+        Statistics(99),
         33,
         44,
         55,

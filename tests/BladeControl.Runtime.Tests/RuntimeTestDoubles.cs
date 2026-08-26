@@ -52,6 +52,17 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
 
     internal TimeSpan WorkDuration { get; set; }
 
+    /// <summary>
+    /// Split of <see cref="WorkDuration"/> between the two providers, so a test can model a
+    /// cycle where one of them dominates. Defaults keep the whole cost on the CPU read, which
+    /// is what the reference machine does.
+    /// </summary>
+    internal double CpuShareOfWork { get; set; } = 1.0;
+
+    public TimeSpan LastCpuAcquisitionDuration { get; private set; }
+
+    public TimeSpan LastGpuAcquisitionDuration { get; private set; }
+
     internal bool MissingCpu { get; set; }
 
     internal bool MissingGpu { get; set; }
@@ -105,6 +116,8 @@ internal sealed class FakeRuntimeTelemetry : IControlTelemetryProvider, ITelemet
         ControlReads++;
         CpuReads++;
         GpuReads++;
+        LastCpuAcquisitionDuration = WorkDuration * CpuShareOfWork;
+        LastGpuAcquisitionDuration = WorkDuration - LastCpuAcquisitionDuration;
         _clock.Advance(WorkDuration);
         double cpuValue = FixedCpuTemperature ?? (55 + ((sample / 120) % 20));
         double gpuValue = FixedGpuTemperature ?? (50 + ((sample / 180) % 18));

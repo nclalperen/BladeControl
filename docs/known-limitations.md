@@ -82,11 +82,47 @@ Consequences, measured rather than assumed:
   BladeControl's to defeat. They are the backstop; the ladder above is the first line, not the
   only one.
 
-**This is accepted for v0.1.6 and documented rather than fixed.** Removing it means separating
-acquisition from actuation across threads, which introduces sole-HID-ownership, sample-freshness
-and preemption invariants that deserve their own design pass rather than being bolted onto a
-latency patch. The per-component statistics exist precisely so that decision can be made on
-distribution data.
+**This is accepted for v0.1.6 and documented rather than fixed.** What follows is the
+distribution data this paragraph used to promise and could not deliver: the per-provider split
+was measured inside the Windows session from the start and discarded every cycle, so only the
+aggregate was ever visible. It is now recorded and surfaced. Over 86 consecutive control cycles
+of a live session on the reference machine:
+
+| | latest | p95 | p99 | max |
+|---|---|---|---|---|
+| Telemetry acquisition | 375.7 | 385.7 | 407.1 | 407.1 ms |
+| **of which the CPU read** | **375.6** | **385.6** | **407.1** | **407.1 ms** |
+| **of which the GPU read** | **0.1** | **0.1** | **0.2** | **0.2 ms** |
+| Actuator | 0.0 | 0.4 | 239.5 | 239.5 ms |
+
+**Acquisition is the CPU read, essentially in full.** NVML answers in a fifth of a millisecond;
+LibreHardwareMonitor's CPU update takes three thousand times longer. It costs that because
+`IHardware.Update()` is the finest granularity its API offers — it sweeps every sensor on a
+24-core part through ring-0 MSR reads — and BladeControl needs one value out of that sweep, the
+package temperature. There is no per-sensor update to ask for, and the cheaper routes to a CPU
+temperature were rejected earlier as not authoritative.
+
+**And the remedy this paragraph proposed does not do what it implies.** Separating acquisition
+from actuation would end the overruns — a write cycle would cost 239 ms against a 500 ms period
+instead of 646 ms — but it does not shorten the worst case that matters. Arithmetic from the
+numbers above:
+
+| | worst-case detection to action |
+|---|---|
+| Today: wait a period, acquire, write | 500 + 407 + 239 = **1146 ms** |
+| Threaded: sample already up to one acquisition old, wait a period, write | 407 + 500 + 239 = **1146 ms** |
+
+The same, because the cost is dominated by the control period and the eight-exchange write, not
+by the coupling. Threading is what would *permit* a shorter control period, which is where an
+actual improvement would come from; on its own it buys schedule regularity and nothing for
+latency. Note also that these two paths are independent devices — acquisition is
+LibreHardwareMonitor and NVML, actuation and the watchdog are Razer HID — so the
+sole-HID-ownership concern this paragraph raised does not apply between them.
+
+**The floor.** Even a perfect scheduler cannot detect and act faster than one sample age plus
+one write: 407 + 239 ≈ **650 ms** on this hardware. Going below it means a cheaper authoritative
+CPU temperature or fewer than eight HID exchanges per write, and eight is already the minimum
+that can be verified.
 
 Telemetry acquisition is **variable, not constant**: observed between roughly 160 ms and 400 ms
 across sessions on the same machine. Any future redesign should rest on a distribution, not on a

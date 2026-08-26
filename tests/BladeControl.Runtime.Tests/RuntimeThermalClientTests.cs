@@ -515,6 +515,8 @@ public sealed class RuntimeThermalClientTests
         TimeSpan.Zero,
         null,
         null,
+        null,
+        null,
         0,
         totalEventCount,
         0,

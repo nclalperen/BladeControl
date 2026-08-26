@@ -154,6 +154,8 @@ public static class RuntimeUiSampleData
         LastTelemetryAcquisitionDuration: TimeSpan.FromMilliseconds(38),
         TelemetryAcquisition: DurationStatistics.Empty,
         ActuatorDuration: DurationStatistics.Empty,
+        CpuAcquisition: DurationStatistics.Empty,
+        GpuAcquisition: DurationStatistics.Empty,
         WatchdogCoalescedCount: 0,
         TotalEventCount: totalEventCount,
         RetainedThermalDecisionCount: 0,

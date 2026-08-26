@@ -36,6 +36,8 @@ public sealed record RuntimeStatus(
     TimeSpan LastTelemetryAcquisitionDuration,
     DurationStatistics TelemetryAcquisition,
     DurationStatistics ActuatorDuration,
+    DurationStatistics CpuAcquisition,
+    DurationStatistics GpuAcquisition,
     long WatchdogCoalescedCount,
     long TotalEventCount,
     int RetainedThermalDecisionCount,
@@ -92,6 +94,13 @@ public sealed class BladeRuntime : IAsyncDisposable
     /// </remarks>
     private readonly RollingDurationWindow _acquisitionWindow = new();
     private readonly RollingDurationWindow _actuatorWindow = new();
+
+    /// <summary>
+    /// Acquisition split by provider, because the aggregate cannot answer the question the
+    /// scheduler limitation actually poses: which of the two reads is spending the period.
+    /// </summary>
+    private readonly RollingDurationWindow _cpuAcquisitionWindow = new();
+    private readonly RollingDurationWindow _gpuAcquisitionWindow = new();
     private long _watchdogCoalescedCount;
     private readonly BoundedRuntimeEventLog _events;
     private readonly ControlTelemetryAdapter _telemetryAdapter;
@@ -554,6 +563,8 @@ public sealed class BladeRuntime : IAsyncDisposable
                     _telemetryAdapter.LastAcquisitionDuration,
                     DurationStatistics.From(_acquisitionWindow),
                     DurationStatistics.From(_actuatorWindow),
+                    DurationStatistics.From(_cpuAcquisitionWindow),
+                    DurationStatistics.From(_gpuAcquisitionWindow),
                     _watchdogCoalescedCount,
                     _events.TotalCount,
                     _controller?.Decisions.Count ?? 0,
@@ -763,6 +774,8 @@ public sealed class BladeRuntime : IAsyncDisposable
             long cycleStarted = Stopwatch.GetTimestamp();
             ThermalDecision decision = _controller.RunCycle();
             _acquisitionWindow.Record(_telemetryAdapter.LastAcquisitionDuration);
+            _cpuAcquisitionWindow.Record(_controlTelemetry.LastCpuAcquisitionDuration);
+            _gpuAcquisitionWindow.Record(_controlTelemetry.LastGpuAcquisitionDuration);
 
             // The actuator's share is whatever the cycle spent that acquisition did not. On a
             // cycle with no write that is the decision alone; on a write cycle it is the eight

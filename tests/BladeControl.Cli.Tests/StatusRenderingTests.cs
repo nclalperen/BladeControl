@@ -86,6 +86,8 @@ public sealed class StatusRenderingTests
         LastTelemetryAcquisitionDuration: TimeSpan.Zero,
         TelemetryAcquisition: null,
         ActuatorDuration: null,
+        CpuAcquisition: null,
+        GpuAcquisition: null,
         WatchdogCoalescedCount: 0,
         TotalEventCount: 3,
         RetainedThermalDecisionCount: 0,
