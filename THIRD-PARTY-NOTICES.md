@@ -23,9 +23,20 @@ BladeControl publishes self-contained.
 | [RAMSPDToolkit-NDD](https://github.com/Blacktempel/RAMSPDToolkit) | 1.4.2 | MPL-2.0 | Transitive dependency of LibreHardwareMonitorLib |
 | [HidSharp](https://software.seekye.com/hidsharp) | 2.6.4 | Apache-2.0 | Transitive dependency of LibreHardwareMonitorLib |
 | Mono.Posix.NETStandard (+ `MonoPosixHelper.dll`, `libMonoPosixHelper.dll`) | 1.0.0 | MIT (Mono project) | Transitive dependency of LibreHardwareMonitorLib |
-| .NET 8 runtime and libraries (`System.*`, `Microsoft.Extensions.*`, WPF assemblies, `hostfxr`, `coreclr`, `mscordaccore`, `createdump`) | 8.0.x | MIT | Self-contained publish; the user does not install a runtime by hand |
+| .NET 8 runtime and libraries — the managed assemblies (`System.*`, `Microsoft.Extensions.*`, WPF) and **every native component the self-contained publish carries with them**, including the host, the runtime, the JIT, the GC, the debugger and diagnostic shims, and the resource binaries | 8.0.x | MIT | Self-contained publish; the user does not install a runtime by hand |
+| [msquic](https://github.com/microsoft/msquic) (`msquic.dll`) | as vendored by .NET 8 | MIT | Ships inside the .NET runtime for HTTP/3. BladeControl opens no network connection and does not use it; it is present because a self-contained publish carries the whole runtime |
 
 ### Notes on the redistributed set
+
+**Why the runtime row describes rather than enumerates.** It used to name four native binaries —
+`hostfxr`, `coreclr`, `mscordaccore`, `createdump` — which read as a complete list and was not
+one. Checked against the actual publish output, nine more ship unnamed: `clretwrc`, `clrgc`,
+`clrjit`, `hostpolicy`, `mscordbi`, `mscorlib`, `mscorrc`, a versioned `mscordaccore_*`, and
+`msquic`. All are MIT and all were covered by the row's licence statement, so nothing was
+mislicensed — but a partial list in a file whose first line claims an audit is worse than no
+list, and it would drift again with every servicing update. `msquic` is broken out separately
+because it is a distinct upstream project with its own repository rather than a piece of the
+runtime's own source, which is what someone auditing licences would want to see named.
 
 **MPL-2.0 components.** The Mozilla Public License 2.0 is file-level weak copyleft.
 BladeControl uses these as unmodified binary libraries and does not alter their source, so
