@@ -1992,3 +1992,54 @@ twice, and now a regex matching an error message. All three produced a plausible
 The pattern is specific enough to name: every one came from a measurement that *surprised* me,
 and in every case the cheap move was to check the instrument before believing the result. A
 finding that arrives too easily deserves the same suspicion as one that arrives too late.
+
+---
+
+## The scheduler's cost was one provider, and the documented fix would not have helped
+
+I went after the largest limitation in the file: acquisition consumes ~390 ms of a 500 ms
+control period, so any cycle that also writes overruns. The document said the fix needed
+distribution data and that the per-component statistics existed so the decision could rest on
+it.
+
+**They existed and were thrown away.** `WindowsTelemetrySession` had timed the CPU and GPU reads
+separately all along, held both in fields, and published neither. The aggregate was the only
+number anyone could see, and an aggregate tells you the cycle is tight without telling you which
+half to attack. I wired both through to `runtime status` and measured 86 live cycles.
+
+| | latest | p95 | p99 |
+|---|---|---|---|
+| Acquisition | 375.7 | 385.7 | 407.1 ms |
+| CPU read | 375.6 | 385.6 | 407.1 ms |
+| GPU read | 0.1 | 0.1 | 0.2 ms |
+
+The GPU read is three thousand times cheaper than the CPU read. Acquisition *is* the CPU read.
+The reason is one line: `ReadSensors()` calls `IHardware.Update()`, the finest granularity
+LibreHardwareMonitor exposes, which sweeps every sensor on a 24-core part through ring-0 MSR
+reads so we can take one number out of it — the package temperature.
+
+**Then the more useful finding, which is that I had been about to build the wrong thing.** The
+documented remedy is to separate acquisition from actuation across threads. I worked out what
+that buys before writing any of it:
+
+    today     500 wait + 407 acquire + 239 write = 1146 ms
+    threaded  407 stale + 500 wait  + 239 write = 1146 ms
+
+Identical. The worst case is dominated by the control period and the eight-exchange write; the
+coupling contributes nothing to it. Threading ends the overruns and buys schedule regularity —
+both real — but the safety number the limitation is written around does not move. It is what
+would *permit* a shorter period, and the shorter period is where an improvement would actually
+come from.
+
+Two smaller corrections fell out. The document worried that splitting the threads raises
+sole-HID-ownership invariants; it does not, because acquisition touches LibreHardwareMonitor and
+NVML while actuation and the watchdog touch Razer HID — they are different devices and always
+were. And there is a floor: one sample age plus one write, ~650 ms, below which no scheduler
+arrangement can go without a cheaper authoritative CPU temperature or fewer than eight HID
+exchanges.
+
+**What I take from this.** The instrumentation was cheap and I built it before the fix, which is
+the only reason the fix got questioned at all. Had I gone straight to the thread split — it was
+specified, it was justified, it was the obvious next task — I would have delivered a
+several-hundred-line change to the most safety-critical loop in the product, measured the
+overruns gone, and reported a latency improvement that the arithmetic says does not exist.
