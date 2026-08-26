@@ -55,8 +55,12 @@ msiexec /i BladeControl-0.1.6-win-x64.msi /l*v install.log
 - [ ] Pre-release terms page appears and states no licence is chosen and the build is unsigned.
 - [ ] Final page reports PawnIO state — "detected" or "not detected" with the explanation.
       On a bare VM expect **not detected**.
-- [ ] Installs to `C:\Program Files\BladeControl\`, with `Runtime\` beneath it.
-- [ ] `BladeControl.UI.exe` at the root; `Runtime\BladeControl.Service.exe` present.
+- [ ] Installs to `C:\Program Files\BladeControl\`, with `Runtime\` and `Diagnostics\`
+      beneath it.
+- [ ] `BladeControl.UI.exe` at the root; `Runtime\BladeControl.Service.exe` and
+      `Diagnostics\BladeControl.Cli.exe` present.
+- [ ] The diagnostic CLI is **not** on the machine-wide `PATH`: open a new shell and confirm
+      `BladeControl.Cli` is not found without its full path.
 - [ ] `THIRD-PARTY-NOTICES.md` installed alongside.
 - [ ] **No `.pdb` files** anywhere under the install directory.
 - [ ] Start Menu shortcut **BladeControl** exists and launches the compact panel.
@@ -132,6 +136,22 @@ Skip on a VM; there is no controller to drive.
 - [ ] `Stop-Service BladeControl.Runtime` while Dynamic is running also restores firmware Auto
       (safe shutdown on SCM stop), and the service reaches Stopped without timing out.
 - [ ] Closing or exiting the interface while Dynamic is running does **not** stop thermal control.
+- [ ] An MSI upgrade while Dynamic is running also restores firmware Auto — the old product's
+      service stop runs the same safe shutdown. Note that reinstalling the *identical* package is
+      a repair rather than an upgrade: MSI leaves the service alone, the session keeps running,
+      and the fans stay in Manual. That is correct, and it looks like the upgrade case failing.
+
+### The shipped CLI must refuse hardware writes while the service owns them
+
+The diagnostic CLI ships with commands that write to hardware, so its refusal is a safety
+property rather than a convenience.
+
+- [ ] With the service **running**, `Diagnostics\BladeControl.Cli.exe fan apply auto` is refused,
+      naming the runtime as the owner, and exits non-zero.
+- [ ] With the service **stopped**, the same command from an elevated shell reaches the device.
+- [ ] Run non-elevated with the service stopped, it refuses with the *ownership cannot be
+      established* message rather than the *another host owns it* one — the two causes must not
+      be conflated, or the message sends someone to stop a service that is not running.
 
 ## 8. Upgrade
 
