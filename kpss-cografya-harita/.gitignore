@@ -1,0 +1,7 @@
+veri/*.zip
+veri/*.json
+veri/*.npz
+veri/tiles9/
+cikti/png/
+__pycache__/
+*.pyc
