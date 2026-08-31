@@ -5,3 +5,5 @@ veri/tiles9/
 cikti/png/
 __pycache__/
 *.pyc
+cikti/jpg/
+cikti/*.html
