@@ -4,7 +4,10 @@ Baskıya hazır, siyah-beyaz yazıcıya göre optimize edilmiş **61 sayfalık**
 29 konunun her biri iki sayfadır: **etiketli cevap anahtarı** + aynı numaralandırmaya
 sahip **dilsiz çalışma haritası**.
 
-**Çıktı:** [`cikti/KPSS-Cografya-Harita-Portfoyu.pdf`](cikti/KPSS-Cografya-Harita-Portfoyu.pdf) (A4 yatay, ~30 MB)
+**Çıktı:** [`cikti/KPSS-Cografya-Harita-Portfoyu.pdf`](cikti/KPSS-Cografya-Harita-Portfoyu.pdf)
+— tek dosya, 61 sayfa, A4 yatay (841,89 × 595,28 pt), gerçek gri tonlama, ~13 MB.
+Hepsi tek seferde basılacak şekilde hazırlanmıştır: tüm sayfalar aynı boyutta ve
+yönde olduğu için yazıcıda tek kâğıt ayarı yeterlidir.
 
 ## Neden bu haritalara güvenebilirsiniz
 
@@ -37,9 +40,17 @@ verisinin istasyon normalleriyle uyumunu test eder.
 
 ```bash
 pip install numpy matplotlib shapely pyproj pyogrio geopandas Pillow
+apt-get install ghostscript   # baskı geçişi için (yoksa adım atlanır)
+
 python3 src/uret.py           # sadece PDF
 python3 src/uret.py --png     # PDF + sayfa PNG'leri
 ```
+
+Üretimin son adımı **baskı geçişidir**: matplotlib rasterleri DeviceRGB olarak gömer,
+oysa haritalar zaten gri tonludur. Ghostscript geçişi renk uzayını DeviceGray'e çevirip
+sürekli tonlu kabartmayı DCT ile sıkıştırır — metin ve çizgiler vektör kalır, sayfa
+boyutu değişmez. Sonuç: 29 MB → 13 MB. Ghostscript kurulu değilse adım atlanır ve
+sıkıştırılmamış dosya bırakılır.
 
 `veri/` klasöründeki kaynak dosyalar depoya dâhil edilmemiştir (bkz. `veri/INDIR.md`).
 

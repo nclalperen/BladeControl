@@ -312,11 +312,10 @@ def temel(ax, iller_cizgi=True, deniz=True, komsu_etiket=True,
     if kabartma_goster:
         elev, ext, pm = dem_lcc()
         hs = kabartma(elev, pm)
-        kara = np.isfinite(elev) & (elev > 0)
-        rgba = np.zeros(hs.shape + (4,))
-        rgba[..., :3] = hs[..., None] * 0.55 + 0.45
-        rgba[..., 3] = np.where(kara, kabartma_alfa, 0.0)
-        ax.imshow(rgba, extent=(ext[0], ext[1], ext[2], ext[3]),
+        gri = hs * 0.55 + 0.45
+        gri = 1.0 - kabartma_alfa * (1.0 - gri)     # tek kanallı gri
+        ax.imshow(gri, cmap="gray", vmin=0.0, vmax=1.0,
+                  extent=(ext[0], ext[1], ext[2], ext[3]),
                   origin="upper", zorder=2, interpolation="bilinear")
 
     il = iller()

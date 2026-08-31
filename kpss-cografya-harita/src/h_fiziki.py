@@ -15,20 +15,28 @@ import veri_idari as V
 
 # ------------------------------------------------------------------ 06
 def dagsuyu_kabartma(ax, alfa=1.0):
-    """Gerçek DEM'den gri hipsometrik ton + gölgelendirme."""
+    """Gerçek DEM'den gri hipsometrik ton + gölgelendirme.
+
+    Görüntü TEK KANALLI gri olarak gömülür (RGBA değil): kabartma zaten gri
+    olduğu için dört kanal aynı veriyi dört kez yazıyor ve PDF'i gereksiz
+    büyütüyordu. Deniz alanı ayrıca kırpma yoluyla (clip path) gizlendiği için
+    alfa kanalına da gerek yoktur.
+    """
     elev, ext, pm = H.dem_lcc(1600)
     hs = H.kabartma(elev, pm, abartma=5.0)
-    kara = np.isfinite(elev) & (elev > -50)
 
-    # hipsometrik gri: 0 m açık, 3000+ m koyu  (S/B yazıcıda ayrışsın diye 6 kademe)
+    # hipsometrik gri: 0 m açık, 3000+ m koyu  (S/B yazıcıda ayrışsın diye)
     z = np.clip(np.nan_to_num(elev, nan=0.0), 0, 3200)
     ton = 0.97 - 0.5 * (z / 3200.0) ** 0.72
     gri = np.clip(ton * (0.55 + 0.45 * hs), 0, 1)
+    if alfa < 1.0:                      # alfa yerine beyaza doğru karıştır
+        gri = 1.0 - alfa * (1.0 - gri)
+    # Kara dışı sabit beyaz: kırpma zaten gizliyor, ama deniz tabanı verisinin
+    # gürültüsü sıkıştırılamadığı için görüntüyü megabaytlarca şişiriyordu.
+    gri = np.where(np.isfinite(elev) & (elev > -50), gri, 1.0)
 
-    rgba = np.zeros(gri.shape + (4,))
-    rgba[..., 0] = rgba[..., 1] = rgba[..., 2] = gri
-    rgba[..., 3] = np.where(kara, alfa, 0.0)
-    ax.imshow(rgba, extent=(ext[0], ext[1], ext[2], ext[3]), origin="upper",
+    ax.imshow(gri, cmap="gray", vmin=0.0, vmax=1.0,
+              extent=(ext[0], ext[1], ext[2], ext[3]), origin="upper",
               zorder=2.5, interpolation="bilinear")
     return elev, ext
 
@@ -145,10 +153,10 @@ def harita_ova_plato(fig, ax, kax, mod):
     kirp = _turkiye_kirp(ax)
     elev, ext, pm = H.dem_lcc(1200)
     hs = H.kabartma(elev, pm, abartma=4.0)
-    rgba = np.zeros(hs.shape + (4,))
-    rgba[..., :3] = (hs[..., None] * 0.4 + 0.6)
-    rgba[..., 3] = np.where(np.isfinite(elev) & (elev > -50), 0.5, 0)
-    im = ax.imshow(rgba, extent=(ext[0], ext[1], ext[2], ext[3]), origin="upper",
+    gri = 1.0 - 0.5 * (1.0 - (hs * 0.4 + 0.6))     # tek kanal, alfa yerine karışım
+    gri = np.where(np.isfinite(elev) & (elev > -50), gri, 1.0)   # kara dışı düz beyaz
+    im = ax.imshow(gri, cmap="gray", vmin=0.0, vmax=1.0,
+                   extent=(ext[0], ext[1], ext[2], ext[3]), origin="upper",
                    zorder=2.5, interpolation="bilinear")
     im.set_clip_path(kirp)
 

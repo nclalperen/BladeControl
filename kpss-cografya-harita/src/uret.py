@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
 
 import matplotlib
@@ -246,6 +248,57 @@ def nasil_kullanilir():
     return fig
 
 
+# ---------------------------------------------------------- BASKI GEÇİŞİ
+def baski_optimize(yol: str) -> bool:
+    """PDF'i yerinde baskıya hazırlar: gerçek gri tonlama + görüntü sıkıştırma.
+
+    matplotlib rasterleri DeviceRGB olarak gömer; harita zaten gri olduğu için
+    bu üç kat yer kaplar. Ghostscript geçişi renk uzayını DeviceGray'e çevirir
+    ve sürekli tonlu kabartmayı DCT ile sıkıştırır. Metin ve çizgiler vektör
+    kalır, sayfa boyutu değişmez. Dosya sayısı artmasın diye çıktı asıl dosyanın
+    üzerine yazılır. Ghostscript yoksa dosya olduğu gibi bırakılır.
+    """
+    if shutil.which("gs") is None:
+        print("  ! ghostscript bulunamadı — baskı optimizasyonu atlandı")
+        return False
+    gecici = yol + ".gs"
+    komut = [
+        "gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.5",
+        "-dNOPAUSE", "-dBATCH", "-dQUIET",
+        "-sColorConversionStrategy=Gray", "-dProcessColorModel=/DeviceGray",
+        "-dDownsampleGrayImages=true", "-dGrayImageResolution=300",
+        "-dGrayImageDownsampleType=/Bicubic",
+        "-dAutoFilterGrayImages=false", "-dGrayImageFilter=/DCTEncode",
+        "-dDownsampleMonoImages=false", "-dMonoImageResolution=1200",
+        "-dEmbedAllFonts=true", "-dSubsetFonts=true",
+        "-dDetectDuplicateImages=true", "-dCompressFonts=true",
+        "-o", gecici, yol,
+    ]
+    try:
+        subprocess.run(komut, check=True, capture_output=True)
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(f"  ! baskı optimizasyonu başarısız, kaynak dosya korundu ({e})")
+        if os.path.exists(gecici):
+            os.remove(gecici)
+        return False
+
+    onceki, sonraki = os.path.getsize(yol), os.path.getsize(gecici)
+    if _sayfa_sayisi(gecici) != _sayfa_sayisi(yol):
+        print("  ! sayfa sayısı değişti — optimize dosya atıldı")
+        os.remove(gecici)
+        return False
+    os.replace(gecici, yol)
+    print(f"  baskı geçişi: {onceki/1e6:.1f} MB → {sonraki/1e6:.1f} MB "
+          f"(%{(1 - sonraki/onceki)*100:.0f} küçüldü, gri tonlama)")
+    return True
+
+
+def _sayfa_sayisi(yol: str) -> int:
+    d = open(yol, "rb").read()
+    return (d.count(b"/Type /Page") - d.count(b"/Type /Pages")
+            or d.count(b"/Type/Page") - d.count(b"/Type/Pages"))
+
+
 # --------------------------------------------------------------- ÜRETİM
 def uret(png_de_yaz=True):
     os.makedirs(CIKTI, exist_ok=True)
@@ -278,7 +331,8 @@ def uret(png_de_yaz=True):
         d = pdf.infodict()
         d["Title"] = "KPSS Lisans — Türkiye Coğrafyası Harita Portföyü"
         d["Subject"] = "Etiketli + dilsiz harita seti"
-    print(f"\n{n} sayfa · {pdf_yol}")
+    baski_optimize(pdf_yol)
+    print(f"\n{n} sayfa · {os.path.getsize(pdf_yol)/1e6:.1f} MB · {pdf_yol}")
     return pdf_yol
 
 
